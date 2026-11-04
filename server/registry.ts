@@ -28,7 +28,7 @@ export function hasKey(a: Adapter): boolean {
   return !!(a.requiresKey && getSecret(a.id));
 }
 export function usable(store: Store, a: Adapter): { ok: boolean; reason?: 'disabled' | 'needs_key' | 'mode' } {
-  if (!!a.demo !== demoMode(store)) return { ok: false, reason: 'mode' };
+  if (!a.anyMode && !!a.demo !== demoMode(store)) return { ok: false, reason: 'mode' };
   if (!isEnabled(store, a)) return { ok: false, reason: 'disabled' };
   if (a.requiresKey && !a.keyOptional && !hasKey(a)) return { ok: false, reason: 'needs_key' };
   return { ok: true };
@@ -49,8 +49,7 @@ export function reliabilityFn(store: Store) {
 export function sourceInfo(store: Store): SourceInfo[] {
   const dm = demoMode(store);
   return allAdapters()
-    .filter((a) => !!a.demo === dm || (!a.demo && !dm))
-    .filter((a) => !a.demo || dm)
+    .filter((a) => a.anyMode || !!a.demo === dm)
     .map((a) => {
       const st = store.getSourceState(a.id);
       return {

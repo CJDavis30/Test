@@ -7,7 +7,7 @@ const ROLE = new Set(['admin', 'info', 'contact', 'support', 'sales', 'hello', '
 /** Free, offline pivots computed purely from the shape of the input. */
 export const derive: Adapter = {
   id: 'derive', name: 'Derived from input', description: 'Offline pivots: email → domain/handle, URL → domain, profile URL → username.',
-  accepts: ['email', 'url', 'account', 'domain'], capability: 'derive', family: 'derived', reliability: 0.95, priority: 0,
+  accepts: ['email', 'url', 'account', 'domain'], capability: 'derive', family: 'derived', reliability: 0.95, priority: 0, anyMode: true,
   selfTest: { type: 'email', value: 'someone@example.com' },
   async run(e) {
     const out: Claim[] = [];

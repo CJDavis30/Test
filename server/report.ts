@@ -1,6 +1,19 @@
 import type { CaseInfo, EntityType, Finding, GraphEdge, GraphNode } from '../shared/types';
 import { ENTITY_LABEL, LEVEL_LABEL } from '../shared/types';
 
+const HEAD: Record<EntityType, [string, string]> = {
+  person: ['name', 'People'], org: ['organization', 'Organizations'], email: ['email', 'Emails'], phone: ['phone number', 'Phone numbers'], username: ['username', 'Usernames'],
+  account: ['account', 'Accounts'], location: ['location', 'Locations'], domain: ['domain', 'Domains'], ip: ['IP address', 'IP addresses'], url: ['page', 'Pages'],
+  wallet: ['wallet', 'Wallets'], breach: ['data breach', 'Data breaches'], image: ['image', 'Images'],
+};
+const plural = (t: EntityType, n: number) => (n === 1 ? `1 ${HEAD[t][0]}` : `${n} ${HEAD[t][0] === 'IP address' ? 'IP addresses' : HEAD[t][0] === 'data breach' ? 'data breaches' : `${HEAD[t][0]}s`.replace('people', 'people')}`);
+/** [1][2][3][5] → [1–3][5] */
+function compressRefs(nums: number[]): string {
+  const out: string[] = []; let i = 0;
+  while (i < nums.length) { let j = i; while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++; out.push(j - i >= 2 ? `[${nums[i]}–${nums[j]}]` : nums.slice(i, j + 1).map((n) => `[${n}]`).join('')); i = j + 1; }
+  return out.join('');
+}
+
 const ORDER: EntityType[] = ['person', 'org', 'email', 'phone', 'username', 'account', 'location', 'domain', 'ip', 'url', 'wallet', 'breach', 'image'];
 
 /** A plain Markdown report of everything the investigator confirmed, with provenance. */
@@ -21,23 +34,22 @@ export function buildReport(c: CaseInfo, nodes: GraphNode[], edges: GraphEdge[],
   const seeds = nodes.filter((n) => n.state === 'seed' || edges.some((e) => e.from === n.id)).slice(0, 5);
   if (seeds.length) lines.push(`Starting points: ${seeds.map((s) => `**${mask(s.label)}** (${ENTITY_LABEL[s.type].toLowerCase()})`).join(', ')}.`, '');
   const byType = ORDER.map((t) => [t, confirmed.filter((n) => n.type === t)] as const).filter(([, l]) => l.length);
-  lines.push(byType.map(([t, l]) => `${l.length} ${ENTITY_LABEL[t].toLowerCase()}${l.length === 1 ? '' : 's'}`).join(' · '), '');
+  lines.push(byType.map(([t, l]) => plural(t, l.length)).join(' · '), '');
 
   let ref = 0;
   const refs: string[] = [];
   for (const [t, list] of byType) {
-    lines.push(`## ${ENTITY_LABEL[t]}s`, '');
+    lines.push(`## ${HEAD[t][1]}`, '');
     for (const n of list.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))) {
       const fs = fByNode.get(n.id) ?? [];
       const conf = n.level ? ` — ${LEVEL_LABEL[n.level]} confidence` : '';
-      const marks: string[] = [];
+      const marks: number[] = [];
       for (const f of fs) for (const e of f.evidence) {
         ref++;
         refs.push(`${ref}. ${e.adapterName}${e.url ? ` — ${e.url}` : ''}${e.snippet ? ` — “${e.snippet}”` : ''} (retrieved ${new Date(e.retrievedAt).toISOString().slice(0, 10)})`);
-        marks.push(`[${ref}]`);
-        if (marks.length >= 4) break;
+        marks.push(ref);
       }
-      lines.push(`- **${mask(n.label)}**${conf}${marks.length ? ` ${marks.join('')}` : ''}`);
+      lines.push(`- **${mask(n.label)}**${conf}${marks.length ? ` ${compressRefs(marks)}` : ''}`);
       if (n.notes) lines.push(`  - Note: ${n.notes.replace(/\n/g, ' ')}`);
     }
     lines.push('');

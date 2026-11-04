@@ -1,5 +1,5 @@
 import type { Finding, FindingStatus, GraphEdge, GraphNode, CaseSnapshot, EntityType } from '../shared/types';
-import { keyFor, displayFor } from '../shared/normalize';
+import { keyFor, displayFor, labelFor } from '../shared/normalize';
 import { detect } from '../shared/detect';
 import { uid, type Store } from './store';
 import { reliabilityFn } from './registry';
@@ -69,7 +69,7 @@ export class Service {
         subj.set(parent.id, parent);
         const attrs = { ...f.attrs };
         const n = this.store.upsertNode({
-          caseId, type: f.type, value: f.value, key: f.key, state: 'confirmed', attrs, score: f.score, level: f.level,
+          caseId, type: f.type, value: f.value, key: f.key, label: labelFor(f.type, f.value, f.attrs), state: 'confirmed', attrs, score: f.score, level: f.level,
           x: parent.x !== undefined ? parent.x + (Math.random() - 0.5) * 60 : undefined,
           y: parent.y !== undefined ? parent.y + (Math.random() - 0.5) * 60 : undefined,
         });

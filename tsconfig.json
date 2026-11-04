@@ -13,7 +13,8 @@
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": { "@shared/*": ["./shared/*"] }
   },
   "include": ["shared", "server", "web/src", "test", "scripts"]
 }

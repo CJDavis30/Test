@@ -44,6 +44,8 @@ export interface Adapter {
   selfTest: { type: EntityType; value: string };
   /** Offline demo adapters only run in demo mode, and live ones never run in demo mode. */
   demo?: boolean;
+  /** Offline and deterministic: runs in both live and demo mode. */
+  anyMode?: boolean;
   run(entity: Entity, ctx: AdapterCtx): Promise<Claim[]>;
 }
 

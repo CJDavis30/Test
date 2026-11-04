@@ -152,3 +152,24 @@ export function initials(name: string): string {
   if (!t.length) return '?';
   return ((t[0][0] ?? '') + (t.length > 1 ? t[t.length - 1][0] : '')).toUpperCase();
 }
+
+
+/** Human label for an entity on the graph / in lists (never a raw data URI or 60-char URL). */
+export function labelFor(type: EntityType, value: string, attrs?: Record<string, unknown>): string {
+  const v = value.trim();
+  switch (type) {
+    case 'account': {
+      const plat = typeof attrs?.platform === 'string' ? (attrs.platform as string) : '';
+      try {
+        const u = new URL(v);
+        const seg = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() ?? u.searchParams.get('id') ?? '').replace(/^@/, '');
+        const host = u.hostname.replace(/^www\./, '');
+        return seg ? `${plat || host} · ${seg}` : plat || host;
+      } catch { return plat ? `${plat}${v && v !== plat ? ` · ${v}` : ''}` : v; }
+    }
+    case 'image': return 'Profile photo';
+    case 'url': return v.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+    case 'wallet': return v.length > 24 ? `${v.slice(0, 10)}…${v.slice(-8)}` : v;
+    default: return v;
+  }
+}

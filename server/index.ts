@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url';
 import { HOST, PORT, APP_NAME, writeSecret, HOME } from './config';
 import { Store } from './store';
 import { Service } from './service';
-import { Orchestrator, RunHub } from './orchestrator';
+import { Orchestrator, RunHub, citationIds } from './orchestrator';
+import { rescore, ruleBrief, suggestNext } from '../shared/scoring';
+import { reliabilityFn } from './registry';
 import { loadAdapters } from './adapters/index';
 import { allAdapters, getAdapter, sourceInfo, demoMode } from './registry';
 import { makeBriefEnhancer, aiSettings, aiReady, listModels, complete, aiLinkHypotheses, DEFAULT_AI } from './ai';
@@ -25,7 +27,8 @@ export async function createApp(store = new Store()) {
   await loadAdapters();
   const svc = new Service(store);
   const hub = new RunHub();
-  const orch = new Orchestrator(store, hub, makeBriefEnhancer(store));
+  const enhancer = makeBriefEnhancer(store);
+  const orch = new Orchestrator(store, hub, enhancer);
   const app = new Hono();
 
   // --- security: this is a localhost-only API; defend against DNS rebinding and cross-site writes ---------------
@@ -123,6 +126,20 @@ export async function createApp(store = new Store()) {
       clearInterval(ka);
       off();
     });
+  });
+  // Re-derive the brief for a subject from stored findings, optionally biased by the investigator's context.
+  app.post('/api/nodes/:id/brief', async (c) => {
+    const node = store.getNode(c.req.param('id'));
+    if (!node) return c.json({ error: 'not found' }, 404);
+    const { context = '' } = await body<{ context?: string }>(c);
+    const fs = store.listFindings(node.caseId, { subjectId: node.id });
+    rescore(fs, reliabilityFn(store), context);
+    const ids = citationIds(fs);
+    const rules = ruleBrief({ type: node.type, value: node.value }, fs, ids);
+    const have = new Set(store.listNodes(node.caseId).map((n) => `${n.type}:${keyFor(n.type, n.value)}`));
+    const next = suggestNext(fs, have);
+    const ai = fs.length ? await enhancer({ subject: node, findings: fs, context, fallback: rules, ids }).catch(() => null) : null;
+    return c.json({ brief: ai ?? rules, next });
   });
   app.post('/api/runs/:id/cancel', (c) => { hub.cancel(c.req.param('id')); return c.json({ ok: true }); });
 

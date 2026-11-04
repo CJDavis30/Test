@@ -75,6 +75,23 @@ const LINKS: Link[] = [
   { a: mara, b: namesake, rel: 'possible namesake', back: 'possible namesake', src: { broker: 0.3 }, snippet: 'Name match only. Different city, different profession' },
   { a: mara, b: R('person', 'Mara L. Linden'), rel: 'also known as', back: 'also known as', src: { social: 0.7, code: 0.6 } },
 
+  // first hop from the work email: what a good lookup would surface straight away
+  { a: emailWork, b: uMain, rel: 'username', back: 'email of', src: { code: 0.8, social: 0.5 }, snippet: 'Same person committing as maralinden' },
+  { a: emailWork, b: img, rel: 'avatar', back: 'avatar for', src: { code: 0.8, social: 0.6 }, snippet: 'Linked avatar hash' },
+  { a: emailWork, b: gh, rel: 'profile', back: 'email of', src: { code: 0.75 }, snippet: 'Public email on profile' },
+  { a: emailWork, b: nw, rel: 'employer', back: 'staff email', src: { reg: 0.7, broker: 0.5 }, snippet: 'Mailbox on the company domain' },
+  { a: emailWork, b: austin, rel: 'likely location', back: 'seen here', src: { broker: 0.45 }, snippet: 'Email activity near Austin', conflict: 'location' },
+  { a: emailWork, b: linkedin, rel: 'profile', back: 'email of', src: { broker: 0.55, social: 0.5 } },
+  { a: emailWork, b: R('person', 'Mara L. Linden'), rel: 'appears as', back: 'email of', src: { social: 0.6, code: 0.55 } },
+
+  // from the main username
+  { a: uMain, b: emailWork, rel: 'email', back: 'username', src: { code: 0.8 }, snippet: 'Commit author email' },
+  { a: uMain, b: emailPers, rel: 'possible email', back: 'username', src: { broker: 0.45 } },
+  { a: uMain, b: img, rel: 'avatar', back: 'avatar for', src: { code: 0.85, social: 0.8 } },
+  { a: uMain, b: austin, rel: 'location on profile', back: 'seen here', src: { code: 0.55, social: 0.6 }, conflict: 'location' },
+  { a: uMain, b: nw, rel: 'company on profile', back: 'staff handle', src: { code: 0.55, social: 0.6 } },
+  { a: uMain, b: uHn, rel: 'similar handle', back: 'similar handle', src: { social: 0.3 }, snippet: 'Cross-links in bio' },
+
   // accounts (each also hangs off the username)
   { a: uMain, b: gh, rel: 'profile', back: 'handle', src: { code: 0.9 }, url: 'https://github.com/maralinden', snippet: 'GitHub user · 38 repos · joined 2014' , when: '2014-05-19' },
   { a: mara, b: gh, rel: 'account', back: 'owner', src: { code: 0.85, social: 0.6 } },
