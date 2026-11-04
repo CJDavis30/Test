@@ -37,7 +37,10 @@ function dohAdapter(id: string, name: string, base: string, priority: number, he
         return out;
       }
       const d = e.value;
-      const [a, aaaa, mx, ns, txt] = await Promise.all((['A', 'AAAA', 'MX', 'NS', 'TXT'] as const).map((t) => doh(ctx, base, d, t, headers).catch(() => [])));
+      // Individual record types may fail, but if *every* query fails that is a network error, not "no records".
+      const settled = await Promise.allSettled((['A', 'AAAA', 'MX', 'NS', 'TXT'] as const).map((t) => doh(ctx, base, d, t, headers)));
+      if (settled.every((r) => r.status === 'rejected')) throw (settled[0] as PromiseRejectedResult).reason;
+      const [a, aaaa, mx, ns, txt] = settled.map((r) => (r.status === 'fulfilled' ? r.value : []));
       for (const r of [...a, ...aaaa]) out.push(claim('ip', r.data, 'resolves to', 0.95, { snippet: `DNS ${r.data.includes(':') ? 'AAAA' : 'A'} record` }));
       const seen = new Set<string>();
       for (const r of mx) { const host = normalizeDomain(r.data.split(/\s+/).pop() ?? ''); if (host && !seen.has(host)) { seen.add(host); out.push(claim('domain', host, 'mail handled by', 0.9, { snippet: 'MX record' })); } }

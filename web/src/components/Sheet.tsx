@@ -4,7 +4,7 @@ import {
   X, Check, RefreshCw, TriangleAlert, ChevronRight, CircleHelp, ArrowLeft, Layers, LoaderCircle, CircleCheck, CircleX, Clock, SkipForward, KeyRound, Minus, ExternalLink, Zap, Sparkles, Undo2,
 } from 'lucide-react';
 import { ENTITY_LABEL, LEVEL_LABEL, type EntityType, type Finding, type SourceProgress } from '@shared/types';
-import { initials } from '@shared/normalize';
+import { initials, safeHttpUrl, safeImageSrc } from '@shared/normalize';
 import { useStore, keyOfNode, type RunState } from '../lib/store';
 import { EntityGlyph } from '../lib/icons';
 import { TYPE_ORDER, GROUP_LABEL, displayValue, hostOf, ago, fmtDate, plural } from '../lib/format';
@@ -166,7 +166,7 @@ export function Sheet() {
                 {tab === 'review' && review.some((f) => f.status === 'pending') && <button className="btn sm outline" onClick={() => s.setSheet({ triage: true })}><Zap size={13} /> Triage <Kbd>T</Kbd></button>}
               </div>
               <div className="list-scroll" ref={scroller}>
-                {flat.length === 0 && <EmptyList run={run} tab={tab} hasAny={findings.length > 0} />}
+                {flat.length === 0 && <EmptyList run={run} tab={tab} hasAny={findings.length > 0} subjectId={subjectId} />}
                 {groups.map((g) => (
                   <section key={g.type}>
                     <div className="ghead">
@@ -244,7 +244,7 @@ function Brief({ node, run, findings, onJump, subjectId }: { node: { label: stri
           <circle cx="38" cy="38" r={R} fill="none" stroke="var(--line)" strokeWidth="2.5" />
           {conf && <circle cx="38" cy="38" r={R} fill="none" stroke={`var(--lvl${conf.level})`} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - conf.score)} style={{ transition: 'stroke-dashoffset .8s var(--ease)' }} />}
         </svg>
-        <div className="img">{photo ? <img src={photo.value} alt="" /> : node.type === 'person' || node.type === 'org' ? initials(node.label) : <EntityGlyph type={node.type} size={26} />}</div>
+        <div className="img">{photo ? <img src={safeImageSrc(photo.value)} alt="" /> : node.type === 'person' || node.type === 'org' ? initials(node.label) : <EntityGlyph type={node.type} size={26} />}</div>
       </div>
       <div style={{ minWidth: 0 }}>
         {searching ? (
@@ -323,7 +323,7 @@ const Row = memo(function Row({ f, tab, isCursor, isOpen, flash, onFocus, onTogg
       transition={{ type: 'spring', stiffness: 520, damping: 40, opacity: { duration: .15 } }} style={{ overflow: 'hidden' }}>
       <div className={`frow ${flash ? 'flash' : ''}`} data-cursor={isCursor} onMouseMove={() => !isCursor && onFocus()} onClick={onToggle} role="option" aria-selected={isCursor}>
         <Dots level={f.level} />
-        <div className="gl">{f.type === 'image' ? <img src={f.value} alt="" /> : <EntityGlyph type={f.type} size={15} />}</div>
+        <div className="gl">{f.type === 'image' ? <img src={safeImageSrc(f.value)} alt="" /> : <EntityGlyph type={f.type} size={15} />}</div>
         <div style={{ minWidth: 0 }}>
           <div className="v truncate selectable">{displayValue(f)}{inGraph && <span className="tag mute" style={{ marginLeft: 8 }}>On graph</span>}</div>
           <div className="sub truncate">{sub}</div>
@@ -353,7 +353,7 @@ function Evidence({ f }: { f: Finding }) {
       {f.evidence.map((e) => (
         <div className="ev" key={e.id}>
           <span className="nm truncate">{e.adapterName}</span>
-          <span className="sn">{e.snippet || <span className="faint">Match found, no excerpt</span>}{e.url && <> · <a href={e.url} target="_blank" rel="noreferrer noopener">{hostOf(e.url)} <ExternalLink size={10} style={{ verticalAlign: -1 }} /></a></>}</span>
+          <span className="sn">{e.snippet || <span className="faint">Match found, no excerpt</span>}{safeHttpUrl(e.url) && <> · <a href={safeHttpUrl(e.url)} target="_blank" rel="noreferrer noopener">{hostOf(e.url)} <ExternalLink size={10} style={{ verticalAlign: -1 }} /></a></>}</span>
           <span className="meta"><span className="wbar"><i style={{ width: `${Math.round(e.weight * 100)}%` }} /></span>{ago(e.retrievedAt)}</span>
         </div>
       ))}
@@ -361,7 +361,7 @@ function Evidence({ f }: { f: Finding }) {
   );
 }
 
-function EmptyList({ run, tab, hasAny }: { run?: RunState; tab: string; hasAny: boolean }) {
+function EmptyList({ run, tab, hasAny, subjectId }: { run?: RunState; tab: string; hasAny: boolean; subjectId: string }) {
   const s = useStore();
   if (run?.status === 'running') return (
     <div className="emptystate"><LoaderCircle size={22} className="spin faint" /><h3 style={{ marginTop: 12 }}>Looking…</h3>Results appear here the moment each source answers.</div>
@@ -370,11 +370,15 @@ function EmptyList({ run, tab, hasAny }: { run?: RunState; tab: string; hasAny: 
   if (tab !== 'review') return <div className="emptystate">Nothing here yet.</div>;
   const needKey = run?.sources.filter((x) => x.state === 'needs_key').length ?? 0;
   const errs = run?.sources.filter((x) => x.state === 'error' || x.state === 'rate_limited').length ?? 0;
+  const answered = run?.sources.filter((x) => x.state === 'done' || x.state === 'empty').length ?? 0;
+  const mostlyDown = errs > 0 && errs >= answered;
   return (
     <div className="emptystate">
-      <h3>Nothing found</h3>
-      {run && <>Checked {run.sources.filter((x) => x.state === 'done' || x.state === 'empty').length} sources and none had anything on this.</>}
-      {errs > 0 && <div style={{ marginTop: 6 }}>{errs} source{errs > 1 ? 's' : ''} failed or were rate limited. Open the sources list above for details.</div>}
+      <h3>{mostlyDown ? "Couldn't reach most sources" : 'Nothing found'}</h3>
+      {run && !mostlyDown && <>Checked {answered} source{answered === 1 ? '' : 's'} and none had anything on this.</>}
+      {mostlyDown && <>{errs} of {errs + answered} sources failed or were rate limited, so this isn't a real “nothing”. Check your connection, then try again.</>}
+      {errs > 0 && !mostlyDown && <div style={{ marginTop: 6 }}>{errs} source{errs > 1 ? 's' : ''} failed or were rate limited. Open the sources list above for details.</div>}
+      {mostlyDown && <div style={{ marginTop: 12 }}><button className="btn" onClick={() => void s.runNode(subjectId, run?.context ?? '', false)}>Try again</button></div>}
       {needKey > 0 && <div style={{ marginTop: 10 }}><button className="btn" onClick={() => s.openSettings('sources')}><KeyRound size={14} /> {needKey} more source{needKey > 1 ? 's' : ''} available with API keys</button></div>}
     </div>
   );
@@ -438,7 +442,7 @@ function Triage({ queue, total, running, parked, onExit, onFinish, toAdd, act }:
               variants={TRI_VARIANTS} initial="enter" animate="center" exit="exit"
               transition={{ type: 'spring', stiffness: 440, damping: 34 }}>
               <div className="typ"><EntityGlyph type={f.type} size={16} /> {ENTITY_LABEL[f.type]} · {f.relation}</div>
-              {f.type === 'image' ? <img src={f.value} alt="" style={{ width: 120, height: 120, borderRadius: 20, margin: '14px 0', objectFit: 'cover' }} /> : <div className="big">{displayValue(f)}</div>}
+              {f.type === 'image' ? <img src={safeImageSrc(f.value)} alt="" style={{ width: 120, height: 120, borderRadius: 20, margin: '14px 0', objectFit: 'cover' }} /> : <div className="big">{displayValue(f)}</div>}
               <div className="row" style={{ marginBottom: 14 }}><Dots level={f.level} label /><span className="faint">· {plural(f.evidence.length, 'source')}</span>{f.when && <span className="faint">· {fmtDate(f.when)}</span>}</div>
               {f.conflictsWith?.length ? <div className="caveat" style={{ marginBottom: 12 }}><TriangleAlert size={13} />{f.reasons.find((r) => r.startsWith('Disagrees')) ?? 'Conflicts with another value'}</div> : null}
               <div className="reasons" style={{ marginBottom: 16 }}>{f.reasons.map((r) => <span key={r} className="reason">{r}</span>)}</div>
@@ -446,7 +450,7 @@ function Triage({ queue, total, running, parked, onExit, onFinish, toAdd, act }:
                 {f.evidence.slice(0, 5).map((e) => (
                   <div className="ev" key={e.id} style={{ gridTemplateColumns: '156px 1fr auto' }}>
                     <span className="nm truncate">{e.adapterName}</span>
-                    <span className="sn">{e.snippet || <span className="faint">Match found</span>}{e.url && <> · <a href={e.url} target="_blank" rel="noreferrer noopener">{hostOf(e.url)}</a></>}</span>
+                    <span className="sn">{e.snippet || <span className="faint">Match found</span>}{safeHttpUrl(e.url) && <> · <a href={safeHttpUrl(e.url)} target="_blank" rel="noreferrer noopener">{hostOf(e.url)}</a></>}</span>
                     <span className="meta">{ago(e.retrievedAt)}</span>
                   </div>
                 ))}

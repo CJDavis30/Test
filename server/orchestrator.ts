@@ -1,7 +1,7 @@
 import type {
   Brief, Claim, Evidence, Finding, GraphNode, NextStep, RunEvent, RunInfo, SourceProgress,
 } from '../shared/types';
-import { displayFor, keyFor } from '../shared/normalize';
+import { displayFor, keyFor, safeHttpUrl } from '../shared/normalize';
 import { rescore, ruleBrief, suggestNext } from '../shared/scoring';
 import { CAPABILITY_MODE, NeedsKeyError, RateLimitedError, type Adapter } from './adapters/types';
 import { makeCtx, Throttle } from './http';
@@ -10,6 +10,17 @@ import { getSecret } from './config';
 import { uid, type Store } from './store';
 
 const MAX_CLAIMS_PER_ADAPTER = 150;
+
+/** Turn low-level fetch errors into something a person can act on. */
+export function friendlyError(err: any): string {
+  const msg = String(err?.message ?? err);
+  const code = String(err?.cause?.code ?? '');
+  if (/ENOTFOUND|EAI_AGAIN/.test(code + msg)) return "Couldn't resolve the host (offline or blocked?)";
+  if (/ECONNREFUSED|ECONNRESET|UND_ERR|fetch failed|socket|EPIPE/i.test(code + msg)) return "Couldn't connect (offline, blocked, or the service is down)";
+  if (/timed out|timeout|aborted/i.test(msg)) return 'Timed out';
+  if (/certificate|CERT_|TLS|SSL/i.test(code + msg)) return 'TLS/certificate problem';
+  return msg.replace(/^TypeError: /, '').slice(0, 160);
+}
 const ADAPTER_TIMEOUT_MS = 30_000;
 const GLOBAL_CONCURRENCY = 8;
 
@@ -130,7 +141,7 @@ export class Orchestrator {
         if (!k) continue;
         if (c.type === subject.type && k === key) continue; // never "discover" the subject itself
         const ev: Evidence = {
-          id: uid('ev_'), adapter: a.id, adapterName: a.name, family: a.family, url: c.url,
+          id: uid('ev_'), adapter: a.id, adapterName: a.name, family: a.family, url: safeHttpUrl(c.url),
           snippet: c.snippet?.slice(0, 400), retrievedAt: now, weight: Math.min(1, Math.max(0.01, c.weight)),
         };
         const mapKey = `${c.type}|${k}`;
@@ -186,7 +197,7 @@ export class Orchestrator {
         } else if (err instanceof NeedsKeyError) {
           setProgress(a.id, { state: 'needs_key', ms, error: msg });
         } else {
-          const clean = ctl.signal.aborted ? 'Cancelled' : msg.replace(/^TypeError: /, '').slice(0, 160);
+          const clean = ctl.signal.aborted ? 'Cancelled' : friendlyError(err);
           store.recordSource(a.id, false, ms, clean);
           setProgress(a.id, { state: 'error', ms, error: clean });
         }
@@ -243,7 +254,7 @@ export class Orchestrator {
     try {
       return await fn();
     } catch (e: any) {
-      const transient = !(e instanceof RateLimitedError) && !signal.aborted && /fetch failed|ECONN|ETIMEDOUT|HTTP 5\d\d|socket/i.test(String(e?.message ?? e) + String(e?.cause?.code ?? ''));
+      const transient = !(e instanceof RateLimitedError) && !signal.aborted && /fetch failed|ECONN|ETIMEDOUT|HTTP 5\d\d|socket/i.test(String(e?.message ?? e) + String(e?.cause?.code ?? '')) && !/ENOTFOUND|EAI_AGAIN/.test(String(e?.cause?.code ?? ''));
       if (!transient) throw e;
       await new Promise((r) => setTimeout(r, 600));
       return fn();

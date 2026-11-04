@@ -230,3 +230,18 @@ describe('offline & chain adapters', () => {
     expect(c[0].weight).toBeLessThanOrEqual(0.2);
   });
 });
+
+describe('error honesty', () => {
+  it('dns: a total network failure is an error, never "no records"', async () => {
+    const ctx = fake([]);
+    (ctx as any).fetch = async () => { throw new TypeError('fetch failed'); };
+    await expect(run(net.dnsCloudflare, 'domain', 'example.com', ctx)).rejects.toThrow(/fetch failed/);
+  });
+  it('dns: partial failures still return what worked', async () => {
+    const ctx = fake([[/type=A$/, { body: { Answer: [{ name: 'x', type: 1, TTL: 1, data: '1.2.3.4' }] } }]]);
+    const orig = ctx.fetch;
+    (ctx as any).fetch = async (u: string) => { if (/type=MX|type=TXT/.test(u)) throw new Error('boom'); return orig(u); };
+    const c = await run(net.dnsCloudflare, 'domain', 'example.com', ctx);
+    expect(has(c, 'ip', '1.2.3.4')).toBe(true);
+  });
+});

@@ -162,16 +162,22 @@ export function overallConfidence(findings: Finding[]): Brief['confidence'] {
 export function ruleBrief(subject: { type: EntityType; value: string }, findings: Finding[], ids: Map<string, string>): Brief {
   const live = findings.filter((f) => f.status !== 'rejected');
   const cite = (f: Finding) => `[${ids.get(f.id) ?? '?'}]`;
-  const name = topByType(live, 'person')[0];
+  const people = live.filter((f) => f.type === 'person').sort((a, b) => b.rank - a.rank);
   const org = topByType(live, 'org')[0];
   const loc = topByType(live, 'location')[0];
   const conf = overallConfidence(live);
+  // If the investigator searched for a name, that name leads. Other names are aliases, not "the" name.
+  const subjectIsName = subject.type === 'person' || subject.type === 'org';
+  const name = subject.type === 'person' ? undefined : people[0];
+  const lead = subjectIsName ? subject.value : name?.value;
 
   let headline: string;
   if (subject.type === 'domain' || subject.type === 'ip') {
     headline = [subject.value, org?.value ? `— ${org.value}` : '', loc?.value ? `· ${loc.value}` : ''].filter(Boolean).join(' ');
-  } else if (name) {
-    headline = [name.value, org ? `· ${org.value}` : '', loc ? `· ${loc.value}` : ''].filter(Boolean).join(' ');
+  } else if (subject.type === 'org') {
+    headline = [subject.value, loc ? `· ${loc.value}` : ''].filter(Boolean).join(' ');
+  } else if (lead) {
+    headline = [lead, org ? `· ${org.value}` : '', loc ? `· ${loc.value}` : ''].filter(Boolean).join(' ');
   } else {
     headline = subject.value;
   }
@@ -179,14 +185,21 @@ export function ruleBrief(subject: { type: EntityType; value: string }, findings
   const parts: string[] = [];
   const counts = new Map<EntityType, number>();
   for (const f of live) counts.set(f.type, (counts.get(f.type) ?? 0) + 1);
-  const order: EntityType[] = ['person', 'email', 'phone', 'username', 'account', 'org', 'location', 'domain', 'ip', 'url', 'wallet', 'image'];
+  const order: EntityType[] = ['person', 'email', 'phone', 'username', 'account', 'org', 'location', 'domain', 'ip', 'url', 'wallet', 'breach', 'image'];
   const tally = order.filter((t) => counts.get(t) && PLURAL[t]).map((t) => {
     const n = counts.get(t)!;
     return `${n} ${PLURAL[t]![n === 1 ? 0 : 1]}`;
   });
-  if (tally.length) parts.push(`Found ${tally.slice(0, 5).join(', ')}${tally.length > 5 ? ' and more' : ''} across ${conf.independentSources || 1} independent source${conf.independentSources === 1 ? '' : 's'}.`);
+  const shown = tally.slice(0, 5);
+  const rest = tally.length - shown.length;
+  const joined = shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}` : shown[0];
+  if (tally.length) parts.push(`Found ${joined}${rest > 0 ? `, plus ${rest} other kind${rest > 1 ? 's' : ''} of finding` : ''} across ${conf.independentSources || 1} independent source${conf.independentSources === 1 ? '' : 's'}.`);
   if (name) parts.push(`Most likely name: ${name.value} ${cite(name)}.`);
-  if (org) parts.push(`Strongest organization: ${org.value} ${cite(org)}.`);
+  if (subject.type === 'person') {
+    const aliases = people.filter((f) => f.level >= 2).slice(0, 2);
+    if (aliases.length) parts.push(`Also appears as ${aliases.map((f) => `${f.value} ${cite(f)}`).join(' and ')}.`);
+  }
+  if (org && subject.type !== 'org') parts.push(`Strongest organization: ${org.value} ${cite(org)}.`);
   if (loc) parts.push(`Most likely location: ${loc.value} ${cite(loc)}.`);
   const strongAcc = topByType(live, 'account', 3).filter((f) => f.level >= 3);
   if (strongAcc.length) parts.push(`Well-corroborated accounts: ${strongAcc.map((f) => `${String(f.attrs.platform ?? f.value)} ${cite(f)}`).join(', ')}.`);
@@ -194,10 +207,10 @@ export function ruleBrief(subject: { type: EntityType; value: string }, findings
 
   const caveats: string[] = [];
   const conflicts = live.filter((f) => f.conflictsWith?.length && f.level >= 2);
-  if (conflicts.length) caveats.push(`${conflicts.length} value${conflicts.length > 1 ? 's' : ''} disagree with each other — resolve before relying on them.`);
+  if (conflicts.length) caveats.push(`${conflicts.length} value${conflicts.length > 1 ? 's' : ''} disagree with each other. Resolve before relying on them.`);
   const thin = live.filter((f) => f.evidence.length === 1 && f.level <= 2).length;
   if (thin > 3) caveats.push(`${thin} findings rest on a single source.`);
-  const personGuess = live.filter((f) => f.type === 'person' && f.level <= 2).length;
+  const personGuess = people.filter((f) => f.level <= 2).length;
   if (personGuess) caveats.push('Name matches alone can describe different people with the same name.');
 
   const cites: Record<string, string> = {};

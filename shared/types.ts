@@ -199,6 +199,9 @@ export interface SourceInfo {
   priority: number;
   health: { ok: number; fail: number; lastError?: string; lastOkAt?: number; avgMs?: number };
   reliability: number;
+  /** Trust after learning from the investigator's accept/reject decisions (equals `reliability` until there are any). */
+  trust: number;
+  decisions: number;
   demo?: boolean;
 }
 

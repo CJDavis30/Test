@@ -48,6 +48,7 @@ export function reliabilityFn(store: Store) {
 
 export function sourceInfo(store: Store): SourceInfo[] {
   const dm = demoMode(store);
+  const fb = store.feedbackByAdapter();
   return allAdapters()
     .filter((a) => a.anyMode || !!a.demo === dm)
     .map((a) => {
@@ -58,6 +59,7 @@ export function sourceInfo(store: Store): SourceInfo[] {
         enabled: isEnabled(store, a), keySet: hasKey(a), priority: priorityOf(store, a),
         health: { ok: st?.ok ?? 0, fail: st?.fail ?? 0, lastError: st?.last_error ?? undefined, lastOkAt: st?.last_ok_at ?? undefined, avgMs: st?.avg_ms ?? undefined },
         reliability: a.reliability, demo: a.demo,
+        trust: learnedReliability(a.reliability, fb.get(a.id)), decisions: (fb.get(a.id)?.accepted ?? 0) + (fb.get(a.id)?.rejected ?? 0),
       } satisfies SourceInfo;
     })
     .sort((x, y) => x.capability.localeCompare(y.capability) || x.priority - y.priority);

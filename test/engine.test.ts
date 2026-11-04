@@ -158,3 +158,39 @@ describe('link inference', () => {
     expect(s.json.node.type).toBe('person');
   });
 });
+
+describe('untrusted source data', () => {
+  it('strips non-http evidence URLs before they are stored or sent to the client', async () => {
+    ctx.store.setSetting('demoMode', false);
+    register({
+      id: 't-evil', name: 'evil', description: '', accepts: ['domain' as const], capability: 'evil-cap', family: 'evil', reliability: 0.8, priority: 1,
+      selfTest: { type: 'domain' as const, value: 'x.example' },
+      run: async () => [{ type: 'domain', value: 'child.evil-test.example', relation: 'subdomain', weight: 0.8, url: 'javascript:alert(document.cookie)', snippet: '<img src=x onerror=alert(1)>' }],
+    });
+    const { events } = await runAndWait('evil-test.example', { type: 'domain' });
+    const f = events.filter((e) => e.t === 'findings').flatMap((e: any) => e.findings).find((x: any) => x.value === 'child.evil-test.example');
+    expect(f).toBeTruthy();
+    expect(f.evidence[0].url).toBeUndefined();
+    ctx.store.setSetting('demoMode', true);
+  });
+});
+
+describe('learned trust & edge labels', () => {
+  it('exposes learned trust per source and moves it with decisions', async () => {
+    ctx.store.setSetting('demoMode', true);
+    const before = (await call('GET', '/api/sources')).json.sources.find((s: any) => s.id === 'demo-broker');
+    expect(before.trust).toBeCloseTo(before.reliability, 5);
+    for (let i = 0; i < 12; i++) ctx.store.bumpFeedback('demo-broker', 'person', 'rejected');
+    const after = (await call('GET', '/api/sources')).json.sources.find((s: any) => s.id === 'demo-broker');
+    expect(after.trust).toBeLessThan(before.trust - 0.15);
+    expect(after.decisions).toBeGreaterThanOrEqual(12);
+  });
+  it('relabels manual edges and rejects empty labels', async () => {
+    const a = (await call('POST', `/api/cases/${caseId}/lookups`, { value: 'edge-a.example', type: 'domain', run: false })).json.node;
+    const b = (await call('POST', `/api/cases/${caseId}/lookups`, { value: 'edge-b.example', type: 'domain', run: false })).json.node;
+    const e = (await call('POST', `/api/cases/${caseId}/edges`, { from: a.id, to: b.id })).json.edge;
+    expect((await call('PATCH', `/api/edges/${e.id}`, { label: '  same owner  ' })).status).toBe(200);
+    expect(ctx.store.listEdges(caseId).find((x) => x.id === e.id)?.label).toBe('same owner');
+    expect((await call('PATCH', `/api/edges/${e.id}`, { label: '   ' })).status).toBe(400);
+  });
+});

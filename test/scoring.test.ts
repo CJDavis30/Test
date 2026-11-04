@@ -65,3 +65,31 @@ describe('conflicts & context', () => {
     expect(contextBoost(f, parseContext(''))).toBe(0);
   });
 });
+
+import { ruleBrief } from '../shared/scoring';
+describe('ruleBrief', () => {
+  const f = (id: string, type: Finding['type'], value: string, rank: number, level: 1 | 2 | 3 | 4 = 3): Finding => mk({ id, type, value, key: value.toLowerCase(), rank, score: rank, level, relation: 'r', evidence: [ev('a', 'f' + id, 0.8)] });
+  const ids = (fs: Finding[]) => new Map(fs.map((x, i) => [x.id, `F${i + 1}`]));
+  it('leads with the searched name and lists other names as aliases', () => {
+    const fs = [f('1', 'person', 'Mara L. Linden', 0.9), f('2', 'org', 'Northwind Labs', 0.8), f('3', 'location', 'Austin, TX', 0.7)];
+    const b = ruleBrief({ type: 'person', value: 'Mara Linden' }, fs, ids(fs));
+    expect(b.headline).toBe('Mara Linden · Northwind Labs · Austin, TX');
+    expect(b.summary).toContain('Also appears as Mara L. Linden');
+    expect(b.summary).not.toContain('Most likely name');
+  });
+  it('for an email subject, the best name leads', () => {
+    const fs = [f('1', 'person', 'Jane Roe', 0.9)];
+    expect(ruleBrief({ type: 'email', value: 'j@x.example' }, fs, ids(fs)).headline).toBe('Jane Roe');
+  });
+  it('summarises long tallies without a dangling "and more"', () => {
+    const types: Finding['type'][] = ['person', 'email', 'phone', 'username', 'account', 'org', 'location'];
+    const fs = types.map((t, i) => f(String(i), t, `${t} value`, 0.5));
+    const b = ruleBrief({ type: 'email', value: 'x@y.example' }, fs, ids(fs));
+    expect(b.summary).toMatch(/Found 1 name, 1 email, 1 phone number, 1 username and 1 account, plus 2 other kinds of finding/);
+  });
+  it('every citation in the summary resolves through cites', () => {
+    const fs = [f('1', 'person', 'Jane Roe', 0.9), f('2', 'org', 'Acme', 0.8)];
+    const b = ruleBrief({ type: 'email', value: 'j@acme.example' }, fs, ids(fs));
+    for (const m of b.summary.matchAll(/\[(F\d+)\]/g)) expect(b.cites[m[1]]).toBeTruthy();
+  });
+});

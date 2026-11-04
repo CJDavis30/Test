@@ -354,6 +354,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 }));
 
+if (typeof location !== 'undefined' && location.search.includes('debug')) (window as any).__plexusStore = useStore;
+
 function applyEvent(subjectId: string, runId: string, e: RunEvent) {
   const st = useStore.getState();
   const cur = st.runs[subjectId];

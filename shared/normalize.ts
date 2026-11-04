@@ -173,3 +173,20 @@ export function labelFor(type: EntityType, value: string, attrs?: Record<string,
     default: return v;
   }
 }
+
+
+/** Only http(s) URLs may become links. Source data is untrusted: `javascript:` and friends must never reach an href. */
+export function safeHttpUrl(u: unknown): string | undefined {
+  if (typeof u !== 'string') return undefined;
+  try {
+    const x = new URL(u.trim());
+    return x.protocol === 'http:' || x.protocol === 'https:' ? x.toString() : undefined;
+  } catch { return undefined; }
+}
+
+/** Image sources: http(s) or an inline raster/SVG data URI only. */
+export function safeImageSrc(u: unknown): string | undefined {
+  if (typeof u !== 'string') return undefined;
+  if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml)[;,]/i.test(u)) return u;
+  return safeHttpUrl(u);
+}

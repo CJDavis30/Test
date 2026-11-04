@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, FolderOpen, Pin, PinOff, Copy, Trash2, Route, Link2, Merge, ExternalLink, X } from 'lucide-react';
 import { ENTITY_LABEL, LEVEL_LABEL, type EntityType, type Finding, type GraphNode } from '@shared/types';
-import { keyFor, initials } from '@shared/normalize';
+import { keyFor, initials, safeHttpUrl, safeImageSrc } from '@shared/normalize';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { EntityGlyph } from '../lib/icons';
@@ -70,7 +70,7 @@ function NodePanel({ node }: { node: GraphNode }) {
   return (
     <>
       <div className="insp-head">
-        <div className="insp-avatar">{photo ? <img src={photo} alt="" /> : node.type === 'person' || node.type === 'org' ? initials(node.label) : <EntityGlyph type={node.type} size={20} />}</div>
+        <div className="insp-avatar">{photo ? <img src={safeImageSrc(photo)} alt="" /> : node.type === 'person' || node.type === 'org' ? initials(node.label) : <EntityGlyph type={node.type} size={20} />}</div>
         <div style={{ minWidth: 0 }}>
           {editing ? (
             <input autoFocus className="field" defaultValue={node.label} onBlur={(e) => { void s.patchNode(node.id, { label: e.target.value.trim() || node.label }); setEditing(false); }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false); }} />
@@ -121,7 +121,7 @@ function NodePanel({ node }: { node: GraphNode }) {
                 <div key={e.id} style={{ padding: '4px 0' }}>
                   <div style={{ fontWeight: 600 }}>{e.adapterName}</div>
                   <div className="muted" style={{ fontSize: 12.5 }}>{e.snippet || 'Match found, no excerpt.'}</div>
-                  <div className="faint" style={{ fontSize: 11.5 }}>{ago(e.retrievedAt)}{e.url && <> · <a href={e.url} target="_blank" rel="noreferrer noopener">{hostOf(e.url)} <ExternalLink size={10} style={{ verticalAlign: -1 }} /></a></>}{f.when && ` · ${fmtDate(f.when)}`}</div>
+                  <div className="faint" style={{ fontSize: 11.5 }}>{ago(e.retrievedAt)}{safeHttpUrl(e.url) && <> · <a href={safeHttpUrl(e.url)} target="_blank" rel="noreferrer noopener">{hostOf(e.url)} <ExternalLink size={10} style={{ verticalAlign: -1 }} /></a></>}{f.when && ` · ${fmtDate(f.when)}`}</div>
                 </div>
               ))}
               {f.reasons.length > 0 && <div className="reasons" style={{ marginTop: 6 }}>{f.reasons.map((r) => <span key={r} className="reason">{r}</span>)}</div>}
@@ -185,7 +185,13 @@ function EdgePanel({ id }: { id: string }) {
   const lvl = e.strength >= 0.85 ? 4 : e.strength >= 0.65 ? 3 : e.strength >= 0.4 ? 2 : 1;
   return (
     <>
-      <div className="insp-head"><div><div className="insp-title">{e.label}</div><div className="insp-sub"><Dots level={lvl as 1 | 2 | 3 | 4} label /> <span>· {e.kind === 'evidenced' ? 'backed by evidence' : e.kind === 'inferred' ? 'inferred' : 'added by you'}</span></div></div></div>
+      <div className="insp-head"><div style={{ minWidth: 0, flex: 1 }}>
+        {e.kind === 'evidenced' ? <div className="insp-title">{e.label}</div> : (
+          <input className="field" defaultValue={e.label} aria-label="Relationship label" style={{ fontWeight: 600, marginBottom: 4 }}
+            onBlur={async (ev) => { const v = ev.target.value.trim(); if (v && v !== e.label) { await api.patch(`/api/edges/${e.id}`, { label: v }); await s.loadCase(s.caseId!); s.selectEdge(e.id); } }}
+            onKeyDown={(ev) => ev.key === 'Enter' && (ev.target as HTMLInputElement).blur()} />
+        )}
+        <div className="insp-sub"><Dots level={lvl as 1 | 2 | 3 | 4} label /> <span>· {e.kind === 'evidenced' ? 'backed by evidence' : e.kind === 'inferred' ? 'inferred' : 'added by you'}</span></div></div></div>
       <div className="insp-body selectable">
         {[a, b].map((n) => n && (
           <button key={n.id} className="conn" onClick={() => s.select([n.id])}><span className="gl"><EntityGlyph type={n.type} size={13} /></span><span className="grow truncate">{n.label}</span><small>{ENTITY_LABEL[n.type]}</small></button>

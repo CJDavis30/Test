@@ -124,12 +124,13 @@ function SourceRow({ x, first, last, siblings }: { x: SourceInfo; first: boolean
         <button className="btn sm" onClick={() => void test()} disabled={busy || needs}>{busy ? <LoaderCircle size={13} className="spin" /> : 'Test'}</button>
       </div>
       <div className="sub">
-        <span className="row" style={{ gap: 4, color: 'var(--text-3)' }}>{x.accepts.slice(0, 7).map((t) => <span key={t} title={ENTITY_LABEL[t]}><EntityGlyph type={t} size={12} /></span>)}</span>
+        <span className="faint" style={{ fontSize: 12 }}>For {x.accepts.map((t) => ENTITY_LABEL[t].toLowerCase()).join(', ')}</span>
         {keyed && (x.keySet ? (
           <span className="row" style={{ gap: 6 }}><span className="tag mute"><Check size={10} /> Key saved</span><button className="btn sm ghost" onClick={async () => { await api.put(`/api/secrets/${x.id}`, { value: null }); await s.refreshSources(); }}><Trash2 size={12} /> Remove</button></span>
         ) : (
           <span className="keyrow"><input className="field" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="API key" autoComplete="off" aria-label={`${x.name} API key`} onKeyDown={(e) => e.key === 'Enter' && key && void saveKey()} /><button className="btn sm" disabled={!key} onClick={() => void saveKey()}>Save</button>{x.keyHelp && <span className="faint" style={{ fontSize: 12 }}>{x.keyHelp}</span>}</span>
         ))}
+        {x.decisions > 0 && <span className="faint" style={{ fontSize: 12 }} title="Trust is learned from your accept / reject decisions on this source's findings">Trust {Math.round(x.trust * 100)}% · learned from {x.decisions} decision{x.decisions === 1 ? '' : 's'}{x.trust < x.reliability - 0.03 ? ' ↓' : x.trust > x.reliability + 0.03 ? ' ↑' : ''}</span>}
         {res && <span className={`testres ${res.ok ? 'ok' : 'bad'}`}>{res.text}</span>}
       </div>
     </div>

@@ -89,3 +89,20 @@ it('treats reserved .example domains as domains', () => {
   expect(detect('northwind-labs.example')?.type).toBe('domain');
   expect(detect('mara@northwind-labs.example')?.type).toBe('email');
 });
+
+import { safeHttpUrl, safeImageSrc, labelFor } from '../shared/normalize';
+describe('untrusted URL handling', () => {
+  it('only http(s) may become links', () => {
+    expect(safeHttpUrl('https://a.example/x')).toBe('https://a.example/x');
+    for (const bad of ['javascript:alert(1)', 'data:text/html,<script>', 'file:///etc/passwd', 'vbscript:x', '//evil', 'not a url', 42, null]) expect(safeHttpUrl(bad as any)).toBeUndefined();
+  });
+  it('images allow raster/svg data URIs and http(s) only', () => {
+    expect(safeImageSrc('data:image/svg+xml;utf8,%3Csvg/%3E')).toBeTruthy();
+    expect(safeImageSrc('data:text/html;base64,AAAA')).toBeUndefined();
+    expect(safeImageSrc('javascript:alert(1)')).toBeUndefined();
+  });
+  it('labels never expose raw data URIs', () => {
+    expect(labelFor('image', 'data:image/svg+xml;utf8,xxxx')).toBe('Profile photo');
+    expect(labelFor('account', 'https://github.com/maralinden', { platform: 'GitHub' })).toBe('GitHub · maralinden');
+  });
+});

@@ -188,6 +188,7 @@ export class Store {
     return this.edgeRow(this.db.prepare('SELECT * FROM edges WHERE id=?').get(id));
   }
   deleteEdge(id: string) { this.db.prepare('DELETE FROM edges WHERE id=?').run(id); }
+  setEdgeLabel(id: string, label: string) { this.db.prepare('UPDATE edges SET label=? WHERE id=?').run(label, id); }
 
   // ---- findings ---------------------------------------------------------
   private findingRow = (r: any): Finding => ({
@@ -255,6 +256,11 @@ export class Store {
   allFeedback(): Map<string, { accepted: number; rejected: number }> {
     const m = new Map<string, { accepted: number; rejected: number }>();
     for (const r of this.db.prepare('SELECT * FROM feedback').all() as any[]) m.set(`${r.adapter}|${r.type}`, { accepted: r.accepted, rejected: r.rejected });
+    return m;
+  }
+  feedbackByAdapter(): Map<string, { accepted: number; rejected: number }> {
+    const m = new Map<string, { accepted: number; rejected: number }>();
+    for (const r of this.db.prepare('SELECT adapter, SUM(accepted) AS a, SUM(rejected) AS r FROM feedback GROUP BY adapter').all() as any[]) m.set(r.adapter, { accepted: r.a ?? 0, rejected: r.r ?? 0 });
     return m;
   }
   getSourceState(adapter: string) {

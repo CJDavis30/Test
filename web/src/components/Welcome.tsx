@@ -62,7 +62,7 @@ export function Onboarding() {
   return (
     <>
       <div className="scrim" />
-      <motion.div className="modal" role="dialog" aria-label="Welcome" initial={{ opacity: 0, scale: .97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 380, damping: 32 }}>
+      <motion.div className="modal" role="dialog" aria-label="Welcome" style={{ x: '-50%' }} initial={{ opacity: 0, scale: .97, y: '-48%' }} animate={{ opacity: 1, scale: 1, y: '-50%' }} transition={{ type: 'spring', stiffness: 380, damping: 32 }}>
         <div className="brand-mark" style={{ width: 40, height: 40, borderRadius: 11, marginBottom: 18 }}>
           <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12 8 4l4 8H4Z" /><circle cx="8" cy="4" r="1.3" fill="currentColor" /><circle cx="4" cy="12" r="1.3" fill="currentColor" /><circle cx="12" cy="12" r="1.3" fill="currentColor" /></svg>
         </div>
@@ -86,7 +86,7 @@ export function ImportDialog({ items, onClose }: { items: Detected[]; onClose: (
   return (
     <>
       <div className="scrim" onMouseDown={onClose} />
-      <div className="modal" role="dialog" aria-label="Import entities">
+      <div className="modal" role="dialog" aria-label="Import entities" style={{ transform: 'translate(-50%, -50%)' }}>
         <h2>Found {items.length} {items.length === 1 ? 'entity' : 'entities'}</h2>
         <p>Choose what to add to this case.</p>
         <div style={{ maxHeight: 320, overflow: 'auto', margin: '0 -6px' }}>

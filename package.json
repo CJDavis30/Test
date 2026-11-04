@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Plexus — a local-first investigation workbench. Enter one fact; Plexus finds, scores and connects the rest.",
+  "description": "Plexus \u2014 a local-first investigation workbench. Enter one fact; Plexus finds, scores and connects the rest.",
   "engines": {
     "node": ">=22.13"
   },
@@ -11,10 +11,15 @@
     "dev": "node scripts/dev.mjs",
     "server": "tsx watch server/index.ts",
     "web": "vite --config web/vite.config.ts",
-    "build": "vite build --config web/vite.config.ts",
-    "start": "tsx server/index.ts",
+    "build": "npm run build:web && npm run build:server",
+    "start": "npm run build && node dist/server/index.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "serve": "node dist/server/index.mjs",
+    "desktop": "npm run build && electron .",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "build:web": "vite build --config web/vite.config.ts",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/index.mjs --external:node:sqlite --log-level=warning --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\""
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
@@ -39,5 +44,27 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.1.0"
+  },
+  "main": "desktop/main.cjs",
+  "build": {
+    "appId": "app.plexus.desktop",
+    "productName": "Plexus",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**",
+      "dist/**",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "hardenedRuntime": true,
+      "darkModeSupport": true
+    },
+    "asar": true
   }
 }

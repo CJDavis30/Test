@@ -3,7 +3,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { streamSSE } from 'hono/streaming';
 import { Hono } from 'hono';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOST, PORT, APP_NAME, writeSecret, HOME } from './config';
 import { Store } from './store';
@@ -70,7 +70,10 @@ export async function createApp(store = new Store()) {
     const s = svc.snapshot(c.req.param('id'));
     return s ? c.json(s) : c.json({ error: 'not found' }, 404);
   });
-  app.patch('/api/cases/:id', async (c) => c.json({ case: store.updateCase(c.req.param('id'), await body(c)) }));
+  app.patch('/api/cases/:id', async (c) => {
+    const b = await body<{ name?: unknown; purpose?: unknown }>(c);
+    return c.json({ case: store.updateCase(c.req.param('id'), { name: typeof b.name === 'string' ? b.name.slice(0, 120) : undefined, purpose: typeof b.purpose === 'string' ? b.purpose.slice(0, 1000) : undefined }) });
+  });
   app.delete('/api/cases/:id', (c) => { store.deleteCase(c.req.param('id')); return c.json({ ok: true }); });
   app.get('/api/cases/:id/audit', (c) => c.json({ audit: store.listAudit(c.req.param('id')) }));
   app.get('/api/cases/:id/findings', (c) => {
@@ -153,7 +156,15 @@ export async function createApp(store = new Store()) {
     const b = await body<{ subjectId?: string }>(c);
     return c.json(svc.commit(c.req.param('id'), b.subjectId));
   });
-  app.patch('/api/nodes/:id', async (c) => c.json({ node: store.patchNode(c.req.param('id'), await body(c)) }));
+  app.patch('/api/nodes/:id', async (c) => {
+    const b = await body<Record<string, unknown>>(c);
+    const patch: Record<string, unknown> = {};
+    if (typeof b.label === 'string') patch.label = b.label.slice(0, 200);
+    if (typeof b.notes === 'string') patch.notes = b.notes.slice(0, 20000);
+    for (const k of ['pinned', 'hidden'] as const) if (typeof b[k] === 'boolean') patch[k] = b[k];
+    for (const k of ['x', 'y'] as const) if (typeof b[k] === 'number' && Number.isFinite(b[k] as number)) patch[k] = b[k];
+    return c.json({ node: store.patchNode(c.req.param('id'), patch) });
+  });
   app.delete('/api/nodes/:id', (c) => {
     const n = store.getNode(c.req.param('id'));
     if (n) { store.audit(n.caseId, 'node.deleted', `${n.type}:${n.value}`); store.deleteNode(n.id); }
@@ -177,6 +188,12 @@ export async function createApp(store = new Store()) {
     const e = store.upsertEdge({ caseId: c.req.param('id'), from: b.from, to: b.to, label: (b.label ?? 'related').slice(0, 60), strength: 0.5, kind: 'manual' });
     store.audit(c.req.param('id'), 'edge.manual', `${b.from} → ${b.to}`);
     return c.json({ edge: e });
+  });
+  app.patch('/api/edges/:id', async (c) => {
+    const b = await body<{ label?: unknown }>(c);
+    if (typeof b.label !== 'string' || !b.label.trim()) return c.json({ error: 'label required' }, 400);
+    store.setEdgeLabel(c.req.param('id'), b.label.trim().slice(0, 60));
+    return c.json({ ok: true });
   });
   app.delete('/api/edges/:id', (c) => { store.deleteEdge(c.req.param('id')); return c.json({ ok: true }); });
 
@@ -279,19 +296,25 @@ export async function createApp(store = new Store()) {
 
   // --- static web app (production) ---------------------------------------------------------------------------
   const here = dirname(fileURLToPath(import.meta.url));
-  const dist = resolve(here, '../dist/web');
-  if (existsSync(dist)) {
-    app.use('/*', serveStatic({ root: './dist/web' }));
+  const dist = [resolve(here, '../dist/web'), resolve(here, '../web'), resolve(here, '../../dist/web')].find((d) => existsSync(resolve(d, 'index.html')));
+  if (dist) {
+    const rel = relative(process.cwd(), dist) || '.';
+    app.use('/*', serveStatic({ root: rel }));
     app.get('*', (c) => c.html(readFileSync(resolve(dist, 'index.html'), 'utf8')));
   }
   return { app, store, orch, hub, svc };
+}
+
+/** Start listening on localhost (used by the CLI entry below and by the desktop shell). */
+export function serveApp(app: Hono, port = PORT) {
+  return serve({ fetch: app.fetch, port, hostname: HOST });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   process.removeAllListeners('warning');
   const { app } = await createApp();
   serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (i) => {
-    console.log(`${APP_NAME} API listening on http://${HOST}:${i.port}  (data: ${HOME})`);
-    console.log(`${allAdapters().length} adapters registered`);
+    console.log(`${APP_NAME} is running at http://localhost:${i.port}  (data: ${HOME})`);
+    console.log(`${allAdapters().length} sources registered`);
   });
 }
