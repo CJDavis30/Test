@@ -73,6 +73,7 @@ export function keyFor(type: EntityType, value: string, attrs?: Record<string, u
     case 'org':
     case 'location': return foldName(v);
     case 'wallet': return /^0x/i.test(v) ? v.toLowerCase() : v;
+    case 'breach': return fold(v);
     case 'image': return typeof attrs?.hash === 'string' ? (attrs.hash as string) : normalizeUrl(v);
   }
 }

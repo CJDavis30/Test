@@ -84,3 +84,8 @@ describe('detect: tricky shapes', () => {
   });
   it('schemeless URL with a path is a URL', () => expect(detect('github.com/torvalds')?.type).toBe('url'));
 });
+
+it('treats reserved .example domains as domains', () => {
+  expect(detect('northwind-labs.example')?.type).toBe('domain');
+  expect(detect('mara@northwind-labs.example')?.type).toBe('email');
+});

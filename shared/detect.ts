@@ -7,7 +7,7 @@ const TLDS = new Set(
     'tr il ae sa in cn jp kr hk sg tw th vn id my ph au nz ca mx br ar cl pe za ng ke eg xyz online site tech store shop blog cloud ' +
     'live news media tv fm cc ws to ly gl gg sh so is eu asia name pro mobi tel travel club top vip work space page link click one ' +
     'ink art design agency studio digital solutions systems network services group company email global world today life love fun ' +
-    'icu cyou buzz lol wtf onion eth').split(' '),
+    'icu cyou buzz lol wtf onion eth example').split(' '),
 );
 
 const ORG_SUFFIX = /\b(inc|llc|ltd|gmbh|corp|corporation|company|co|plc|ag|sa|bv|pty|holdings|labs|foundation|university|institute|partners|group|capital|ventures)\.?$/i;

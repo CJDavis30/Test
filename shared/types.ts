@@ -2,14 +2,14 @@
 
 export const ENTITY_TYPES = [
   'person', 'email', 'phone', 'username', 'domain', 'ip',
-  'url', 'org', 'location', 'account', 'image', 'wallet',
+  'url', 'org', 'location', 'account', 'image', 'wallet', 'breach',
 ] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];
 
 export const ENTITY_LABEL: Record<EntityType, string> = {
   person: 'Person', email: 'Email', phone: 'Phone', username: 'Username',
   domain: 'Domain', ip: 'IP address', url: 'URL', org: 'Organization',
-  location: 'Location', account: 'Account', image: 'Image', wallet: 'Wallet',
+  location: 'Location', account: 'Account', image: 'Image', wallet: 'Wallet', breach: 'Data breach',
 };
 
 export type Level = 1 | 2 | 3 | 4;
@@ -131,10 +131,23 @@ export interface Brief {
   headline: string;
   summary: string;
   caveats: string[];
+  /** Citation id (F1…) → finding id, so [F3] in the summary can link to its row. */
+  cites: Record<string, string>;
   /** 'ai' if model-written (citation-validated), 'rules' if deterministic. */
   by: 'ai' | 'rules';
   model?: string;
   confidence: { score: number; level: Level; label: string; independentSources: number };
+}
+
+export interface LinkSuggestion {
+  id: string;
+  a: string;
+  b: string;
+  label: string;
+  reason: string;
+  score: number;
+  kind: 'link' | 'merge';
+  by: 'rules' | 'ai';
 }
 
 export interface NextStep {

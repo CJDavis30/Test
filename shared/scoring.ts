@@ -142,7 +142,7 @@ const PLURAL: Partial<Record<EntityType, [string, string]>> = {
   person: ['name', 'names'], email: ['email', 'emails'], phone: ['phone number', 'phone numbers'],
   username: ['username', 'usernames'], account: ['account', 'accounts'], location: ['location', 'locations'],
   org: ['organization', 'organizations'], domain: ['domain', 'domains'], ip: ['IP address', 'IP addresses'],
-  url: ['page', 'pages'], image: ['image', 'images'], wallet: ['wallet', 'wallets'],
+  url: ['page', 'pages'], image: ['image', 'images'], wallet: ['wallet', 'wallets'], breach: ['breach', 'breaches'],
 };
 
 export function topByType(findings: Finding[], type: EntityType, n = 1): Finding[] {
@@ -200,7 +200,9 @@ export function ruleBrief(subject: { type: EntityType; value: string }, findings
   const personGuess = live.filter((f) => f.type === 'person' && f.level <= 2).length;
   if (personGuess) caveats.push('Name matches alone can describe different people with the same name.');
 
-  return { headline, summary: parts.join(' '), caveats, by: 'rules', confidence: conf };
+  const cites: Record<string, string> = {};
+  for (const [fid, cid] of ids) cites[cid] = fid;
+  return { headline, summary: parts.join(' '), caveats, cites, by: 'rules', confidence: conf };
 }
 
 /** Suggest pivots worth running next: discovered entities that are not yet nodes, ranked. */
