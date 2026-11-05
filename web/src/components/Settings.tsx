@@ -195,6 +195,8 @@ function AI() {
                 </button>))}</div></>)}
           </div>
         </div>
+        <div className="setrow"><div className="grow"><div className="t">Model for reading pictures</div><div className="d">Used by <i>Photos &amp; files → work out the location from the picture</i>. It must accept images (for example gpt-4.1, gemini-2.5-pro, claude, or llava / llama3.2-vision on Ollama). Leave empty to use the model above.</div></div>
+          <input className="field" style={{ width: 240 }} defaultValue={ai.visionModel ?? ''} placeholder="Same as above" onBlur={(e) => void set({ visionModel: e.target.value.trim() })} aria-label="Model for reading pictures" /></div>
         {ai.provider !== 'ollama' && ai.provider !== 'custom' && <div className="setrow"><div className="grow"><div className="t">Allow cloud models</div><div className="d">Turn off to keep every lookup entirely local. AI features then pause unless you use Ollama.</div></div><Switch on={ai.allowCloud} label="Allow cloud" onChange={(v) => void set({ allowCloud: v })} /></div>}
         <div className="setrow"><div className="grow"><div className="t">Test connection</div>{test && <div className={`d testres ${test.ok ? 'ok' : 'bad'}`}>{test.text}</div>}</div>
           <button className="btn" onClick={async () => { setTest(null); const r = await api.post<{ ok: boolean; model?: string; error?: string }>('/api/ai/test'); setTest({ ok: r.ok, text: r.ok ? `Connected · ${r.model}` : r.error ?? 'Failed' }); }}>Test</button></div>

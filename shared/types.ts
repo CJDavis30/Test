@@ -253,6 +253,8 @@ export interface SourceInfo {
 export interface AiSettings {
   provider: 'openrouter' | 'google' | 'openai' | 'ollama' | 'custom' | 'none';
   model: string; // '' = auto
+  /** Optional: a different model for reading pictures (it must accept images). */
+  visionModel?: string;
   baseUrl?: string;
   keySet: boolean;
   allowCloud: boolean;

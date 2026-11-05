@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard, Users, ScanSearch, Scale, Rocket, ShieldCheck,
+  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard, Users, ScanSearch, FileSearch, Scale, Rocket, ShieldCheck,
 } from 'lucide-react';
 import { detect, detectMany } from '@shared/detect';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
@@ -119,6 +119,7 @@ export function Palette() {
       { id: 'th-l', group: 'Appearance', label: 'Light mode', icon: <Sun size={15} />, run: () => s.setTheme('light') },
       { id: 'th-d', group: 'Appearance', label: 'Dark mode', icon: <Moon size={15} />, run: () => s.setTheme('dark') },
       { id: 'th-a', group: 'Appearance', label: 'Match system appearance', icon: <Monitor size={15} />, run: () => s.setTheme('auto') },
+      { id: 'filelab', group: 'Forensics', label: 'Analyze a photo, video or file…', sub: 'Location, time, device, edits and hidden text inside it', icon: <FileSearch size={15} />, keywords: 'exif metadata photo image video pdf docx gps location camera hidden geolocate picture', run: () => s.openFileLab() },
       { id: 'decode', group: 'Forensics', label: 'Decode IDs, links and timestamps…', sub: 'Paste a chat log or a pile of links', icon: <ScanSearch size={15} />, keywords: 'discord roblox snowflake timezone activity paste forensics', run: () => s.setDecode(true) },
       ...(s.selection.length === 2 && s.selection.every((id) => ['account', 'username'].includes(nodes.find((n) => n.id === id)?.type ?? '')) ? [{ id: 'compare', group: 'Forensics', label: 'Compare the two selected accounts', sub: 'Match Lab: same operator?', icon: <Scale size={15} />, run: () => s.setMatchLab({ a: s.selection[0], b: s.selection[1] }) } as Item] : []),
       { id: 'keys', group: 'Help', label: 'Keyboard shortcuts', sub: 'Press ? anywhere', icon: <Keyboard size={15} />, keywords: 'help hotkeys', run: () => s.setShortcuts(true) },

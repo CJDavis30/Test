@@ -10,6 +10,8 @@ import { estimateNote } from './idclocks';
 import { keyFor } from '../shared/normalize';
 import type { GraphNode } from '../shared/types';
 import type { Store } from './store';
+import { analyzeUrl, findUrls } from '../shared/forensics/urls';
+import { parseCoords, describePlace, mapLinks } from '../shared/forensics/geo';
 
 const asMs = (v: unknown): { ms: number; precision: 'second' | 'day' } | null => {
   if (typeof v !== 'string' || !v) return null;
@@ -104,7 +106,9 @@ export function timestampsIn(text: string): number[] {
 export function scan(text: string, store?: Store) {
   const refs = findPlatformRefs(text).map((r) => { const n = store ? estimateNote(store, r) : undefined; return n ? { ...r, note: n } : r; });
   const times = timestampsIn(text);
-  return { refs, timestamps: times.length, circadian: circadian(times), dst: dstFingerprint(times), headers: /^Received:/im.test(text) ? analyzeHeaders(text) : null };
+  const links = findUrls(text, 10).map((u) => analyzeUrl(u)).filter((x): x is NonNullable<typeof x> => !!x && (x.facts.length > 0 || x.removed.length > 0 || x.warnings.length > 0 || x.chain.length > 0));
+  const places = parseCoords(text).slice(0, 8).map((c) => ({ ...c, description: describePlace(c.lat, c.lon), links: mapLinks(c.lat, c.lon) }));
+  return { refs, links, places, timestamps: times.length, circadian: circadian(times), dst: dstFingerprint(times), headers: /^Received:/im.test(text) ? analyzeHeaders(text) : null };
 }
 
 // ---------------------------------------------------------------------------------------------------- chat exports

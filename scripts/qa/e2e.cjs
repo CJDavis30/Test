@@ -515,6 +515,58 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     await api('DELETE', `/api/cases/${fcase}`); await p.evaluate(() => window.__plexusStore.getState().refreshCases()); await settle(300);
   });
 
+  await section('photos & files: read a real JPEG with GPS, rank what matters, add to case; link forensics in Decode', async () => {
+    // a real, decodable JPEG from the browser, with an EXIF block (camera, time, GPS in Paris) spliced in
+    const jpegB64 = await p.evaluate(() => { const c = document.createElement('canvas'); c.width = 64; c.height = 48; const g = c.getContext('2d'); g.fillStyle = '#4a90d9'; g.fillRect(0, 0, 64, 24); g.fillStyle = '#6b8e4e'; g.fillRect(0, 24, 64, 24); return c.toDataURL('image/jpeg', 0.9).split(',')[1]; });
+    const base = Buffer.from(jpegB64, 'base64');
+    const ascii = (v) => Buffer.from(v + '\0', 'latin1');
+    const rat = (pairs) => { const b = Buffer.alloc(pairs.length * 8); pairs.forEach(([n, d], i) => { b.writeUInt32LE(n, i * 8); b.writeUInt32LE(d, i * 8 + 4); }); return b; };
+    const entry = (tag, type, count, valOrOff) => { const b = Buffer.alloc(12); b.writeUInt16LE(tag, 0); b.writeUInt16LE(type, 2); b.writeUInt32LE(count, 4); if (Buffer.isBuffer(valOrOff)) valOrOff.copy(b, 8); else b.writeUInt32LE(valOrOff, 8); return b; };
+    const make = ascii('Apple'), model = ascii('iPhone 15 Pro'), dto = ascii('2024:05:03 14:22:10'), off = ascii('+02:00');
+    const latR = rat([[48, 1], [51, 1], [3024, 100]]), lonR = rat([[2, 1], [17, 1], [4020, 100]]);
+    // layout: header 8 | IFD0 (4 entries=2+48+4=54) | EXIF IFD (2 entries=30) | GPS IFD (4 entries=54) | data
+    const ifd0At = 8, exifAt = ifd0At + 54, gpsAt = exifAt + 30, dataAt = gpsAt + 54;
+    let d = dataAt; const offs = {}; for (const [k, v] of Object.entries({ make, model, dto, off, latR, lonR })) { offs[k] = d; d += v.length; }
+    const ifd0 = Buffer.concat([Buffer.from([4, 0]), entry(0x010f, 2, make.length, offs.make), entry(0x0110, 2, model.length, offs.model), entry(0x8769, 4, 1, exifAt), entry(0x8825, 4, 1, gpsAt), Buffer.alloc(4)]);
+    const exif = Buffer.concat([Buffer.from([2, 0]), entry(0x9003, 2, dto.length, offs.dto), entry(0x9011, 2, off.length, offs.off), Buffer.alloc(4)]);
+    const gps = Buffer.concat([Buffer.from([4, 0]), entry(1, 2, 2, Buffer.from('N\0')), entry(2, 5, 3, offs.latR), entry(3, 2, 2, Buffer.from('E\0')), entry(4, 5, 3, offs.lonR), Buffer.alloc(4)]);
+    const tiff = Buffer.concat([Buffer.from([0x49, 0x49, 0x2a, 0, 8, 0, 0, 0]), ifd0, exif, gps, make, model, dto, off, latR, lonR]);
+    const app1 = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]); const hdr = Buffer.alloc(4); hdr[0] = 0xff; hdr[1] = 0xe1; hdr.writeUInt16BE(app1.length + 2, 2);
+    const photo = Buffer.concat([base.subarray(0, 2), hdr, app1, base.subarray(2)]);
+
+    await p.keyboard.press('Escape'); await p.keyboard.press('Control+k'); await settle(300); await p.keyboard.type('analyze a photo'); await settle(300);
+    await p.locator('.pitem', { hasText: 'Analyze a photo, video or file' }).click(); await settle(500);
+    ok(await p.locator('.filelab').count() === 1, 'the photos & files lab opens from the palette');
+    await p.locator('input[aria-label="Choose files to analyse"]').setInputFiles({ name: 'IMG_20240503_142210.jpg', mimeType: 'image/jpeg', buffer: photo });
+    await p.waitForSelector('.fl-head', { timeout: 15000 }); await settle(300);
+    const head = await p.locator('.fl-head').innerText();
+    ok(/48\.85840, 2\.29450/.test(head), 'the GPS position is a headline fact');
+    ok(/2024-05-03 14:22:10.*UTC\+02:00/.test(head), 'so is the capture time with its timezone');
+    ok(await p.locator('.fl-loc').getByRole('link', { name: 'Open in Google Maps' }).count() === 1, 'map links are offered');
+    ok(/Paris/.test(await p.locator('.fl-loc').innerText()), 'and the place is named');
+    ok(/Apple iPhone 15 Pro/.test(await p.locator('.filelab').innerText()), 'the camera is shown');
+    ok(await p.locator('.fl-flag.warning').count() === 0, 'a clean photo raises no warnings');
+    // the AI location step is honest when no model is set up
+    await p.getByRole('button', { name: /Work out the location from the picture/ }).click(); await settle(900);
+    ok(/AI is off|AI is not set up|Settings → AI/.test(await p.locator('.fl-geo').innerText()), 'location-from-picture says plainly that an AI model is needed');
+    // add the proposed place to the case
+    const nodesBefore = (await S()).nodes.length;
+    await p.getByRole('button', { name: /Add \d+ to this case/ }).click(); await settle(900);
+    ok((await S()).nodes.some((n) => n.type === 'location' && /48\.8584/.test(n.value)), 'the place from the photo is added to the graph');
+    ok((await S()).nodes.length > nodesBefore, 'the graph grew');
+    await p.getByRole('button', { name: 'Close photos and files' }).click(); await settle(500);
+    ok(await p.locator('.filelab').count() === 0, 'the lab closes');
+    // link forensics in Decode
+    await p.keyboard.press('Control+k'); await settle(300); await p.keyboard.type('decode ids'); await settle(300);
+    await p.locator('.pitem', { hasText: 'Decode IDs, links and timestamps' }).click(); await settle(500);
+    await p.fill('textarea[aria-label="Text to decode"]', 'https://cdn.discordapp.com/attachments/111111111111111111/175928847299117063/cat.png?ex=65f0a1b2&is=65e12db2&hm=abc&utm_source=x and 48.8584, 2.2945');
+    await settle(1000);
+    const dec2 = await p.locator('.decode').innerText();
+    ok(/what these links give away/i.test(dec2) && /2016-04-30 11:18:25 UTC/.test(dec2), 'a Discord file link is dated to the second');
+    ok(/places written in this text/i.test(dec2) && /48\.85840, 2\.29450/.test(dec2), 'coordinates in text are found');
+    await p.getByRole('button', { name: 'Close decoder' }).click(); await settle(400);
+  });
+
   await section('signed evidence package verifies itself in a real browser, and notices tampering', async () => {
     const cid = (await S()).caseId;
     const html = await (await p.request.get(`http://127.0.0.1:4317/api/cases/${cid}/package`)).text();

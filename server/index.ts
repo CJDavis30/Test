@@ -24,6 +24,9 @@ import { dependencies, stressTest } from '../shared/stress';
 import { ledger } from '../shared/ledger';
 import { signer } from './signing';
 import { careOf, minorCareOn, purposeOk, setCare } from './safeguards';
+import { analyzeFile } from './files/analyze';
+import { linkFiles, type FileBrief } from '../shared/forensics/filelinks';
+import { geolocate, visionStatus, recordGeo, calibration, type GeoRecord } from './geolocate';
 import { buildPackageHtml, buildPayload } from './evidencePackage';
 import { bestMoves } from '../shared/planner';
 import { labelFor } from '../shared/normalize';
@@ -139,6 +142,66 @@ export async function createApp(store = new Store()) {
     const b = await body<{ text?: string }>(c);
     return c.json(scan(String(b.text ?? '').slice(0, 2_000_000), store));
   });
+  // --- photos, video and other files: what is inside them (nothing is uploaded anywhere; the file is read here and dropped) ---
+  app.post('/api/files/analyze', async (c) => {
+    if (Number(c.req.header('content-length') ?? 0) > 250_000_000) return c.json({ error: 'That file is too large (250 MB maximum).' }, 413);
+    const q = c.req.query();
+    const buf = Buffer.from(await c.req.arrayBuffer());
+    if (!buf.length) return c.json({ error: 'The file is empty.' }, 400);
+    const name = String(q.name ?? 'file').replace(/[\\/\0]/g, '_').slice(0, 200) || 'file';
+    const n = (v: unknown, lo: number, hi: number) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : undefined; };
+    const pixels = q.dhash && /^[0-9a-f]{16}$/.test(q.dhash) ? { dhash: q.dhash, luma: n(q.luma, 0, 255) ?? 0, sky: n(q.sky, 0, 1) ?? 0, width: n(q.pw, 1, 100000) ?? 0, height: n(q.ph, 1, 100000) ?? 0 } : undefined;
+    const report = await analyzeFile(buf, name, { pixels, lastModified: n(q.lastModified, 0, 8.64e15) });
+    if (q.caseId) {
+      if (!store.getCase(q.caseId)) return c.json({ error: 'case not found' }, 404);
+      report.id = store.addFile(q.caseId, report);
+      store.audit(q.caseId, 'file.analyzed', `${name} · ${report.label} · sha256 ${report.sha256.slice(0, 16)}…`);
+    }
+    return c.json({ report });
+  });
+  app.get('/api/cases/:id/files', (c) => {
+    const files = store.listFiles(c.req.param('id'));
+    const briefs: FileBrief[] = files.map((f) => ({
+      id: f.id!, name: f.name, sha256: f.sha256, dhash: f.pixels?.dhash, deviceFp: f.device?.fingerprint, serial: f.device?.serial,
+      people: f.facts.filter((x) => x.group === 'who' && x.importance >= 3).map((x) => x.value), lat: f.location?.lat, lon: f.location?.lon,
+      capturedMs: (() => { const t = f.times.find((x) => x.kind === 'captured'); return t ? Date.parse(t.iso.length > 19 ? t.iso : t.iso + 'Z') : undefined; })(),
+    }));
+    return c.json({ files, links: linkFiles(briefs) });
+  });
+  app.get('/api/files/:id', (c) => { const f = store.getFile(c.req.param('id')); return f ? c.json({ report: f.report }) : c.json({ error: 'not found' }, 404); });
+  app.delete('/api/files/:id', (c) => { const f = store.getFile(c.req.param('id')); if (!f) return c.json({ ok: true }); store.deleteFile(c.req.param('id')); store.audit(f.caseId, 'file.removed', f.report.name); return c.json({ ok: true }); });
+  /** Put things found in a file (a place, a name, an account) on the graph, each with a note saying where it came from. */
+  app.post('/api/cases/:id/entities-from', async (c) => {
+    const caseId = c.req.param('id');
+    const b = await body<{ source?: string; entities?: { type?: string; value?: string; note?: string }[] }>(c);
+    if (!store.getCase(caseId)) return c.json({ error: 'case not found' }, 404);
+    let added = 0;
+    for (const e of (b.entities ?? []).slice(0, 40)) {
+      if (!isType(e.type) || !e.value?.trim()) continue;
+      const node = svc.seed(caseId, { type: e.type, value: e.value });
+      if (!node) continue;
+      const note = `From ${b.source ?? 'a file'}: ${e.note ?? ''}`.trim();
+      if (!(node.notes ?? '').includes(note)) store.patchNode(node.id, { notes: [node.notes, note].filter(Boolean).join('\n') });
+      added++;
+    }
+    if (added) store.audit(caseId, 'file.entities', `${added} from ${b.source ?? 'a file'}`);
+    return c.json({ added });
+  });
+  app.get('/api/ai/vision', (c) => c.json(visionStatus(store)));
+  app.post('/api/geolocate', async (c) => {
+    const b = await body<{ image?: string; runs?: number; confirmed?: boolean; truth?: { lat?: number; lon?: number } }>(c);
+    const vs = visionStatus(store);
+    if (!vs.ok) return c.json({ error: vs.why ?? 'AI is not set up' }, 400);
+    if (!vs.local && !b.confirmed) return c.json({ error: 'confirm_required', provider: vs.provider }, 428);
+    try {
+      const result = await geolocate(store, String(b.image ?? ''), { runs: b.runs });
+      let truthErrKm: number | undefined;
+      const t = b.truth;
+      if (t && Number.isFinite(t.lat) && Number.isFinite(t.lon)) { const rec = recordGeo(store, result, { lat: t.lat!, lon: t.lon! }); truthErrKm = rec?.errKm; }
+      return c.json({ result, truthErrKm, calibration: calibration(store.getSetting<GeoRecord[]>('geoCalibration', [])) });
+    } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 502); }
+  });
+  app.get('/api/geo/calibration', (c) => c.json(calibration(store.getSetting<GeoRecord[]>('geoCalibration', []))));
   app.post('/api/forensics/chat', async (c) => {
     if (Number(c.req.header('content-length') ?? 0) > 40_000_000) return c.json({ error: 'That export is too large (40 MB maximum).' }, 413);
     const b = await body<{ text?: string }>(c);

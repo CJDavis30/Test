@@ -9,6 +9,7 @@ import { Sheet } from './components/Sheet';
 import { Shortcuts } from './components/Shortcuts';
 import { MatchLab } from './components/forensics/MatchLab';
 import { Decode } from './components/forensics/Decode';
+import { FileLab } from './components/forensics/FileLab';
 import { AutopilotHud } from './components/AutopilotHud';
 import { CareBanner, ConfirmDialog, PurposeDialog } from './components/Safeguards';
 import { IdentitiesView } from './views/Identities';
@@ -48,7 +49,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState(); // always the live state: this handler outlives the render that created it
       const mod = e.metaKey || e.ctrlKey;
-      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && st.sidebar && !st.sheet && !st.palette && !st.settingsOpen && !st.shortcuts && !st.matchLab && !st.decode && !st.purposeAsk && !st.confirmAsk) { st.toggle('sidebar', false); return; }
+      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && st.sidebar && !st.sheet && !st.palette && !st.settingsOpen && !st.shortcuts && !st.matchLab && !st.decode && !st.fileLab && !st.purposeAsk && !st.confirmAsk) { st.toggle('sidebar', false); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); st.toggle('palette'); }
       else if (mod && e.key === ',') { e.preventDefault(); st.openSettings(st.settingsOpen ? null : 'general'); }
       else if (e.key === '?' && !mod && !isTyping(e.target)) { e.preventDefault(); st.setShortcuts(!st.shortcuts); }
@@ -75,7 +76,10 @@ export function App() {
     const leave = () => { depth = Math.max(0, depth - 1); if (!depth) setDropping(false); };
     const drop = async (e: DragEvent) => {
       e.preventDefault(); depth = 0; setDropping(false);
-      const f = e.dataTransfer?.files?.[0]; if (!f) return;
+      const all = [...(e.dataTransfer?.files ?? [])]; const f = all[0]; if (!f) return;
+      // pictures, video, documents and programs are read for what is inside them; plain text is mined for emails, domains and so on
+      const textual = f.type.startsWith('text/') || /\.(txt|csv|tsv|json|md|log|eml|html?|xml|ics|vcf)$/i.test(f.name);
+      if (!textual) { useStore.getState().openFileLab(all.slice(0, 20)); return; }
       if (f.size > 4_000_000) { s.toast('That file is too large (4 MB max)'); return; }
       const text = await f.text();
       const r = await api.post<{ items: Detected[] }>('/api/extract', { text });
@@ -87,7 +91,7 @@ export function App() {
   }, []);
 
   // While a dialog is open, the window's drag area (toolbar, sidebar header) must not sit under it: on macOS a drag region swallows clicks on anything above it, including the dialog's close button.
-  const overlayOpen = !!(s.sheet || s.shortcuts || s.matchLab || s.decode || s.purposeAsk || s.confirmAsk || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
+  const overlayOpen = !!(s.sheet || s.shortcuts || s.matchLab || s.decode || s.fileLab || s.purposeAsk || s.confirmAsk || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
   useEffect(() => { document.body.classList.toggle('overlay-open', overlayOpen); return () => document.body.classList.remove('overlay-open'); }, [overlayOpen]);
 
   if (!s.booted) return <div className="app" style={{ display: 'grid', placeItems: 'center' }}><div className="skeleton" style={{ width: 160, height: 14 }} /></div>;
@@ -122,11 +126,12 @@ export function App() {
       {s.shortcuts && <Shortcuts />}
       {s.matchLab && <MatchLab />}
       {s.decode && <Decode />}
+      {s.fileLab && <FileLab />}
       {s.purposeAsk && <PurposeDialog />}
       {s.confirmAsk && <ConfirmDialog />}
       {s.settings && !s.settings.onboarded && <Onboarding />}
       {imported && <ImportDialog items={imported} onClose={() => setImported(null)} />}
-      {dropping && <div className="dropzone">Drop to extract emails, domains, phones and IPs</div>}
+      {dropping && <div className="dropzone">Drop a photo or file to read what is inside it, or a text file to extract emails, domains and phones</div>}
       <Toasts />
     </>
   );

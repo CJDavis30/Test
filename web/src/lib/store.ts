@@ -65,6 +65,7 @@ interface State {
   purposeAsk: { caseId: string; resolve: (ok: boolean) => void } | null;
   confirmAsk: { title: string; body: string; ok: string; resolve: (ok: boolean) => void } | null;
   decode: boolean;
+  fileLab: { files: File[] } | null;
   stress: Record<string, StressView>;
   deps: SourceDependency[];
   theme: 'auto' | 'light' | 'dark';
@@ -111,6 +112,8 @@ interface Actions {
   setShortcuts(v: boolean): void;
   setMatchLab(v: { a: string; b: string } | null): void;
   setDecode(v: boolean): void;
+  openFileLab(files?: File[]): void;
+  closeFileLab(): void;
   setTheme(t: State['theme']): void;
   toast(text: string, action?: Toast['action']): void;
   dismissToast(id: number): void;
@@ -129,7 +132,7 @@ const closers = new Map<string, () => void>();
 
 export const useStore = create<State & Actions>((set, get) => ({
   booted: false, cases: [], caseId: null, snap: null, findings: {}, runs: {}, suggestions: [], settings: null, sources: [],
-  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false, autopilot: null, matchLab: null, purposeAsk: null, confirmAsk: null, decode: false, stress: {}, deps: [],
+  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false, autopilot: null, matchLab: null, purposeAsk: null, confirmAsk: null, decode: false, fileLab: null, stress: {}, deps: [],
   theme: (localStorage.getItem('plexus.theme') as State['theme']) || 'auto', toasts: [], undoStack: [], focusNodeId: null, pathFor: null,
 
   /** What each conclusion survives if one source is wrong. Debounced: decisions and runs both ask for it. */
@@ -363,6 +366,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   setShortcuts(v) { set({ shortcuts: v }); },
   setMatchLab(v) { set({ matchLab: v }); },
   setDecode(v) { set({ decode: v }); },
+  openFileLab(files = []) { set({ fileLab: { files } }); },
+  closeFileLab() { set({ fileLab: null }); },
   setTheme(theme) {
     set({ theme });
     try { localStorage.setItem('plexus.theme', theme); } catch { /* storage may be unavailable */ }

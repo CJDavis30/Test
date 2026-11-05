@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } f
 import { randomUUID } from 'node:crypto';
 import { HOME } from './config';
 import { sha256 } from './integrity';
+import type { FileReport } from '../shared/files';
 import type {
   AuditEntry, CaseInfo, Evidence, Finding, FindingStatus, GraphEdge, GraphNode, RunInfo, SourceProgress,
 } from '../shared/types';
@@ -57,6 +58,11 @@ CREATE TABLE IF NOT EXISTS source_state (
   last_error TEXT, last_ok_at INTEGER, avg_ms REAL
 );
 CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS files (
+  id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE, name TEXT NOT NULL, size INTEGER NOT NULL,
+  kind TEXT NOT NULL, sha256 TEXT NOT NULL, dhash TEXT, report TEXT NOT NULL, added_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_files_case ON files(case_id, added_at);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
@@ -141,6 +147,25 @@ export class Store {
     this.db.prepare('DELETE FROM runs WHERE case_id=?').run(id);
     this.db.prepare('DELETE FROM cases WHERE id=?').run(id);
   }
+
+  // ---- analysed files ---------------------------------------------------
+  /** Only what the analysis found is kept, never the file itself. */
+  addFile(caseId: string, r: FileReport): string {
+    const dup = this.db.prepare('SELECT id FROM files WHERE case_id=? AND sha256=?').get(caseId, r.sha256) as { id: string } | undefined;
+    const id = dup?.id ?? uid('fl_');
+    this.db.prepare('INSERT INTO files(id,case_id,name,size,kind,sha256,dhash,report,added_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, report=excluded.report, dhash=excluded.dhash, added_at=excluded.added_at')
+      .run(id, caseId, r.name, r.size, r.kind, r.sha256, r.pixels?.dhash ?? null, JSON.stringify({ ...r, id }), Date.now());
+    this.touchCase(caseId);
+    return id;
+  }
+  listFiles(caseId: string): FileReport[] {
+    return (this.db.prepare('SELECT report FROM files WHERE case_id=? ORDER BY added_at DESC').all(caseId) as any[]).map((r) => j<FileReport>(r.report, null as any)).filter(Boolean);
+  }
+  getFile(id: string): { caseId: string; report: FileReport } | null {
+    const r = this.db.prepare('SELECT case_id, report FROM files WHERE id=?').get(id) as any;
+    return r ? { caseId: r.case_id, report: j<FileReport>(r.report, null as any) } : null;
+  }
+  deleteFile(id: string) { this.db.prepare('DELETE FROM files WHERE id=?').run(id); }
 
   // ---- nodes ------------------------------------------------------------
   private nodeRow(r: any): GraphNode {

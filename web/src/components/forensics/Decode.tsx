@@ -70,7 +70,7 @@ export function Decode() {
           </div>
         )}
         {res && (<>
-          <div className="dc-sum">{res.refs.length} {res.refs.length === 1 ? 'reference' : 'references'} found · {res.timestamps} timestamps</div>
+          <div className="dc-sum">{res.refs.length} {res.refs.length === 1 ? 'reference' : 'references'} found · {res.timestamps} timestamps{res.links?.length ? ` · ${res.links.length} ${res.links.length === 1 ? 'link' : 'links'}` : ''}</div>
           {res.refs.length > 0 && (
             <div className="dc-refs">
               {res.refs.map((r) => (
@@ -82,6 +82,31 @@ export function Decode() {
             </div>
           )}
           {addable.length > 0 && s.caseId && <div className="row" style={{ marginTop: 10 }}><button className="btn" onClick={() => void add(addable)}><Plus size={14} /> Add {addable.length} {addable.length === 1 ? 'account' : 'accounts'} to this case</button></div>}
+          {res.links?.length > 0 && (
+            <div className="dc-links">
+              <div className="fsec" style={{ marginTop: 14 }}>What these links give away <span className="cnt">{res.links.length}</span></div>
+              {res.links.map((l) => (
+                <div className="dc-link" key={l.input}>
+                  <div className="truncate dc-lu" title={l.input}>{l.host}</div>
+                  {l.warnings.map((w, i) => <p className="dc-warn" key={i}>{w}</p>)}
+                  <dl>
+                    {l.facts.map((f, i) => <div key={i} className={`dc-lf i${f.importance}`}><dt>{f.label}</dt><dd className={f.iso ? 'num' : ''}>{f.iso ? f.iso.replace('T', ' ').replace('Z', ' UTC') : f.value}</dd></div>)}
+                    {l.removed.length > 0 && <div className="dc-lf i0"><dt>Tracking removed</dt><dd>{l.removed.join(', ')}</dd></div>}
+                  </dl>
+                  {l.cleaned !== l.input && l.cleaned !== l.final && <p className="faint dc-clean">Clean link: <span className="num">{l.cleaned}</span></p>}
+                  <div className="row dc-checks">{l.checks.slice(0, 4).map((c) => <a key={c.url} className="btn sm" href={c.url} target="_blank" rel="noreferrer noopener">{c.label}</a>)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {res.places?.length > 0 && (
+            <div className="dc-places">
+              <div className="fsec" style={{ marginTop: 14 }}>Places written in this text <span className="cnt">{res.places.length}</span></div>
+              {res.places.map((p) => (
+                <div className="dc-ref" key={p.raw}><span className="dc-plat">Place</span><div className="grow"><b className="num">{p.lat.toFixed(5)}, {p.lon.toFixed(5)}</b><small>{p.description}</small></div>{p.links.slice(0, 2).map((m) => <a key={m.url} className="btn sm" href={m.url} target="_blank" rel="noreferrer noopener">{m.label.replace('Open in ', '')}</a>)}</div>
+              ))}
+            </div>
+          )}
           {res.headers && (
             <div className="dc-head">
               <div className="fsec" style={{ marginTop: 14 }}>Email headers</div>

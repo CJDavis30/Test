@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, KeyRound, Upload } from 'lucide-react';
+import { ArrowRight, FileSearch, KeyRound, Upload } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { startAutopilot } from '../lib/autopilot';
@@ -39,7 +39,7 @@ export function Welcome() {
           <span>Drop a file to extract entities</span>
           <span>·</span>
           <span>Paste a list, one per line, in <Kbd>{MOD}K</Kbd></span>
-          <span>·</span><button onClick={() => s.openSettings('sources')}><KeyRound size={13} /> Sources &amp; API keys</button>
+          <span>·</span><button onClick={() => s.openFileLab()}><FileSearch size={13} /> Analyze a photo or file</button><span>·</span><button onClick={() => s.openSettings('sources')}><KeyRound size={13} /> Sources &amp; API keys</button>
         </div>
       </motion.div>
     </div>

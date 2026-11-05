@@ -33,9 +33,10 @@ export function aiReady(store: Store): { ok: boolean; why?: string; model?: stri
   return { ok: true, model: s.model || p.model };
 }
 
-type Msg = { role: 'system' | 'user' | 'assistant'; content: string };
+export type Part = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } };
+export type Msg = { role: 'system' | 'user' | 'assistant'; content: string | Part[] };
 
-export async function complete(store: Store, messages: Msg[], opts: { timeoutMs?: number; fetchImpl?: typeof fetch } = {}): Promise<{ text: string; model: string }> {
+export async function complete(store: Store, messages: Msg[], opts: { timeoutMs?: number; fetchImpl?: typeof fetch; temperature?: number; vision?: boolean } = {}): Promise<{ text: string; model: string }> {
   const r = aiReady(store);
   if (!r.ok) throw new Error(r.why);
   const s = aiSettings(store);
@@ -52,7 +53,7 @@ export async function complete(store: Store, messages: Msg[], opts: { timeoutMs?
       ...(key ? { Authorization: `Bearer ${key}` } : {}),
       ...(s.provider === 'openrouter' ? { 'HTTP-Referer': 'https://plexus.local', 'X-Title': 'Plexus' } : {}),
     },
-    body: JSON.stringify({ model: r.model, messages, temperature: 0.2 }),
+    body: JSON.stringify({ model: opts.vision && aiSettings(store).visionModel ? aiSettings(store).visionModel : r.model, messages, temperature: opts.temperature ?? 0.2 }),
   });
   if (!res.ok) throw new Error(`AI provider HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const body: any = await res.json();
