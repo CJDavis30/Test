@@ -13,7 +13,7 @@ const audit = (p, where) => p.evaluate((where) => {
   const narrow = matchMedia('(max-width: 980px)').matches;
   const layer = document.querySelector('.menu.srclist') || (narrow && document.querySelector('.app:not(.no-sidebar) .sidebar')) || (narrow && document.querySelector('.insp-wrap .inspector')) || [...document.querySelectorAll('.detail-over')].pop() || [...document.querySelectorAll('[role=dialog][aria-modal=true], .modal')].pop();
   const scope = layer || document.body;
-  const clipped = (el, cx, cy) => { for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) { const o = getComputedStyle(n); if (o.overflowX === 'visible' && o.overflowY === 'visible') continue; const r = n.getBoundingClientRect(); if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) return true; } return false; };
+  const clipped = (el, cx, cy) => { for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) { const o = getComputedStyle(n); if (o.overflowX === 'visible' && o.overflowY === 'visible') continue; const r = n.getBoundingClientRect(); if (cx < r.left + 1 || cx > r.right - 1 || cy < r.top + 1 || cy > r.bottom - 1) return true; } return false; };
   for (const el of scope.querySelectorAll(sel)) {
     if (!vis(el)) continue;
     if (el.closest('[aria-hidden=true]')) continue;

@@ -318,3 +318,8 @@
 .move { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
 .mv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
 .mv-main > b { font-size: 13.5px; } .mv-pred { color: var(--text-2); } .mv-pred .pos { color: var(--lvl4); }
+.deps { display: flex; flex-direction: column; gap: 10px; }
+.dep { padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.dep-h { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; } .dep-h .faint { font-size: 12px; }
+.dep-bar { display: block; height: 5px; border-radius: 3px; background: var(--surface-3); margin: 7px 0; overflow: hidden; } .dep-bar i { display: block; height: 100%; background: var(--lvl2); border-radius: 3px; }
+.dep-v { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 12px; }

@@ -25,6 +25,7 @@ export function Overview({ node, run, findings, subjectId, onOpen, onStart, pend
   const searching = run?.status === 'running' && !brief;
   const R = 30, C = 2 * Math.PI * R;
   const [moves, setMoves] = useState<Move[]>([]);
+  useEffect(() => { s.refreshStress(); }, [s.caseId, findings.length]);
   useEffect(() => {
     if (!s.caseId) return; let live = true;
     api.get<{ moves: Move[] }>(`/api/cases/${s.caseId}/moves`).then((r) => { if (live) setMoves(r.moves.filter((m) => findings.some((f) => f.id === m.findingId))); }).catch(() => {});
@@ -91,6 +92,21 @@ export function Overview({ node, run, findings, subjectId, onOpen, onStart, pend
         </div>
         <ConnectionMap subject={node} findings={live} onOpen={onOpen} />
       </section>
+
+      {s.deps.length > 0 && (
+        <section>
+          <div className="ov-title"><h3>What your conclusions rest on</h3><span className="faint">If one of these sources turned out to be wrong, these accepted findings would weaken</span></div>
+          <div className="deps">
+            {s.deps.slice(0, 4).map((d) => { const max = s.deps[0].weakensCount; return (
+              <div className="dep" key={d.family}>
+                <div className="dep-h"><b>{d.name}</b><span className="faint">{d.weakensCount} {d.weakensCount === 1 ? 'conclusion weakens' : 'conclusions weaken'}{d.collapsesCount ? `, ${d.collapsesCount} would collapse` : ''}</span></div>
+                <span className="dep-bar"><i style={{ width: `${(d.weakensCount / max) * 100}%` }} /></span>
+                <div className="dep-v">{d.weakens.slice(0, 4).map((w) => <span key={w.id} className="idn-chip"><EntityGlyph type={w.type} size={12} /><span className="truncate">{w.value.length > 28 ? w.value.slice(0, 26) + '…' : w.value}</span></span>)}{d.weakens.length > 4 ? <span className="faint">+{d.weakensCount - 4} more</span> : null}</div>
+              </div>
+            ); })}
+          </div>
+        </section>
+      )}
 
       {moves.length > 0 && (
         <section>

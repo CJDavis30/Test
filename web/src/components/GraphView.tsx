@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check, Orbit, Shuffle, Wand2, Rocket } from 'lucide-react';
+import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check, Orbit, Shuffle, Wand2, Rocket, ShieldAlert } from 'lucide-react';
 import { startAutopilot } from '../lib/autopilot';
 import { LEVEL_LABEL } from '@shared/types';
 import { ENTITY_LABEL } from '@shared/types';
-import { useStore } from '../lib/store';
+import { useStore, keyOfNode } from '../lib/store';
 import { api } from '../lib/api';
 import { explainRelation } from '@shared/explain';
 import { GraphEngine, type Hover, type LayoutMode } from '../lib/graph';
@@ -22,6 +22,15 @@ export function GraphView() {
   const [hover, setHover] = useState<Hover | null>(null);
   const [menu, setMenu] = useState<{ id: string | null; x: number; y: number } | null>(null);
   const [focusMode, setFocusMode] = useState(false);
+  const [stressMap, setStressMap] = useState(false);
+  const stress = useStore((st) => st.stress);
+  const allFindings = useStore((st) => st.findings);
+  const weakIds = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const f of Object.values(allFindings)) { const v = stress[f.id]?.verdict; if (f.status !== 'rejected' && (v === 'single' || v === 'fragile')) byKey.set(`${f.type}:${f.key}`, v); }
+    return (snap?.nodes ?? []).filter((n) => n.state === 'confirmed' && byKey.has(keyOfNode(n))).map((n) => n.id);
+  }, [allFindings, stress, snap?.nodes]);
+  useEffect(() => { eng.current?.setWeak(stressMap ? new Set(weakIds) : null); }, [stressMap, weakIds]);
   const [sugOpen, setSugOpen] = useState(false);
   const [mode, setMode] = useState<LayoutMode>(() => { try { return localStorage.getItem('plexus.layout') === 'free' ? 'free' : 'organized'; } catch { return 'organized'; } });
   const modeRef = useRef(mode); modeRef.current = mode;
@@ -138,6 +147,9 @@ export function GraphView() {
           </div>
 
           <div className="stage-note">
+            {weakIds.length > 0 && (
+              <button className="float-pill" aria-pressed={stressMap} onClick={() => setStressMap(!stressMap)} title="Highlight the conclusions that hang on a single source: if that source is wrong, they fall apart"><ShieldAlert size={14} /> {stressMap ? 'Showing' : 'Show'} {weakIds.length} weak {weakIds.length === 1 ? 'point' : 'points'}</button>
+            )}
             {suggestions.length > 0 && (
               <button className="float-pill" onClick={() => setSugOpen(!sugOpen)}><Sparkles size={14} /> {suggestions.length} suggested {suggestions.length === 1 ? 'link' : 'links'}</button>
             )}

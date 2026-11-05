@@ -25,7 +25,8 @@ export function profilesFor(store: Store, caseId: string): { profiles: Profile[]
   const nodes = store.listNodes(caseId);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const edges = store.listEdges(caseId);
-  const neighbours = (id: string) => edges.filter((e) => e.from === id || e.to === id).map((e) => byId.get(e.from === id ? e.to : e.from)).filter(Boolean) as GraphNode[];
+  const tied = (id: string) => edges.filter((e) => e.from === id || e.to === id).map((e) => ({ node: byId.get(e.from === id ? e.to : e.from), strength: e.strength })).filter((x): x is { node: GraphNode; strength: number } => !!x.node);
+  const neighbours = (id: string) => tied(id).map((x) => x.node);
   const profiles: Profile[] = []; const circ = new Map<string, Circadian>();
   // A bare username is only the handle itself. Once an account with that handle is on the case, the account is the thing to compare.
   const accountHandles = new Set(nodes.filter((n) => n.type === 'account' && typeof n.attrs?.handle === 'string').map((n) => String(n.attrs.handle).toLowerCase().replace(/^@/, '')));
@@ -43,13 +44,15 @@ export function profilesFor(store: Store, caseId: string): { profiles: Profile[]
       for (const f of store.listFindings(caseId).filter((f) => f.type === n.type && f.key === keyFor(n.type, n.value, n.attrs) && f.when)) { const d = asMs(f.when); if (d) { created = d; break; } }
     }
     const nb = neighbours(n.id);
-    const contacts = nb.filter((x) => ['email', 'phone', 'wallet'].includes(x.type)).map((x) => `${x.type}:${keyFor(x.type, x.value, x.attrs)}`);
+    const contactStrength: Record<string, number> = {};
+    for (const t of tied(n.id)) if (['email', 'phone', 'wallet'].includes(t.node.type)) { const k = `${t.node.type}:${keyFor(t.node.type, t.node.value, t.node.attrs)}`; contactStrength[k] = Math.max(contactStrength[k] ?? 0, t.strength); }
+    const contacts = Object.keys(contactStrength);
     const avatar = nb.find((x) => x.type === 'image' && typeof x.attrs?.hash === 'string')?.attrs?.hash as string | undefined;
     const links = nb.filter((x) => x.type === 'account' || x.type === 'url').map((x) => x.value);
     const c = circadian(activityOf(n)); if (c) circ.set(n.id, c);
     profiles.push({
       id: n.id, label: n.label, platform, handle, displayName: typeof n.attrs?.displayName === 'string' ? n.attrs.displayName : undefined,
-      createdAt: created?.ms, createdPrecision: created?.precision, avatarHash: avatar, contacts, links, circadian: c ? { offsets: c.offsets, strength: c.strength } : undefined,
+      createdAt: created?.ms, createdPrecision: created?.precision, avatarHash: avatar, contacts, contactStrength, links, circadian: c ? { offsets: c.offsets, strength: c.strength } : undefined,
       activity: activityOf(n),
     });
   }

@@ -151,15 +151,45 @@ describe('look-alike (impostor) detection', () => {
   const t0 = Date.UTC(2021, 2, 4, 19, 22, 11);
   const rob: Profile = { id: 'r', label: 'r', platform: 'Roblox', handle: 'maralinden', createdAt: t0, createdPrecision: 'second' };
   const dis: Profile = { id: 'd', label: 'd', platform: 'Discord', handle: 'maralinden', createdAt: t0 + 41_000, createdPrecision: 'second' };
-  const imp: Profile = { id: 'i', label: 'i', platform: 'Discord', handle: 'maralinden_', createdAt: Date.UTC(2024, 5, 1), createdPrecision: 'second' };
+  const imp: Profile = { id: 'i', label: 'i', platform: 'Discord', handle: 'maralinden_', createdAt: Date.UTC(2024, 5, 1), createdPrecision: 'second', circadian: { strength: 'strong', offsets: [{ offset: 9, p: 0.97 }, { offset: 8, p: 0.03 }] } };
+  const clockUS = { strength: 'strong' as const, offsets: [{ offset: -6, p: 0.97 }, { offset: -5, p: 0.03 }] };
   it('flags the copy and not the real pair, and says why', () => {
-    const l = lookAlikes([rob, dis, imp]);
+    const l = lookAlikes([{ ...rob, circadian: clockUS }, { ...dis, circadian: clockUS }, imp]);
     expect(l.length).toBeGreaterThanOrEqual(1);
     expect(l.every((x) => x.a.id === 'i' || x.b.id === 'i')).toBe(true);
     expect(l[0].against.join(' ')).toMatch(/years apart|different hours/);
   });
+  it('does not call two accounts years apart look-alikes: that alone is normal', () => {
+    expect(lookAlikes([rob, imp.createdAt ? { ...imp, circadian: undefined } : imp])).toEqual([]);
+  });
   it('ignores very common handles and pairs with nothing against them', () => {
     expect(lookAlikes([{ id: 'a', label: 'a', handle: 'gamer', createdAt: 1 }, { id: 'b', label: 'b', handle: 'gamer', createdAt: 2 + 4 * 86400_000 * 365 }])).toEqual([]);
     expect(lookAlikes([{ id: 'a', label: 'a', handle: 'zzyzxroad' }, { id: 'b', label: 'b', handle: 'zzyzxroad' }])).toEqual([]);
+  });
+});
+
+describe('linker properties', () => {
+  const rngp = (seed: number) => { let s = seed >>> 0; return () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  const handles = ['maralinden', 'xX_maralinden_Xx', 'm4r4l1nd3n', 'linden_mara', 'zebulon', 'quarrel99', 'gamer', 'the_real_pro', 'mlinden', 'zzyzxroad', 'ab', '日本語'];
+  const mk = (r: () => number, i: number): Profile => ({ id: String(i), label: String(i), platform: r() < 0.5 ? 'Roblox' : 'Discord', handle: handles[Math.floor(r() * handles.length)], createdAt: r() < 0.7 ? Date.UTC(2020, 0, 1) + Math.floor(r() * 5 * 365 * 86400000) : undefined, createdPrecision: r() < 0.7 ? 'second' : 'day', contacts: r() < 0.2 ? ['email:a@b.example'] : [] });
+  it('is symmetric: comparing A with B equals comparing B with A', () => {
+    const r = rngp(11);
+    for (let i = 0; i < 300; i++) { const a = mk(r, 1), b = mk(r, 2); expect(linkProfiles(a, b).totalBits, `${a.handle}/${b.handle}`).toBeCloseTo(linkProfiles(b, a).totalBits, 9); }
+  });
+  it('always gives a probability in [0,1] and finite bits, whatever the profiles', () => {
+    const r = rngp(12);
+    for (let i = 0; i < 500; i++) { const m = linkProfiles(mk(r, 1), mk(r, 2), { priorOdds: 10 ** (r() * 7 - 6) }); expect(m.posterior).toBeGreaterThanOrEqual(0); expect(m.posterior).toBeLessThanOrEqual(1); expect(Number.isFinite(m.totalBits)).toBe(true); expect(m.signals.every((s) => Number.isFinite(s.bits))).toBe(true); }
+  });
+  it('is monotone: adding a shared contact detail or the same avatar never lowers the posterior', () => {
+    const r = rngp(13);
+    for (let i = 0; i < 200; i++) { const a = mk(r, 1), b = mk(r, 2); const base = linkProfiles({ ...a, contacts: [] }, { ...b, contacts: [] }).posterior; const more = linkProfiles({ ...a, contacts: ['x'], avatarHash: 'h' }, { ...b, contacts: ['x'], avatarHash: 'h' }).posterior; expect(more).toBeGreaterThanOrEqual(base); }
+  });
+  it('is monotone in the prior: a higher prior never lowers the posterior', () => {
+    const r = rngp(14);
+    for (let i = 0; i < 200; i++) { const a = mk(r, 1), b = mk(r, 2); let last = -1; for (const p of [1e-6, 1e-4, 1e-2, 0.5, 5]) { const q = linkProfiles(a, b, { priorOdds: p }).posterior; expect(q).toBeGreaterThanOrEqual(last); last = q; } }
+  });
+  it('identity resolution never puts one profile in two groups, and never loses one', () => {
+    const r = rngp(15);
+    for (let i = 0; i < 30; i++) { const P = Array.from({ length: 5 + Math.floor(r() * 25) }, (_, k) => mk(r, k)); const res = resolveIdentities(P); const ids = res.identities.flatMap((g) => g.members.map((m) => m.id)); expect(ids.length).toBe(P.length); expect(new Set(ids).size).toBe(P.length); }
   });
 });

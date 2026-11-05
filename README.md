@@ -24,7 +24,7 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 191 unit/integration tests
+npm test           # 324 unit/integration tests
 npm run typecheck
 ```
 
@@ -109,6 +109,30 @@ No fake precision: the UI shows four levels (Weak / Fair / Good / Strong) and *w
 - **Exports:** Markdown, printable **HTML** (Print → Save as PDF, with the integrity section), **GraphML** (Gephi, yEd, Cytoscape), **CSV** (entities and relationships, spreadsheet-safe) and full JSON. Redacted exports mask names, notes, quotes and links.
 - **Search across every case** from ⌘K, and a **shortcuts list** on `?`.
 
+### Forensics: what identifiers, clocks and statistics can tell you
+
+Everything here is computed on this Mac from public data and from the identifiers themselves. Each technique states its assumptions in the interface and is tested against simulations where the true answer is known.
+
+| Technique | What it does | Measured |
+|---|---|---|
+| **Platform ID decoding** | Discord, Twitter/X and Instagram IDs are timestamps; Steam IDs name their account type; Minecraft UUIDs show whether Mojang or a cracked server issued them. A scanner finds every platform link and ID in pasted text and decodes it. | Exact: matches Discord's documented example, a known Steam ID, and platform MD5/SHA-256 on awkward lengths. |
+| **Match Lab (same operator?)** | Fellegi–Sunter record linkage. Every signal (handle, creation time, shared contact, avatar, self-link, active hours, alternation) is a likelihood ratio in **bits**; prior odds plus the sum gives the probability. Drag the prior and watch the answer move. | Account-creation coincidence is a proper likelihood ratio: its average over unrelated pairs is 1. Calibrated against its own generative model. A copied handle is capped at 8 bits, because copying is easy. |
+| **Circadian fingerprint** | Turns any timestamps (message links, commits, logs, public feeds) into a probability over timezones, with an Activity Clock. | Stated confidence tracks accuracy: 70% stated is right 68% of the time at 80 sittings; 97% vs 96% at 320. |
+| **Daylight-saving fingerprint** | Whether the clocks change where this person lives, and in which hemisphere. | Calibrated; honest "not enough data" when only one season is present. |
+| **Alternation test** | One person takes turns between accounts; two people overlap. | Flags one-operator pairs in at least 80% of simulations; false link rate at most 5%. |
+| **Creation bursts** | A scan statistic over account creation times: three accounts in one minute is a pattern, with its p-value. | False alarms at most 1% on random data. |
+| **Identities** | Groups accounts into operators, keeps namesakes and look-alikes apart, and lists "might be the same" for a human. | Property-tested: symmetric, monotone, every profile in exactly one group. |
+| **Stress test** | Re-scores every conclusion with each source removed: what survives if one source is wrong? A *Stress map* on the graph rings the conclusions that hang on one source. | Tested: removing evidence never raises a score. |
+| **Bits ledger** | For any finding, the chance every independent source is wrong at once; equals the score exactly (belief = 1 − 2^−bits). | Identity checked in tests. |
+| **Next best move** | Expected information gain picks the check that would teach you the most and predicts what it would show. | Tested: gain peaks at 50/50, is never negative, and the expected posterior equals the prior. |
+| **Email header forensics** | Route, hop timing, the sender's own timezone, SPF/DKIM/DMARC, forged-timeline checks. | Unit-tested on a realistic header and on forged ones. |
+
+**Autopilot** follows the strongest leads on its own and builds the graph while you watch. It accepts only what several independent sources agree on and nothing disputes, never follows guesses or bare names, logs everything, and can be **undone** in one click or run as a **dry run** first.
+
+**Signed evidence package** (⌘K → *Save signed evidence package*): one HTML file containing the evidence, an Ed25519 signature, and code that recomputes every fingerprint and verifies the signature in the reader's own browser, with a built-in SHA-256 fallback. Verified in a real browser, including that changing one quote is detected. The signing key lives in a 0600 file on your Mac.
+
+**Safeguards for young people.** Roblox and Discord are full of children. If a source shows what a subject says about their own age or school (never inferred from behaviour), Plexus flags the case, holds back from steps that point toward a real name, number, email or place, asks before you accept one, and points to reporting instead (platform safety forms, the police, NCMEC in the US). It can be wrong either way, so a person can override it and the override is logged. Live lookups also ask for a purpose once per case, written to the tamper-evident log; both can be turned off in Settings.
+
 ### Integrity and safety (chain of custody)
 
 - **Evidence fingerprints.** Every observation is sealed with a SHA-256 hash of exactly what Plexus recorded: the source, the question asked, the page, the quote, the record fields and the time. The fingerprint shows on each evidence row and in reports, and is re-checked on demand. The hash covers the *recorded* observation, not the raw network response, so it proves nothing was altered after capture, not that the source was truthful.
@@ -132,8 +156,8 @@ The model is **never a source of facts**. It reads scored, numbered findings and
 |---|---|
 | `⌘K` | Search / add anything · paste a list · run commands |
 | Findings sheet | `↑↓` move · `A` accept · `R` reject · `U` unsure · `↵`/`Space` open details (narrow windows) · `T` one-by-one · `Esc` back · `⌘Z` undo · `⌘↵` add to graph |
-| Graph | click · shift-click · drag-box · drag to pin · `↵` open · `R` run checks · `F` focus · `P` trace path · `L` link · `M` merge · `⌫` remove (undoable) · `0` fit |
-| Anywhere | `⌘,` settings · `⌘B` sidebar · `⌘I` inspector · `⌘1–4` views · drop a file to extract entities · paste to start |
+| Graph | click · shift-click · drag-box · drag to pin · `↵` open · `R` run checks · `F` focus · `P` trace path · `L` link · `C` compare two accounts · `M` merge · `⌫` remove (undoable) · `0` fit |
+| Anywhere | `⌘,` settings · `⌘B` sidebar · `⌘I` inspector · `⌘1–5` views · drop a file to extract entities · paste to start |
 
 Views: **Graph**, **Table** (sortable/filterable), **Timeline** (every dated fact), **Report** (cited Markdown, redactable, print-to-PDF, JSON export).
 
@@ -198,9 +222,9 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 191 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
+- 324 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
-- The UI in a real browser (Chromium): every view in light and dark; **128 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
+- The UI in a real browser (Chromium): every view in light and dark; **150 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
 - The production server bundle runs standalone and serves the app; `npm run dev` works including streaming through the proxy.
 - Behaviour when **every** source fails (this sandbox's reality): honest per-source errors, a "couldn't reach most sources" state, and no fake "nothing found".
@@ -227,6 +251,6 @@ web/       React UI: design system, canvas graph engine, findings sheet, views, 
 desktop/   Electron shell + tested helpers
 scripts/mac/ install / update / uninstall
 assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
-test/      191 tests
+test/      324 tests
 scripts/qa/  browser end-to-end + stress scripts
 ```

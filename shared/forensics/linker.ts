@@ -26,6 +26,8 @@ export interface Profile {
   avatarHash?: string;
   /** emails, phone numbers, wallet addresses and links that appear on or are tied to this profile, normalized */
   contacts?: string[];
+  /** how strongly each contact is tied to this profile (0..1), where known; a weak tie counts for less */
+  contactStrength?: Record<string, number>;
   links?: string[];
   circadian?: Pick<Circadian, 'offsets' | 'strength'>;
   /** raw activity timestamps (ms); used for the alternation test and never sent to the interface */
@@ -114,7 +116,11 @@ export function linkProfiles(a: Profile, b: Profile, o: { priorOdds?: number } =
     if (a.avatarHash === b.avatarHash) signals.push({ key: 'avatar', label: 'Same custom avatar', bits: 18, detail: 'The same profile picture (identical image hash). A custom picture is shared by chance about 1 in 250,000 times.', assumption: 'Capped at 18 bits: stock images and widely reposted pictures exist.' });
   }
   const shared = (a.contacts ?? []).filter((c) => (b.contacts ?? []).includes(c));
-  if (shared.length) signals.push({ key: 'contact', label: 'Shared contact detail', bits: Math.min(22, 18 + (shared.length - 1) * 2), detail: `Both are tied to ${shared.length === 1 ? shared[0] : `${shared.length} of the same contact details (${shared.slice(0, 2).join(', ')}…)`}. An email, number or wallet is rarely shared.`, assumption: 'Treats a contact detail as personal; a shared inbox or family phone would be a false positive.' });
+  if (shared.length) {
+    // being tied to the same email by a weak source is not the same as a profile that lists it, so the weaker tie sets the weight
+    const w = Math.max(...shared.map((c) => Math.min(a.contactStrength?.[c] ?? 1, b.contactStrength?.[c] ?? 1)));
+    signals.push({ key: 'contact', label: 'Shared contact detail', bits: Math.min(22, (14 + (shared.length - 1) * 2) * w), detail: `Both are tied to ${shared.length === 1 ? shared[0].replace(/^[a-z]+:/, '') : `${shared.length} of the same contact details (${shared.slice(0, 2).map((x) => x.replace(/^[a-z]+:/, '')).join(', ')}…)`}${w < 0.95 ? ` (the ties are only ${Math.round(w * 100)}% certain themselves)` : ''}. An email, number or wallet is rarely shared.`, assumption: 'Treats a contact detail as personal (a shared inbox or family phone would be a false positive) and scales with how certain each tie to the profile is.' });
+  }
   const linked = (a.links ?? []).some((l) => !!b.handle && l.toLowerCase().includes(b.handle.toLowerCase()) && (!b.platform || l.toLowerCase().includes(b.platform.toLowerCase()))) || (b.links ?? []).some((l) => !!a.handle && l.toLowerCase().includes(a.handle.toLowerCase()) && (!a.platform || l.toLowerCase().includes(a.platform.toLowerCase())));
   if (linked) signals.push({ key: 'link', label: 'One profile links to the other', bits: 14, detail: 'One profile points to the other. People link their own accounts, but anyone can link anyone.', assumption: 'Self-links are not verified, so this is capped well below certainty.' });
   if (a.activity && b.activity) { const alt = alternation(a.activity, b.activity); if (alt) signals.push({ key: 'alternation', label: 'Takes turns, never at once', bits: alt.bits, detail: alt.detail, assumption: alt.assumption }); }
@@ -189,6 +195,8 @@ export function lookAlikes(profiles: Profile[], o: { priorOdds?: number } = {}):
     if (h.bits < 6) continue; // a very common handle is not worth flagging
     const m = linkProfiles(a, b, o);
     if (m.posterior >= 0.9) continue; // confidently the same operator: not a look-alike
+    const strong = m.signals.filter((s) => s.key !== 'handle' && s.key !== 'name' && s.key !== 'created' && s.bits <= -2);
+    if (strong.length === 0) continue; // years between two accounts is normal; only concrete evidence of a different operator counts
     const against = m.signals.filter((s) => s.key !== 'handle' && s.key !== 'name' && s.bits < -1).map((s) => s.key === 'clock' ? `Active at very different hours (${s.bits.toFixed(1)} bits against).` : s.key === 'alternation' ? `Active at the same moments, as two people are (${s.bits.toFixed(1)} bits against).` : `${s.label}: ${s.detail}`);
     const created = m.signals.find((s) => s.key === 'created');
     if (created && created.bits < 0 && a.createdAt !== undefined && b.createdAt !== undefined) { const days = Math.round(Math.abs(a.createdAt - b.createdAt) / 86_400_000); if (days >= 30) against.push(`Created ${days >= 365 ? `${(days / 365).toFixed(1)} years` : `${days} days`} apart, not in one go.`); }

@@ -272,3 +272,26 @@ describe('reliability: a failing source is paused and the chain falls through', 
     } finally { for (const x of others) ctx.store.setSourceEnabled(x.id, true); ctx.store.setSetting('demoMode', true); delete CAPABILITY_MODE['flaky-test']; breaker.reset(); }
   }, 60_000);
 });
+
+describe('chaos: sources failing in every way at once', () => {
+  it('a run still finishes, reports each source honestly, and keeps what the healthy ones found', async () => {
+    const { breaker } = await import('../server/breaker'); breaker.reset();
+    const { CAPABILITY_MODE } = await import('../server/adapters/types'); CAPABILITY_MODE['chaos-test'] = 'all';
+    const base = { accepts: ['username'] as any, capability: 'chaos-test', requiresKey: false, minIntervalMs: 0, selfTest: { type: 'username' as const, value: 'x' }, anyMode: true, reliability: 0.8, cacheTtlMs: 0, family: 'x', priority: 1 };
+    register({ ...base, id: 'chaos-throw', name: 'Throws', family: 'c1', description: 't', async run() { throw new Error('boom'); } } as any);
+    register({ ...base, id: 'chaos-garbage', name: 'Garbage', family: 'c2', description: 't', async run() { return [null, undefined, 5, 'x', { type: 'nonsense', value: 1 }, { type: 'org', value: '', relation: 'x', weight: NaN }, { type: 'org', value: 'Survivor Inc', relation: 'works at', weight: 5 }] as any; } } as any);
+    register({ ...base, id: 'chaos-good', name: 'Good', family: 'c3', description: 't', async run() { return [{ type: 'org', value: 'Survivor Inc', relation: 'works at', weight: 0.7 }]; } } as any);
+    register({ ...base, id: 'chaos-reject', name: 'Rejects', family: 'c4', description: 't', async run() { return Promise.reject('a string, not an Error'); } } as any);
+    ctx.store.setSetting('demoMode', false); ctx.store.setSetting('requirePurpose', false);
+    const others = allAdapters().filter((x) => !x.id.startsWith('chaos-')); for (const x of others) ctx.store.setSourceEnabled(x.id, false);
+    try {
+      const { events } = await runAndWait('chaos_user', { type: 'username' });
+      expect(events.at(-1)?.t).toBe('run.done');
+      const last = (id: string) => (events.filter((e) => e.t === 'source') as any[]).map((e) => e.progress).filter((p) => p.adapter === id).at(-1);
+      expect(last('chaos-throw').state).toBe('error'); expect(last('chaos-reject').state).toBe('error');
+      expect(['done', 'empty', 'error']).toContain(last('chaos-garbage').state);
+      const f = (events.filter((e) => e.t === 'findings') as any[]).flatMap((e) => e.findings).find((x: any) => x.value === 'Survivor Inc');
+      expect(f).toBeTruthy(); expect(f.score).toBeLessThanOrEqual(0.99); expect(Number.isFinite(f.score)).toBe(true);
+    } finally { for (const x of others) ctx.store.setSourceEnabled(x.id, true); ctx.store.setSetting('demoMode', true); delete CAPABILITY_MODE['chaos-test']; breaker.reset(); }
+  }, 60_000);
+});

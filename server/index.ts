@@ -117,7 +117,7 @@ export async function createApp(store = new Store()) {
     for (const f of all) stress[f.id] = { ...stressTest(f, rel), ledger: ledger(f, rel) };
     const deps = dependencies(all.filter((f) => f.status === 'accepted'), rel).slice(0, 8).map((d) => ({
       family: d.family, name: d.name,
-      weakens: d.weakens.slice(0, 12).map((f) => ({ id: f.id, type: f.type, value: f.value, level: f.level })),
+      weakens: d.weakens.slice(0, 12).map((f) => ({ id: f.id, type: f.type, value: labelFor(f.type, f.value, f.attrs), level: f.level })),
       weakensCount: d.weakens.length, collapsesCount: d.collapses.length,
     }));
     return c.json({ stress, deps });
