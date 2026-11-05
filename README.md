@@ -24,7 +24,7 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 345 unit/integration tests
+npm test           # 349 unit/integration tests
 npm run typecheck
 ```
 
@@ -128,6 +128,7 @@ Everything here is computed on this Mac from public data and from the identifier
 | **Email header forensics** | Route, hop timing, the sender's own timezone, SPF/DKIM/DMARC, forged-timeline checks. | Unit-tested on a realistic header and on forged ones. |
 | **Chat export importer** | Open a Discord (JSON/CSV), Telegram (JSON) or WhatsApp (text) export in Decode: every speaker gets a message count, an activity clock and a timezone estimate, and the busy ones can be added to the case in one click. | Unit-tested on all four formats, including malformed and empty input. |
 | **Self-calibrating ID clocks** | Roblox and GitHub IDs grow with time but not at a published rate. Plexus learns the ID→date curve from the accounts it has actually fetched (monotone fit) and dates a bare ID with an honest band. | Band is the 90th-percentile leave-one-out error ×1.6; refuses to guess with fewer than 6 anchors. |
+| **Roblox depth + Discord invites** | Roblox: earlier usernames (real leads, weighted modestly because freed names get reused), friend and follower counts shown for context but never scored. Discord: a public invite link resolves to the server name, creation date (from its ID), size and who made the invite. | Fixture-tested (no live calls from this sandbox); a failing side endpoint never costs the main profile. |
 | **Case health** | One score for how well-supported the case is: independent sources, how much hangs on a single source, unresolved conflicts, stale evidence. Opens to show each part and what would improve it. | Unit-tested. |
 | **Staleness** | Old observations are flagged as such on the finding instead of silently looking current. | Unit-tested. |
 
@@ -226,7 +227,7 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 345 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
+- 349 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
 - The UI in a real browser (Chromium): every view in light and dark; **155 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
@@ -255,6 +256,6 @@ web/       React UI: design system, canvas graph engine, findings sheet, views, 
 desktop/   Electron shell + tested helpers
 scripts/mac/ install / update / uninstall
 assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
-test/      345 tests
+test/      349 tests
 scripts/qa/  browser end-to-end + stress scripts
 ```

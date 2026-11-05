@@ -315,6 +315,42 @@ describe('roblox', () => {
   });
 });
 
+describe('roblox depth and Discord invites', () => {
+  const body = { id: 3148802991, name: 'maralinden', displayName: 'Mara', description: '', created: '2021-03-04T19:22:11.317Z', isBanned: false, hasVerifiedBadge: false };
+  it('Roblox: earlier usernames become modest leads; friend counts stay in the record, not the score', async () => {
+    const c = await run(gaming.roblox, 'account', 'https://www.roblox.com/users/3148802991/profile', fake([
+      ['username-history', { body: { data: [{ name: 'mara_builds' }, { name: 'MaraLinden' }, { name: 'mara_builds' }] } }],
+      ['friends/count', { body: { count: 1234 } }], ['followers/count', { body: { count: 56 } }],
+      ['/v1/users/3148802991', { body }], ['groups/roles', { body: { data: [] } }],
+    ]));
+    const old = c.filter((x) => x.relation === 'earlier Roblox username');
+    expect(old.map((x) => x.value)).toEqual(['mara_builds']);          // current name and duplicates are dropped
+    expect(old[0].weight).toBeLessThanOrEqual(0.5);
+    const acct = c.find((x) => x.type === 'account')!;
+    expect(acct.record?.facts.find(([k]) => k === 'Friends')?.[1]).toBe('1,234');
+    expect(acct.weight).toBe(0.92);
+  });
+  it('Roblox: a failing history or count endpoint never costs the profile', async () => {
+    const c = await run(gaming.roblox, 'account', 'https://www.roblox.com/users/3148802991/profile', fake([['/v1/users/3148802991', { body }], ['groups/roles', { body: { data: [] } }]]));
+    expect(c.find((x) => x.type === 'account')).toBeTruthy();
+  });
+  const inv = { code: 'abc123', guild: { id: '175928847299117063', name: 'Linden Builds' }, approximate_member_count: 4210, approximate_presence_count: 380, inviter: { id: '80351110224678912', username: 'maralinden', global_name: 'Mara' } };
+  it('Discord invite: names the server, dates it from its ID, and reports who made the invite', async () => {
+    const c = await run(gaming.discordInvite, 'account', 'https://discord.gg/abc123', fake([['api/v9/invites/abc123', { body: inv }]]));
+    const server = c.find((x) => x.type === 'org')!;
+    expect(server.value).toBe('Linden Builds');
+    expect(server.attrs).toMatchObject({ platform: 'Discord server', members: 4210 });
+    expect(server.attrs?.createdAt).toMatch(/^2016-04-30T11:18:25/);
+    const maker = c.find((x) => x.type === 'account')!;
+    expect(maker.attrs).toMatchObject({ platform: 'Discord', handle: 'maralinden', discordId: '80351110224678912' });
+    expect(maker.weight).toBeLessThan(0.8);
+  });
+  it('Discord invite: expired links and other sites yield nothing', async () => {
+    expect(await run(gaming.discordInvite, 'account', 'https://discord.gg/gone99', fake([['api/v9/invites/gone99', { status: 404, body: {} }]]))).toEqual([]);
+    expect(await run(gaming.discordInvite, 'url', 'https://example.com/x', fake([]))).toEqual([]);
+  });
+});
+
 describe('activity adapters', () => {
   const day = (d: number, h = 14) => new Date(Date.UTC(2024, 0, d, h)).toISOString();
   it('GitHub: collects event times and reads the timezone from the commits themselves', async () => {
