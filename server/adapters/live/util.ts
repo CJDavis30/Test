@@ -26,6 +26,13 @@ export async function getJson<T = any>(ctx: AdapterCtx, url: string, init: Reque
   try { return JSON.parse(text) as T; } catch { throw new Error('Unexpected non-JSON response'); }
 }
 
+/** A full timestamp (second precision), as ISO text. iso() above keeps only the date. */
+export const fullIso = (d: unknown): string | undefined => {
+  if (d === undefined || d === null || d === '') return undefined;
+  const t = typeof d === 'number' ? new Date(d < 1e12 ? d * 1000 : d) : new Date(String(d));
+  return isNaN(+t) ? undefined : t.toISOString();
+};
+
 export const arr = <T = any>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 export const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 

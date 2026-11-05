@@ -56,6 +56,7 @@ export interface Adapter {
  */
 export const CAPABILITY_MODE: Record<string, 'first' | 'all'> = {
   derive: 'all',
+  'gaming-profile': 'all',
   dns: 'first',
   registration: 'first',
   subdomains: 'first',

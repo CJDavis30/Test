@@ -271,3 +271,23 @@
 .morechecks b { color: var(--text); font-weight: 600; width: 100%; }
 .morechecks .linkish { color: var(--accent); font-weight: 500; margin-left: auto; }
 .morechecks .linkish:hover { text-decoration: underline; }
+
+/* ---------- stress test ---------- */
+.stress { margin-top: 12px; padding: 11px 13px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.stress p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
+.stress .st-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.stress .st-head b { font-weight: 600; }
+.st-pill { margin-left: auto; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 650; display: inline-flex; align-items: center; background: var(--surface-2); color: var(--text-2); }
+.st-pill.solid { background: color-mix(in srgb, var(--lvl4) 14%, transparent); color: var(--lvl4); }
+.st-pill.sturdy { background: color-mix(in srgb, var(--lvl3) 14%, transparent); color: var(--lvl3); }
+.st-pill.fragile, .st-pill.single { background: color-mix(in srgb, var(--lvl2) 16%, transparent); color: var(--lvl2); }
+.stress.fragile, .stress.single { border-color: color-mix(in srgb, var(--lvl2) 45%, var(--line)); }
+.st-rows { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; }
+.st-cap { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-3); }
+.st-row { display: grid; grid-template-columns: minmax(80px, 38%) minmax(0, 1fr) 38px; gap: 10px; align-items: center; font-size: 12px; }
+.st-bar { position: relative; height: 7px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+.st-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.st-bar .base { background: var(--line-strong); }
+.st-bar .after { background: var(--text); }
+.st-val { text-align: right; font-weight: 600; }
+.stress .st-up { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); }

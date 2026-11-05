@@ -272,3 +272,15 @@ export interface Detected {
   confidence: number;
   alternatives: { type: EntityType; value: string }[];
 }
+
+/** Autopilot: Plexus follows the strongest leads on its own and builds the graph while you watch. */
+export interface AutopilotSummary {
+  subjects: number; accepted: number; pending: number; nodes: number; edges: number; seconds: number; stopped?: boolean;
+}
+export type ApEvent =
+  | { t: 'ap.start'; id: string; seed: { id: string; label: string; type: EntityType }; limits: { depth: number; subjects: number } }
+  | { t: 'ap.step'; n: number; depth: number; subject: { id: string; label: string; type: EntityType }; phase: 'looking' | 'checking' | 'judging'; sources?: { done: number; total: number }; why?: string }
+  | { t: 'ap.accepted'; subjectId: string; labels: string[]; kept: number }
+  | { t: 'ap.graph'; nodes: number; edges: number }
+  | { t: 'ap.done'; summary: AutopilotSummary }
+  | { t: 'ap.error'; message: string };

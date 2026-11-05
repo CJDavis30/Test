@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import type {
   Brief, CaseInfo, CaseSnapshot, EntityType, Finding, FindingStatus, GraphEdge, GraphNode, LinkSuggestion, NextStep,
-  RunEvent, SourceInfo, SourceProgress, AiSettings,
+  RunEvent, SourceInfo, SourceProgress, AiSettings, Level,
 } from '@shared/types';
 import { keyFor } from '@shared/normalize';
 import { contextBoost, parseContext } from '@shared/scoring';
 import { api, streamRun } from './api';
+import type { ApState } from './autopilot';
+import type { Stress } from '@shared/stress';
 
 export type View = 'graph' | 'table' | 'timeline' | 'report';
 export type SheetTab = 'overview' | 'review' | 'accepted' | 'rejected';
@@ -55,6 +57,9 @@ interface State {
   paletteSeed: string;
   settingsOpen: SettingsTab | null;
   shortcuts: boolean;
+  autopilot: ApState | null;
+  stress: Record<string, Stress>;
+  deps: SourceDependency[];
   theme: 'auto' | 'light' | 'dark';
   toasts: Toast[];
   undoStack: { label: string; run: () => Promise<void> | void }[];
@@ -88,6 +93,7 @@ interface Actions {
   removeNodes(ids: string[]): Promise<void>;
   mergeNodes(into: string, from: string): Promise<void>;
   refreshSuggestions(ai?: boolean): Promise<void>;
+  refreshStress(): void;
   acceptSuggestion(s: LinkSuggestion): Promise<void>;
   dismissSuggestion(id: string): void;
   addEdge(from: string, to: string, label?: string): Promise<void>;
@@ -105,13 +111,24 @@ interface Actions {
 }
 
 const LAST = 'plexus.lastCase';
+let stressTimer: ReturnType<typeof setTimeout>;
+export interface SourceDependency { family: string; name: string; weakens: { id: string; type: EntityType; value: string; level: Level }[]; weakensCount: number; collapsesCount: number }
 let toastSeq = 1;
 const closers = new Map<string, () => void>();
 
 export const useStore = create<State & Actions>((set, get) => ({
   booted: false, cases: [], caseId: null, snap: null, findings: {}, runs: {}, suggestions: [], settings: null, sources: [],
-  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false,
+  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false, autopilot: null, stress: {}, deps: [],
   theme: (localStorage.getItem('plexus.theme') as State['theme']) || 'auto', toasts: [], undoStack: [], focusNodeId: null, pathFor: null,
+
+  /** What each conclusion survives if one source is wrong. Debounced: decisions and runs both ask for it. */
+  refreshStress() {
+    clearTimeout(stressTimer);
+    stressTimer = setTimeout(async () => {
+      const id = get().caseId; if (!id) return;
+      try { const r = await api.get<{ stress: Record<string, Stress>; deps: SourceDependency[] }>(`/api/cases/${id}/stress`); if (get().caseId === id) set({ stress: r.stress, deps: r.deps }); } catch { /* optional insight */ }
+    }, 250);
+  },
 
   async refreshCases() { const { cases } = await api.get<{ cases: CaseInfo[] }>('/api/cases'); set({ cases }); },
 
@@ -140,6 +157,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       runs: {}, sheet: null, selection: [], selectedEdge: null, suggestions: [], pathFor: null, undoStack: [],
     });
     void get().refreshSuggestions();
+    get().refreshStress();
   },
 
   async newCase(name, purpose) {
@@ -227,6 +245,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (!prev.size) return;
     set({ findings });
     await api.post('/api/findings/review', { ids: [...prev.keys()], status });
+    get().refreshStress();
     const groups = new Map<FindingStatus, string[]>();
     for (const [id, p] of prev) (groups.get(p) ?? groups.set(p, []).get(p)!).push(id);
     const run = async () => {
@@ -390,7 +409,7 @@ function applyEvent(subjectId: string, runId: string, e: RunEvent) {
       break;
     }
     case 'brief': put({ brief: e.brief, next: e.next }); break;
-    case 'run.done': put({ status: 'done' }); void useStore.getState().refreshSources(); break;
+    case 'run.done': put({ status: 'done' }); void useStore.getState().refreshSources(); useStore.getState().refreshStress(); break;
     case 'run.error': put({ status: 'error', error: e.message }); break;
   }
 }

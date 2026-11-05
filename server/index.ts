@@ -10,7 +10,6 @@ import { Store } from './store';
 import { Service } from './service';
 import { Orchestrator, RunHub, citationIds } from './orchestrator';
 import { rescore, ruleBrief, suggestNext } from '../shared/scoring';
-import { reliabilityFn } from './registry';
 import { loadAdapters } from './adapters/index';
 import { allAdapters, getAdapter, sourceInfo, demoMode } from './registry';
 import { makeBriefEnhancer, aiSettings, aiReady, listModels, complete, aiLinkHypotheses, DEFAULT_AI } from './ai';
@@ -18,13 +17,18 @@ import { inferLinks } from './links';
 import { buildReport } from './report';
 import { verifyEvidence } from './integrity';
 import { breaker } from './breaker';
+import { Autopilot } from './autopilot';
+import { activityOf, identitiesFor, matchNodes, scan, timestampsIn } from './forensics';
+import { circadian } from '../shared/forensics/circadian';
+import { dependencies, stressTest } from '../shared/stress';
+import { reliabilityFn } from './registry';
 import { ImportError, importCase, markdownToHtml, toCsv, toGraphML } from './portable';
 import { detect, detectMany, extractEntities } from '../shared/detect';
 import { keyFor } from '../shared/normalize';
 import { makeCtx } from './http';
 import { getSecret } from './config';
 import { DEMO_SEEDS } from './adapters/demo';
-import { ENTITY_TYPES, type EntityType, type FindingStatus, type RunEvent } from '../shared/types';
+import { ENTITY_TYPES, type EntityType, type FindingStatus, type RunEvent, type ApEvent } from '../shared/types';
 
 export async function createApp(store = new Store()) {
   const ic = store.integrityCheck();
@@ -35,6 +39,7 @@ export async function createApp(store = new Store()) {
   const hub = new RunHub();
   const enhancer = makeBriefEnhancer(store);
   const orch = new Orchestrator(store, hub, enhancer);
+  const autopilot = new Autopilot(store, svc, orch);
   const app = new Hono();
 
   // --- security: this is a localhost-only API; defend against DNS rebinding and cross-site writes ---------------
@@ -95,6 +100,50 @@ export async function createApp(store = new Store()) {
     const q = (c.req.query('q') ?? '').trim();
     return c.json({ hits: q.length >= 2 ? store.searchAll(q.slice(0, 200)) : [] });
   });
+  /** What each conclusion survives if one source is wrong, and which sources the accepted conclusions lean on hardest. */
+  app.get('/api/cases/:id/stress', (c) => {
+    const id = c.req.param('id');
+    if (!store.getCase(id)) return c.json({ error: 'not found' }, 404);
+    const rel = reliabilityFn(store);
+    const all = store.listFindings(id).filter((f) => f.status !== 'rejected' && f.evidence.length);
+    const stress: Record<string, ReturnType<typeof stressTest>> = {};
+    for (const f of all) stress[f.id] = stressTest(f, rel);
+    const deps = dependencies(all.filter((f) => f.status === 'accepted'), rel).slice(0, 8).map((d) => ({
+      family: d.family, name: d.name,
+      weakens: d.weakens.slice(0, 12).map((f) => ({ id: f.id, type: f.type, value: f.value, level: f.level })),
+      weakensCount: d.weakens.length, collapsesCount: d.collapses.length,
+    }));
+    return c.json({ stress, deps });
+  });
+  // --- forensics: statistical linking, identities, decoded IDs, activity clocks ----------------------------------
+  const priorParam = (v: string | undefined) => { const n = Number(v); return Number.isFinite(n) && n > 0 && n < 1e6 ? n : undefined; };
+  app.get('/api/cases/:id/match', (c) => {
+    const id = c.req.param('id'); if (!store.getCase(id)) return c.json({ error: 'not found' }, 404);
+    const r = matchNodes(store, id, c.req.query('a') ?? '', c.req.query('b') ?? '', priorParam(c.req.query('prior')));
+    return r ? c.json(r) : c.json({ error: 'Both must be accounts or usernames in this case.' }, 400);
+  });
+  app.get('/api/cases/:id/identities', (c) => {
+    const id = c.req.param('id'); if (!store.getCase(id)) return c.json({ error: 'not found' }, 404);
+    return c.json(identitiesFor(store, id, priorParam(c.req.query('prior'))));
+  });
+  app.post('/api/forensics/scan', async (c) => {
+    const b = await body<{ text?: string }>(c);
+    return c.json(scan(String(b.text ?? '').slice(0, 2_000_000)));
+  });
+  /** Attach timestamps (from pasted logs, message links, commit times) to an account so its active hours can be worked out. */
+  app.post('/api/nodes/:id/activity', async (c) => {
+    const n = store.getNode(c.req.param('id')); if (!n) return c.json({ error: 'not found' }, 404);
+    const b = await body<{ text?: string; times?: number[] }>(c);
+    const add = [...(Array.isArray(b.times) ? b.times.filter(Number.isFinite) : []), ...(b.text ? timestampsIn(String(b.text).slice(0, 2_000_000)) : [])];
+    const all = [...new Set([...activityOf(n), ...add])].sort((x, y) => x - y).slice(-5000);
+    store.patchNodeAttrs(n.id, { activity: all.join(',') });
+    store.audit(n.caseId, 'activity.added', `${add.length} timestamps for ${n.label}`);
+    return c.json({ count: all.length, circadian: circadian(all) });
+  });
+  app.get('/api/nodes/:id/activity', (c) => {
+    const n = store.getNode(c.req.param('id')); if (!n) return c.json({ error: 'not found' }, 404);
+    const t = activityOf(n); return c.json({ count: t.length, circadian: circadian(t) });
+  });
   app.get('/api/backups', (c) => c.json({ backups: store.listBackups() }));
   app.post('/api/backups', (c) => { const b = store.makeBackup(); return c.json({ backup: b, backups: store.listBackups() }); });
   app.get('/api/cases/:id/findings', (c) => {
@@ -116,6 +165,36 @@ export async function createApp(store = new Store()) {
     const run = orch.start(node, (b.context ?? '').trim());
     return c.json({ node, run });
   });
+  // --- autopilot ----------------------------------------------------------------------------------------------
+  app.post('/api/cases/:id/autopilot', async (c) => {
+    const caseId = c.req.param('id');
+    if (!store.getCase(caseId)) return c.json({ error: 'not found' }, 404);
+    const b = await body<{ type?: string; value?: string; nodeId?: string; depth?: number; subjects?: number }>(c);
+    let node = b.nodeId ? store.getNode(b.nodeId) : null;
+    if (!node) {
+      if (!b.value?.trim()) return c.json({ error: 'value required' }, 400);
+      node = svc.seed(caseId, { type: isType(b.type) ? b.type : undefined, value: b.value });
+      if (!node) return c.json({ error: 'could not understand that input' }, 400);
+    }
+    if (autopilot.active(caseId)) return c.json({ error: 'Autopilot is already running on this case.' }, 409);
+    return c.json({ id: autopilot.start(node, { depth: b.depth, subjects: b.subjects }), node });
+  });
+  app.post('/api/autopilot/:id/stop', (c) => { autopilot.stop(c.req.param('id')); return c.json({ ok: true }); });
+  app.get('/api/autopilot/:id/events', (c) => {
+    const id = c.req.param('id');
+    return streamSSE(c, async (stream) => {
+      if (!autopilot.has(id)) return;
+      let done: () => void = () => {};
+      const finished = new Promise<void>((r) => (done = r));
+      const queue: ApEvent[] = []; let pumping = false;
+      const pump = async () => { if (pumping) return; pumping = true; while (queue.length) { const e = queue.shift()!; await stream.writeSSE({ data: JSON.stringify(e) }); if (e.t === 'ap.done' || e.t === 'ap.error') done(); } pumping = false; };
+      const off = autopilot.subscribe(id, (e) => { queue.push(e); void pump(); });
+      stream.onAbort(() => { off?.(); done(); });
+      const ka = setInterval(() => void stream.writeSSE({ event: 'ping', data: '' }).catch(() => {}), 15_000);
+      await finished; clearInterval(ka); off?.();
+    });
+  });
+
   app.get('/api/runs/:id/events', (c) => {
     const id = c.req.param('id');
     return streamSSE(c, async (stream) => {
@@ -354,7 +433,7 @@ export async function createApp(store = new Store()) {
     app.use('/*', serveStatic({ root: rel }));
     app.get('*', (c) => c.html(readFileSync(resolve(dist, 'index.html'), 'utf8')));
   }
-  return { app, store, orch, hub, svc };
+  return { app, store, orch, hub, svc, autopilot };
 }
 
 /** Start listening on localhost (used by the CLI entry below and by the desktop shell). */

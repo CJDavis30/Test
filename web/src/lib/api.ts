@@ -1,4 +1,4 @@
-import type { RunEvent } from '@shared/types';
+import type { ApEvent, RunEvent } from '@shared/types';
 
 const HEADERS = { 'content-type': 'application/json', 'x-plexus': '1' };
 
@@ -18,6 +18,16 @@ export const api = {
   put: <T,>(p: string, b?: unknown) => call<T>('PUT', p, b ?? {}),
   del: <T,>(p: string) => call<T>('DELETE', p),
 };
+
+/** Subscribe to an Autopilot run. Returns a close function. */
+export function streamAutopilot(id: string, onEvent: (e: ApEvent) => void, onEnd?: () => void): () => void {
+  const es = new EventSource(`/api/autopilot/${id}/events`);
+  let ended = false;
+  const end = () => { if (ended) return; ended = true; es.close(); onEnd?.(); };
+  es.onmessage = (m) => { try { const e = JSON.parse(m.data) as ApEvent; onEvent(e); if (e.t === 'ap.done' || e.t === 'ap.error') end(); } catch { /* ignore malformed frame */ } };
+  es.onerror = () => end();
+  return end;
+}
 
 /** Subscribe to a lookup's progress. Returns a close function. */
 export function streamRun(runId: string, onEvent: (e: RunEvent) => void, onEnd?: () => void): () => void {

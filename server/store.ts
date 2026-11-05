@@ -150,6 +150,11 @@ export class Store {
     this.touchCase(n.caseId);
     return this.getNode(id)!;
   }
+  /** Merge attributes into a node without touching anything else. */
+  patchNodeAttrs(id: string, attrs: Record<string, string | number | boolean>) {
+    const n = this.getNode(id); if (!n) return;
+    this.db.prepare('UPDATE nodes SET attrs=? WHERE id=?').run(JSON.stringify({ ...n.attrs, ...attrs }), id);
+  }
   patchNode(id: string, p: Partial<Pick<GraphNode, 'label' | 'notes' | 'pinned' | 'hidden' | 'x' | 'y'>>) {
     const n = this.getNode(id); if (!n) return null;
     this.db.prepare('UPDATE nodes SET label=?, notes=?, pinned=?, hidden=?, x=?, y=? WHERE id=?')

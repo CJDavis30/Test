@@ -156,6 +156,34 @@ function ScoreChips({ f }: { f: Finding }) {
   );
 }
 
+const VERDICT: Record<string, string> = { solid: 'Solid', sturdy: 'Sturdy', fragile: 'Fragile', single: 'One source', thin: 'Thin' };
+
+/** "What if one source is wrong?" Each independent source is removed in turn and the finding re-scored. */
+function StressCard({ f }: { f: Finding }) {
+  const s = useStore((st) => st.stress[f.id]);
+  if (!s || s.verdict === 'thin') return null;
+  const shown = s.drops.slice(0, 4);
+  return (
+    <div className={`stress ${s.verdict}`}>
+      <div className="st-head"><b>Stress test</b><span className={`st-pill ${s.verdict}`}>{VERDICT[s.verdict]}</span></div>
+      <p>{s.headline}</p>
+      {s.verdict !== 'single' && shown.length > 0 && (
+        <div className="st-rows" role="list" aria-label="What the confidence becomes if one source is wrong">
+          <div className="st-cap"><span>If this source is wrong…</span><span>…it becomes</span></div>
+          {shown.map((d) => (
+            <div className="st-row" role="listitem" key={d.family} title={`${d.name}: ${Math.round(s.base * 100)}% → ${Math.round(d.after * 100)}%`}>
+              <span className="st-name truncate">{d.name}</span>
+              <span className="st-bar"><i className="base" style={{ width: `${s.base * 100}%` }} /><i className="after" style={{ width: `${d.after * 100}%` }} /></span>
+              <span className="st-val num">{Math.round(d.after * 100)}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {s.ifContradictionWrong !== undefined && <p className="st-up">If the contradicting check is wrong, this would be <b>{Math.round(s.ifContradictionWrong * 100)}%</b>.</p>}
+    </div>
+  );
+}
+
 /** Sources that could check this finding further but are switched off or need a key. Tells you what a key would buy you. */
 function MoreChecks({ f }: { f: Finding }) {
   const sources = useStore((s) => s.sources);
@@ -201,6 +229,7 @@ export function FindingDetail({ f, subject, onDecide }: { f: Finding; subject: S
 
         <p className="fsentence">{confidenceSentence(f.level, independent)}</p>
         <ScoreChips f={f} />
+        <StressCard f={f} />
         {quiet.length > 0 && <div className="fquiet">Also asked, no answer either way: {quiet.map((c) => `${c.source}${c.result === 'failed' ? ' (unreachable)' : ''}`).join(', ')}.</div>}
 
         {(warns.length > 0 || rivals.length > 0) && (

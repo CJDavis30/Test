@@ -5,6 +5,7 @@ import { RateLimitedError, type Adapter, type AdapterCtx } from '../server/adapt
 import * as net from '../server/adapters/live/network';
 import * as idn from '../server/adapters/live/identity';
 import * as misc from '../server/adapters/live/misc';
+import * as gaming from '../server/adapters/live/gaming';
 import { usernameSweep, SITES } from '../server/adapters/live/sweep';
 import { liveAdapters } from '../server/adapters/live/index';
 import type { EntityType } from '../shared/types';
@@ -283,5 +284,32 @@ describe('source records quote only what the source returned', () => {
     const f = factsOf(c.filter((x) => x.attrs?.platform === 'Dribbble'));
     expect(f['Reliability check']).toMatch(/made-up username returns “not found”/);
     expect(f.Limit).toMatch(/not who owns it/);
+  });
+});
+
+describe('roblox', () => {
+  const body = { id: 3148802991, name: 'maralinden', displayName: 'Mara', description: 'builder. mail me: mara@lindenmade.example', created: '2021-03-04T19:22:11.317Z', isBanned: false, hasVerifiedBadge: false };
+  it('turns a username into a profile with the exact creation time, and keeps groups modest', async () => {
+    const ctxFake = fake([
+      ['users.roblox.com/v1/usernames/users', { body: { data: [{ id: 3148802991, name: 'maralinden', displayName: 'Mara' }] } }],
+      ['/v1/users/3148802991', { body }],
+      ['groups/roles', { body: { data: [{ group: { id: 1, name: 'Tiny Club', memberCount: 12 }, role: { name: 'Member' } }, { group: { id: 2, name: 'Big Builders', memberCount: 90000 }, role: { name: 'Owner' } }] } }],
+    ]);
+    const c = await run(gaming.roblox, 'username', 'maralinden', ctxFake);
+    const acct = c.find((x) => x.type === 'account')!;
+    expect(acct.value).toBe('https://www.roblox.com/users/3148802991/profile');
+    expect(acct.attrs).toMatchObject({ platform: 'Roblox', handle: 'maralinden', createdAt: '2021-03-04T19:22:11.317Z', robloxId: '3148802991' });
+    expect(acct.record?.facts.find(([k]) => k === 'Created')?.[1]).toBe('2021-03-04 19:22:11 UTC');
+    expect(c.some((x) => x.type === 'email' && x.value === 'mara@lindenmade.example')).toBe(true);
+    const groups = c.filter((x) => x.type === 'org');
+    expect(groups[0].value).toBe('Big Builders'); expect(groups.every((g) => g.weight <= 0.35)).toBe(true);
+  });
+  it('opens a profile straight from its URL, and ignores other sites', async () => {
+    const c = await run(gaming.roblox, 'account', 'https://www.roblox.com/users/3148802991/profile', fake([['/v1/users/3148802991', { body }], ['groups/roles', { body: { data: [] } }]]));
+    expect(c.find((x) => x.type === 'account')?.attrs?.robloxId).toBe('3148802991');
+    expect(await run(gaming.roblox, 'account', 'https://github.com/octocat', fake([]))).toEqual([]);
+  });
+  it('says nothing when the name does not exist', async () => {
+    expect(await run(gaming.roblox, 'username', 'nobodyhere', fake([['users.roblox.com/v1/usernames/users', { body: { data: [] } }]]))).toEqual([]);
   });
 });

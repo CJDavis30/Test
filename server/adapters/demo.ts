@@ -1,6 +1,8 @@
 import type { Claim, EntityType, EvidenceRecord } from '../../shared/types';
 import { displayFor, keyFor, labelFor } from '../../shared/normalize';
 import type { Adapter } from './types';
+import { EPOCH } from '../../shared/forensics/ids';
+import { TEMPLATE } from '../../shared/forensics/circadian';
 
 /**
  * Offline demo world. Everyone here is fictional: .example domains, TEST-NET IPs, 555-01xx numbers.
@@ -39,6 +41,20 @@ const bsky = R('account', 'https://bsky.app/profile/maralinden.bsky.social', { p
 const linkedin = R('account', 'https://www.linkedin.com/in/mara-linden-design', { platform: 'LinkedIn' });
 const hn = R('account', 'https://news.ycombinator.com/user?id=marabuilds', { platform: 'Hacker News' });
 const reddit = R('account', 'https://www.reddit.com/user/mlinden', { platform: 'Reddit' });
+// Gaming accounts. Real creation times, so the ID decoding and statistical linking have something true to work on.
+const snow = (iso: string, seq = 1) => ((BigInt(Date.parse(iso) - EPOCH.discord) << 22n) | (1n << 17n) | BigInt(seq)).toString();
+/** A believable pattern of when someone plays or chats: sittings drawn from the human day curve around a local timezone. */
+function activity(offset: number, seed: number, sittings = 70): string {
+  // mulberry32: a proper generator (a plain LCG correlates its consecutive draws, which skewed the schedule)
+  let s = seed >>> 0; const r = () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const cdf: number[] = []; let c = 0; for (const p of TEMPLATE) cdf.push((c += p));
+  const out: number[] = [];
+  for (let i = 0; i < sittings; i++) { const u = r() * c; const lh = Math.max(0, cdf.findIndex((x) => x >= u)); out.push(Date.UTC(2023, 0, 5) + Math.floor(r() * 360) * 86_400_000 + ((((lh - offset) % 24) + 24) % 24) * 3_600_000 + Math.floor(r() * 3_600_000)); }
+  return out.sort((a, b) => a - b).join(',');
+}
+const roblox = R('account', 'https://www.roblox.com/users/3148802991/profile', { platform: 'Roblox', handle: 'maralinden', displayName: 'Mara', createdAt: '2021-03-04T19:22:11.317Z', robloxId: '3148802991', activity: activity(-6, 6, 160) });
+const discord = R('account', `https://discord.com/users/${snow('2021-03-04T19:22:52.000Z')}`, { platform: 'Discord', handle: 'maralinden', createdAt: '2021-03-04T19:22:52.000Z', activity: activity(-6, 20, 160) });
+const impostor = R('account', `https://discord.com/users/${snow('2024-06-01T02:14:09.000Z', 4)}`, { platform: 'Discord', handle: 'maralinden_', createdAt: '2024-06-01T02:14:09.000Z', activity: activity(9, 13, 80) });
 const nw = R('org', 'Northwind Labs');
 const bf = R('org', 'Brightfield Studio');
 const lm = R('org', 'Linden Made LLC');
@@ -104,6 +120,13 @@ const LINKS: Link[] = [
   { a: uHn, b: hn, rel: 'profile', back: 'handle', src: { social: 0.6, code: 0.55 }, when: '2018-11-30' },
   { a: mara, b: hn, rel: 'account', back: 'owner', src: { code: 0.5 } },
   { a: uReddit, b: reddit, rel: 'profile', back: 'handle', src: { social: 0.5 } },
+
+  // gaming accounts: the real ones are corroborated; the look-alike is a single weak hint
+  { a: uMain, b: roblox, rel: 'profile', back: 'handle', src: { social: 0.8, code: 0.5 }, url: 'https://www.roblox.com/users/3148802991/profile', snippet: 'Roblox profile with the same handle', when: '2021-03-04' },
+  { a: mara, b: roblox, rel: 'account', back: 'owner', src: { social: 0.7 } },
+  { a: uMain, b: discord, rel: 'profile', back: 'handle', src: { social: 0.75, code: 0.5 }, snippet: 'Discord account with the same handle', when: '2021-03-04' },
+  { a: mara, b: discord, rel: 'account', back: 'owner', src: { social: 0.65 } },
+  { a: uMain, b: impostor, rel: 'same handle exists', back: 'same handle exists', src: { social: 0.3 }, snippet: 'A different Discord account with a near-identical handle', when: '2024-06-01' },
 
   // employment
   { a: mara, b: nw, rel: 'works at', back: 'employee', src: { reg: 0.75, social: 0.75, broker: 0.6, code: 0.5 }, snippet: 'Head of Design since 2021', when: '2021-03-01' },
@@ -295,7 +318,7 @@ export const DEMO_SEEDS = [
  */
 export function demoGroundTruth(): { truth: Set<string>; traps: Set<string>; ambiguous: Set<string> } {
   const k = (r: Ref) => `${r.type}|${keyFor(r.type, r.value, r.attrs)}`;
-  const traps = new Set([namesake, uReddit, reddit, lisbon].map(k));
+  const traps = new Set([namesake, uReddit, reddit, lisbon, impostor].map(k));
   const ambiguous = new Set([dallas].map(k)); // an IP's approximate geolocation: neither right nor wrong
   const truth = new Set<string>();
   for (const l of LINKS) for (const r of [l.a, l.b]) { const key = k(r); if (!traps.has(key) && !ambiguous.has(key)) truth.add(key); }

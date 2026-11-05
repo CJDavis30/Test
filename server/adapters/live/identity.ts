@@ -1,7 +1,7 @@
 import type { Claim } from '../../../shared/types';
 import type { Adapter } from '../types';
 import { RateLimitedError } from '../types';
-import { adapter, arr, bioClaims, claim, getJson, iso, md5, rec, str, withRecord } from './util';
+import { adapter, arr, bioClaims, claim, fullIso, getJson, iso, md5, rec, str, withRecord } from './util';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Email → profile
@@ -91,7 +91,7 @@ export const github = adapter({
       const p = await getJson<any>(ctx, `https://api.github.com/users/${encodeURIComponent(e.value)}`, { headers: ghHeaders(ctx.key) });
       if (!p?.login) return [];
       const url = str(p.html_url) || `https://github.com/${p.login}`;
-      out.push(claim('account', url, 'GitHub profile', 0.7, { url, attrs: { platform: 'GitHub', repos: Number(p.public_repos) || 0, followers: Number(p.followers) || 0 }, when: iso(p.created_at), snippet: `${p.public_repos ?? 0} public repos · ${p.followers ?? 0} followers` }));
+      out.push(claim('account', url, 'GitHub profile', 0.7, { url, attrs: { platform: 'GitHub', handle: str(p.login), createdAt: fullIso(p.created_at) ?? '', repos: Number(p.public_repos) || 0, followers: Number(p.followers) || 0 }, when: iso(p.created_at), snippet: `${p.public_repos ?? 0} public repos · ${p.followers ?? 0} followers` }));
       if (str(p.name)) out.push(claim('person', p.name, 'name on profile', 0.55, { url, snippet: 'Self-reported' }));
       const company = str(p.company).replace(/^@/, '');
       if (company) out.push(claim('org', company, 'company on profile', 0.5, { url, snippet: 'Self-reported' }));
@@ -148,7 +148,7 @@ export const bluesky = adapter({
     const p = await getJson<any>(ctx, `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(handle)}`).catch((err) => { if (/HTTP 400/.test(String(err?.message))) return null; throw err; });
     if (!p?.handle) return [];
     const url = `https://bsky.app/profile/${p.handle}`;
-    const out: Claim[] = [claim('account', url, 'Bluesky profile', e.type === 'domain' ? 0.85 : 0.7, { url, attrs: { platform: 'Bluesky', followers: Number(p.followersCount) || 0 }, when: iso(p.createdAt), snippet: `${p.postsCount ?? 0} posts · ${p.followersCount ?? 0} followers` })];
+    const out: Claim[] = [claim('account', url, 'Bluesky profile', e.type === 'domain' ? 0.85 : 0.7, { url, attrs: { platform: 'Bluesky', handle: str(p.handle), createdAt: fullIso(p.createdAt) ?? '', followers: Number(p.followersCount) || 0 }, when: iso(p.createdAt), snippet: `${p.postsCount ?? 0} posts · ${p.followersCount ?? 0} followers` })];
     if (str(p.displayName)) out.push(claim('person', p.displayName, 'display name', 0.5, { url }));
     if (str(p.avatar)) out.push(claim('image', p.avatar, 'profile photo', 0.6, { url, attrs: { hash: `bsky:${p.did}` } }));
     out.push(...bioClaims(p.description, 'Bluesky', url));
@@ -165,7 +165,7 @@ export const hackernews = adapter({
     if (!p?.id) return [];
     const url = `https://news.ycombinator.com/user?id=${p.id}`;
     const about = String(p.about ?? '').replace(/<[^>]+>/g, ' ');
-    return withRecord([claim('account', url, 'Hacker News profile', 0.55, { url, attrs: { platform: 'Hacker News', karma: Number(p.karma) || 0 }, when: iso(p.created), snippet: `Karma ${p.karma ?? 0}` }), ...bioClaims(about, 'Hacker News', url)], rec('Hacker News profile', [['Username', p.id], ['Joined', iso(p.created)], ['Karma', p.karma], ['About', about]]));
+    return withRecord([claim('account', url, 'Hacker News profile', 0.55, { url, attrs: { platform: 'Hacker News', handle: str(p.id), createdAt: fullIso(p.created) ?? '', karma: Number(p.karma) || 0 }, when: iso(p.created), snippet: `Karma ${p.karma ?? 0}` }), ...bioClaims(about, 'Hacker News', url)], rec('Hacker News profile', [['Username', p.id], ['Joined', iso(p.created)], ['Karma', p.karma], ['About', about]]));
   },
 });
 
@@ -220,7 +220,7 @@ export const reddit = adapter({
     const p = (await res.json())?.data;
     if (!p?.name || p.is_suspended) return [];
     const url = `https://www.reddit.com/user/${p.name}`;
-    return [claim('account', url, 'Reddit profile', 0.45, { url, attrs: { platform: 'Reddit', karma: (Number(p.link_karma) || 0) + (Number(p.comment_karma) || 0) }, when: iso(p.created_utc), snippet: 'A matching username is not proof it is the same person', record: rec('Reddit profile', [['Username', p.name], ['Account created', iso(p.created_utc)], ['Karma', (Number(p.link_karma) || 0) + (Number(p.comment_karma) || 0)]]) })];
+    return [claim('account', url, 'Reddit profile', 0.45, { url, attrs: { platform: 'Reddit', handle: str(p.name), createdAt: fullIso(p.created_utc) ?? '', karma: (Number(p.link_karma) || 0) + (Number(p.comment_karma) || 0) }, when: iso(p.created_utc), snippet: 'A matching username is not proof it is the same person', record: rec('Reddit profile', [['Username', p.name], ['Account created', iso(p.created_utc)], ['Karma', (Number(p.link_karma) || 0) + (Number(p.comment_karma) || 0)]]) })];
   },
 });
 
