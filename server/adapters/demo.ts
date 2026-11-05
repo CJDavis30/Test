@@ -43,17 +43,37 @@ const hn = R('account', 'https://news.ycombinator.com/user?id=marabuilds', { pla
 const reddit = R('account', 'https://www.reddit.com/user/mlinden', { platform: 'Reddit' });
 // Gaming accounts. Real creation times, so the ID decoding and statistical linking have something true to work on.
 const snow = (iso: string, seq = 1) => ((BigInt(Date.parse(iso) - EPOCH.discord) << 22n) | (1n << 17n) | BigInt(seq)).toString();
-/** A believable pattern of when someone plays or chats: sittings drawn from the human day curve around a local timezone. */
-function activity(offset: number, seed: number, sittings = 70): string {
-  // mulberry32: a proper generator (a plain LCG correlates its consecutive draws, which skewed the schedule)
+/**
+ * A believable pattern of when someone plays or chats: sittings drawn from the human day curve around a local timezone. Only each
+ * sitting's first and last moment are stored (a few hundred numbers, not thousands). `split` shares one person's sittings between two
+ * accounts, which is what one operator taking turns looks like.
+ */
+function sittingsFor(offset: number, seed: number, days: number, perDay: number): [number, number][] {
+  // mulberry32: a proper generator (a plain LCG correlates its consecutive draws)
   let s = seed >>> 0; const r = () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const cdf: number[] = []; let c = 0; for (const p of TEMPLATE) cdf.push((c += p));
-  const out: number[] = [];
-  for (let i = 0; i < sittings; i++) { const u = r() * c; const lh = Math.max(0, cdf.findIndex((x) => x >= u)); out.push(Date.UTC(2023, 0, 5) + Math.floor(r() * 360) * 86_400_000 + ((((lh - offset) % 24) + 24) % 24) * 3_600_000 + Math.floor(r() * 3_600_000)); }
-  return out.sort((a, b) => a - b).join(',');
+  const all: [number, number][] = [];
+  for (let d = 0; d < days; d++) for (let k = 0; k < perDay; k++) {
+    const u = r() * c; const lh = Math.max(0, cdf.findIndex((x) => x >= u));
+    const start = Date.UTC(2023, 0, 5) + d * 86_400_000 + ((((lh - offset) % 24) + 24) % 24) * 3_600_000 + Math.floor(r() * 3_600_000);
+    all.push([start, start + (3 + Math.floor(r() * 16)) * 60_000]);
+  }
+  all.sort((a, b) => a[0] - b[0]);
+  const out: [number, number][] = []; let end = 0;
+  for (const x of all) if (x[0] > end + 60_000) { out.push(x); end = x[1]; } // one person is in one sitting at a time
+  return out;
 }
-const roblox = R('account', 'https://www.roblox.com/users/3148802991/profile', { platform: 'Roblox', handle: 'maralinden', displayName: 'Mara', createdAt: '2021-03-04T19:22:11.317Z', robloxId: '3148802991', activity: activity(-6, 6, 160) });
-const discord = R('account', `https://discord.com/users/${snow('2021-03-04T19:22:52.000Z')}`, { platform: 'Discord', handle: 'maralinden', createdAt: '2021-03-04T19:22:52.000Z', activity: activity(-6, 20, 160) });
+const pack = (s: [number, number][]) => s.flatMap(([a, b]) => [a, b]).join(',');
+function activity(offset: number, seed: number, sittings = 70): string { return pack(sittingsFor(offset, seed, Math.ceil(sittings / 3), 3).slice(0, sittings)); }
+/** Two accounts of one operator: every sitting is on one account or the other. */
+function activityPair(offset: number, seed: number, days = 70, perDay = 5): [string, string] {
+  const S = sittingsFor(offset, seed, days, perDay); const A: [number, number][] = [], B: [number, number][] = [];
+  S.forEach((x, i) => ((i * 2654435761 + seed) % 7 < 3.5 ? A : B).push(x));
+  return [pack(A), pack(B)];
+}
+const [robloxActivity, discordActivity] = activityPair(-6, 6);
+const roblox = R('account', 'https://www.roblox.com/users/3148802991/profile', { platform: 'Roblox', handle: 'maralinden', displayName: 'Mara', createdAt: '2021-03-04T19:22:11.317Z', robloxId: '3148802991', activity: robloxActivity });
+const discord = R('account', `https://discord.com/users/${snow('2021-03-04T19:22:52.000Z')}`, { platform: 'Discord', handle: 'maralinden', createdAt: '2021-03-04T19:22:52.000Z', activity: discordActivity });
 const impostor = R('account', `https://discord.com/users/${snow('2024-06-01T02:14:09.000Z', 4)}`, { platform: 'Discord', handle: 'maralinden_', createdAt: '2024-06-01T02:14:09.000Z', activity: activity(9, 13, 80) });
 const nw = R('org', 'Northwind Labs');
 const bf = R('org', 'Brightfield Studio');

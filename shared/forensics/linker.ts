@@ -1,5 +1,6 @@
 import { compareHandles } from './username';
 import type { Circadian } from './circadian';
+import { alternation } from './alternation';
 
 /**
  * Probabilistic record linkage (Fellegi–Sunter) for investigations: are these two accounts run by the same person?
@@ -27,6 +28,8 @@ export interface Profile {
   contacts?: string[];
   links?: string[];
   circadian?: Pick<Circadian, 'offsets' | 'strength'>;
+  /** raw activity timestamps (ms); used for the alternation test and never sent to the interface */
+  activity?: number[];
 }
 
 export interface Signal { key: string; label: string; bits: number; detail: string; assumption?: string; group?: 'name' }
@@ -114,6 +117,7 @@ export function linkProfiles(a: Profile, b: Profile, o: { priorOdds?: number } =
   if (shared.length) signals.push({ key: 'contact', label: 'Shared contact detail', bits: Math.min(22, 18 + (shared.length - 1) * 2), detail: `Both are tied to ${shared.length === 1 ? shared[0] : `${shared.length} of the same contact details (${shared.slice(0, 2).join(', ')}…)`}. An email, number or wallet is rarely shared.`, assumption: 'Treats a contact detail as personal; a shared inbox or family phone would be a false positive.' });
   const linked = (a.links ?? []).some((l) => !!b.handle && l.toLowerCase().includes(b.handle.toLowerCase()) && (!b.platform || l.toLowerCase().includes(b.platform.toLowerCase()))) || (b.links ?? []).some((l) => !!a.handle && l.toLowerCase().includes(a.handle.toLowerCase()) && (!a.platform || l.toLowerCase().includes(a.platform.toLowerCase())));
   if (linked) signals.push({ key: 'link', label: 'One profile links to the other', bits: 14, detail: 'One profile points to the other. People link their own accounts, but anyone can link anyone.', assumption: 'Self-links are not verified, so this is capped well below certainty.' });
+  if (a.activity && b.activity) { const alt = alternation(a.activity, b.activity); if (alt) signals.push({ key: 'alternation', label: 'Takes turns, never at once', bits: alt.bits, detail: alt.detail, assumption: alt.assumption }); }
   if (a.circadian && b.circadian) { const c = circadianBits(a.circadian, b.circadian); if (c) signals.push({ key: 'clock', label: 'Active hours', bits: c.bits, detail: c.detail, assumption: c.assumption }); }
 
   // Handle and display name usually move together, so do not count both in full.

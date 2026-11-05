@@ -41,7 +41,8 @@ describe('forensics over a real case', () => {
     const real = (await call('GET', `/api/cases/${caseId}/match?a=${rob.id}&b=${dis.id}`)).json;
     expect(real.match.posterior).toBeGreaterThan(0.999);
     const keys = real.match.signals.map((s: any) => s.key);
-    expect(keys).toContain('handle'); expect(keys).toContain('created'); expect(keys).toContain('clock');
+    expect(keys).toContain('handle'); expect(keys).toContain('created'); expect(keys).toContain('clock'); expect(keys).toContain('alternation');
+    expect(real.match.signals.find((s: any) => s.key === 'alternation').bits).toBeGreaterThan(3);
     expect(real.match.signals.find((s: any) => s.key === 'created').detail).toMatch(/41 seconds/);
     if (imp) {
       const fake = (await call('GET', `/api/cases/${caseId}/match?a=${dis.id}&b=${imp.id}`)).json;

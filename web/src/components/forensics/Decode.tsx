@@ -58,10 +58,18 @@ export function Decode() {
             </div>
           )}
           {addable.length > 0 && s.caseId && <div className="row" style={{ marginTop: 10 }}><button className="btn" onClick={() => void add(addable)}><Plus size={14} /> Add {addable.length} {addable.length === 1 ? 'account' : 'accounts'} to this case</button></div>}
+          {res.headers && (
+            <div className="dc-head">
+              <div className="fsec" style={{ marginTop: 14 }}>Email headers</div>
+              <div className="dc-hmeta">{res.headers.from && <span>From <b>{res.headers.from}</b></span>}{res.headers.sent && <span>Sent <b className="num">{fmtWhen(res.headers.sent.at)}</b> from a clock set to <b>{res.headers.sent.tz}</b></span>}{res.headers.originIp && <span>Origin <b className="num">{res.headers.originIp}</b></span>}</div>
+              {res.headers.hops.length > 0 && <ol className="dc-hops">{res.headers.hops.map((h) => <li key={h.index}><b>{h.by ?? 'unknown'}</b>{h.ip ? <span className="num"> · {h.ip}</span> : null}{h.at ? <small>{fmtWhen(h.at)}{h.delaySec !== undefined ? ` · +${h.delaySec}s` : ''}</small> : null}</li>)}</ol>}
+              <ul className="dc-hf">{res.headers.findings.map((f, i) => <li key={i} className={f.level}>{f.text}</li>)}</ul>
+            </div>
+          )}
           {res.circadian && (
             <div className="dc-clock">
               <div className="fsec" style={{ marginTop: 14 }}>When this person is awake</div>
-              <ActivityClock c={res.circadian} />
+              <ActivityClock c={res.circadian} dst={res.dst} />
               {res.circadian.strength !== 'insufficient' && accounts.length > 0 && (
                 <div className="row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
                   <select className="field" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Account to attach these times to"><option value="">Attach these times to an account…</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</select>

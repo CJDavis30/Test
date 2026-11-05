@@ -6,6 +6,7 @@ import * as net from '../server/adapters/live/network';
 import * as idn from '../server/adapters/live/identity';
 import * as misc from '../server/adapters/live/misc';
 import * as gaming from '../server/adapters/live/gaming';
+import * as act from '../server/adapters/live/activity';
 import { usernameSweep, SITES } from '../server/adapters/live/sweep';
 import { liveAdapters } from '../server/adapters/live/index';
 import type { EntityType } from '../shared/types';
@@ -311,5 +312,33 @@ describe('roblox', () => {
   });
   it('says nothing when the name does not exist', async () => {
     expect(await run(gaming.roblox, 'username', 'nobodyhere', fake([['users.roblox.com/v1/usernames/users', { body: { data: [] } }]]))).toEqual([]);
+  });
+});
+
+describe('activity adapters', () => {
+  const day = (d: number, h = 14) => new Date(Date.UTC(2024, 0, d, h)).toISOString();
+  it('GitHub: collects event times and reads the timezone from the commits themselves', async () => {
+    const events = Array.from({ length: 12 }, (_, i) => ({ type: 'PushEvent', created_at: day(1 + i), actor: { login: 'octocat' }, repo: { name: 'octocat/hello' }, payload: { commits: [{ sha: String(i).padStart(2, '0').repeat(20) }] } }));
+    const patch = 'From abc Mon Sep 17 00:00:00 2001\nFrom: A <a@x.example>\nDate: Tue, 2 Jan 2024 09:14:00 -0600\nSubject: [PATCH] x\n';
+    const c = await run(act.githubActivity, 'username', 'octocat', fake([['/users/octocat/events/public', { body: events }], [/github\.com\/octocat\/hello\/commit\/.*\.patch/, { body: patch }]]));
+    const a = c.find((x) => x.type === 'account')!;
+    expect(a.value).toBe('https://github.com/octocat'); expect(a.attrs).toMatchObject({ platform: 'GitHub', commitTz: '-06:00' });
+    expect(String(a.attrs!.activity).split(',').length).toBe(12);
+    expect(a.snippet).toMatch(/UTC-06:00/);
+  });
+  it('GitHub: says nothing for an account with no public activity', async () => {
+    expect(await run(act.githubActivity, 'username', 'quiet', fake([['/events/public', { body: [] }]]))).toEqual([]);
+  });
+  it('Hacker News, Bluesky and Wikipedia: turn a public feed into a timestamp record, and ignore a handful of items', async () => {
+    const hn = await run(act.hackernewsActivity, 'username', 'pg', fake([['hn.algolia.com', { body: { hits: Array.from({ length: 30 }, (_, i) => ({ author: 'pg', created_at_i: 1_700_000_000 + i * 3600 })) } }]]));
+    expect(hn[0].attrs).toMatchObject({ platform: 'Hacker News', handle: 'pg' }); expect(String(hn[0].attrs!.activity).split(',').length).toBe(30);
+    const bs = await run(act.blueskyActivity, 'username', 'alice', fake([['getAuthorFeed', { body: { feed: Array.from({ length: 10 }, (_, i) => ({ post: { author: { handle: 'alice.bsky.social' }, record: { createdAt: day(1 + i) } } })) } }]]));
+    expect(bs[0].value).toBe('https://bsky.app/profile/alice.bsky.social');
+    const wp = await run(act.wikipediaActivity, 'username', 'Some Editor', fake([['usercontribs', { body: { query: { usercontribs: Array.from({ length: 40 }, (_, i) => ({ timestamp: day(1 + (i % 28), 8 + (i % 10)) })) } } }]]));
+    expect(wp[0].value).toBe('https://en.wikipedia.org/wiki/User:Some_Editor');
+    expect(await run(act.hackernewsActivity, 'username', 'few', fake([['hn.algolia.com', { body: { hits: [{ author: 'few', created_at_i: 1_700_000_000 }] } }]]))).toEqual([]);
+  });
+  it('shares a source family with the matching profile adapter so nothing is counted twice', () => {
+    expect(act.githubActivity.family).toBe(idn.github.family); expect(act.hackernewsActivity.family).toBe(idn.hackernews.family); expect(act.blueskyActivity.family).toBe(idn.bluesky.family);
   });
 });

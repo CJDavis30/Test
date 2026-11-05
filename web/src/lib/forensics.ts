@@ -4,8 +4,13 @@ import type { Match, Profile, Resolution } from '@shared/forensics/linker';
 
 export type { Circadian, PlatformRef, Match, Profile, Resolution };
 export interface MatchResponse { match: Match; a: Profile; b: Profile }
-export type IdentitiesResponse = Resolution & { profiles: number };
-export interface ScanResponse { refs: PlatformRef[]; timestamps: number; circadian: Circadian | null }
+import type { Burst } from '@shared/forensics/bursts';
+import type { DstResult } from '@shared/forensics/dst';
+export type { Burst, DstResult };
+export type IdentitiesResponse = Resolution & { profiles: number; bursts: Burst[] };
+import type { HeaderReport } from '@shared/forensics/headers';
+export type { HeaderReport };
+export interface ScanResponse { refs: PlatformRef[]; timestamps: number; circadian: Circadian | null; dst: DstResult | null; headers: HeaderReport | null }
 
 export const fmtWhen = (ms?: number, precision: 'second' | 'day' = 'second') => {
   if (ms === undefined) return 'unknown';

@@ -11,7 +11,7 @@ import { ConnectionPath, SourceCards } from './FindingDetail';
 import { explainRelation } from '@shared/explain';
 import { displayValue } from '../lib/format';
 import { ActivityClock } from './forensics/ActivityClock';
-import type { Circadian } from '../lib/forensics';
+import type { Circadian, DstResult } from '../lib/forensics';
 
 type Tab = 'overview' | 'evidence' | 'activity' | 'notes';
 
@@ -214,16 +214,17 @@ function EdgePanel({ id }: { id: string }) {
 /** When this account is active, from timestamps you have attached (pasted logs, message links, commit times). */
 function ActivityTab({ node }: { node: GraphNode }) {
   const s = useStore();
-  const [data, setData] = useState<{ count: number; circadian: Circadian | null } | null>(null);
+  const [data, setData] = useState<{ count: number; circadian: Circadian | null; dst?: DstResult | null } | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { let live = true; api.get<{ count: number; circadian: Circadian | null }>(`/api/nodes/${node.id}/activity`).then((r) => { if (live) setData(r); }).catch(() => {}); return () => { live = false; }; }, [node.id]);
+  useEffect(() => { let live = true; api.get<{ count: number; circadian: Circadian | null; dst: DstResult | null }>(`/api/nodes/${node.id}/activity`).then((r) => { if (live) setData(r); }).catch(() => {}); return () => { live = false; }; }, [node.id]);
   const others = (s.snap?.nodes ?? []).filter((n) => (n.type === 'account' || n.type === 'username') && n.id !== node.id);
-  const add = async () => { setBusy(true); try { const r = await api.post<{ count: number; circadian: Circadian | null }>(`/api/nodes/${node.id}/activity`, { text }); setData(r); setText(''); s.toast('Timestamps added'); } finally { setBusy(false); } };
+  const add = async () => { setBusy(true); try { const r = await api.post<{ count: number; circadian: Circadian | null; dst: DstResult | null }>(`/api/nodes/${node.id}/activity`, { text }); setData(r); setText(''); s.toast('Timestamps added'); } finally { setBusy(false); } };
   return (
     <>
       <div className="sec-title">Active hours</div>
-      {data?.circadian ? <ActivityClock c={data.circadian} size={200} compact /> : <div className="faint" style={{ marginBottom: 8 }}>{data?.count ? `${data.count} timestamps so far: not enough yet.` : 'No timestamps yet. Paste message links, a chat export or a log and Plexus will work out when this person is awake, and roughly where.'}</div>}
+      {typeof node.attrs.commitTz === 'string' && <div className="commit-tz"><b>Commits are written in UTC{node.attrs.commitTz.replace('-', '−')}</b> ({String(node.attrs.commitTzSeen ?? '')} sampled). That is the offset this person's computer was set to, read from the commits themselves, so it is direct evidence of their timezone.</div>}
+      {data?.circadian ? <ActivityClock c={data.circadian} dst={data.dst} size={200} compact /> : <div className="faint" style={{ marginBottom: 8 }}>{data?.count ? `${data.count} timestamps so far: not enough yet.` : 'No timestamps yet. Paste message links, a chat export or a log and Plexus will work out when this person is awake, and roughly where.'}</div>}
       <textarea className="field" style={{ width: '100%', minHeight: 84, marginTop: 10, font: '12px var(--mono)' }} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste Discord message links, ISO times, Unix times…" aria-label="Timestamps to add" />
       <div className="row" style={{ marginTop: 8, gap: 6, flexWrap: 'wrap' }}>
         <button className="btn sm" onClick={() => void add()} disabled={!text.trim() || busy}>Add timestamps</button>

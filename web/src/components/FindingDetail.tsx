@@ -167,6 +167,7 @@ function StressCard({ f }: { f: Finding }) {
     <div className={`stress ${s.verdict}`}>
       <div className="st-head"><b>Stress test</b><span className={`st-pill ${s.verdict}`}>{VERDICT[s.verdict]}</span></div>
       <p>{s.headline}</p>
+      {s.ledger && s.ledger.sources > 0 && <p className="st-ledger" title={s.ledger.rows.map((r) => `${r.name}: ${r.bits.toFixed(1)} bits`).join('\n')}>For this to be false, every source would have to be wrong at once: about <b>1 in {s.ledger.allWrongOneIn >= 1000 ? Math.round(s.ledger.allWrongOneIn).toLocaleString('en-US') : s.ledger.allWrongOneIn.toFixed(s.ledger.allWrongOneIn < 10 ? 1 : 0)}</b> <span className="faint">({s.ledger.total.toFixed(1)} bits)</span>.</p>}
       {s.verdict !== 'single' && shown.length > 0 && (
         <div className="st-rows" role="list" aria-label="What the confidence becomes if one source is wrong">
           <div className="st-cap"><span>If this source is wrong…</span><span>…it becomes</span></div>

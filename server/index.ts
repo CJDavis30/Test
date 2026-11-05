@@ -21,6 +21,8 @@ import { Autopilot } from './autopilot';
 import { activityOf, identitiesFor, matchNodes, scan, timestampsIn } from './forensics';
 import { circadian } from '../shared/forensics/circadian';
 import { dependencies, stressTest } from '../shared/stress';
+import { ledger } from '../shared/ledger';
+import { dstFingerprint } from '../shared/forensics/dst';
 import { reliabilityFn } from './registry';
 import { ImportError, importCase, markdownToHtml, toCsv, toGraphML } from './portable';
 import { detect, detectMany, extractEntities } from '../shared/detect';
@@ -106,8 +108,8 @@ export async function createApp(store = new Store()) {
     if (!store.getCase(id)) return c.json({ error: 'not found' }, 404);
     const rel = reliabilityFn(store);
     const all = store.listFindings(id).filter((f) => f.status !== 'rejected' && f.evidence.length);
-    const stress: Record<string, ReturnType<typeof stressTest>> = {};
-    for (const f of all) stress[f.id] = stressTest(f, rel);
+    const stress: Record<string, ReturnType<typeof stressTest> & { ledger: ReturnType<typeof ledger> }> = {};
+    for (const f of all) stress[f.id] = { ...stressTest(f, rel), ledger: ledger(f, rel) };
     const deps = dependencies(all.filter((f) => f.status === 'accepted'), rel).slice(0, 8).map((d) => ({
       family: d.family, name: d.name,
       weakens: d.weakens.slice(0, 12).map((f) => ({ id: f.id, type: f.type, value: f.value, level: f.level })),
@@ -138,11 +140,11 @@ export async function createApp(store = new Store()) {
     const all = [...new Set([...activityOf(n), ...add])].sort((x, y) => x - y).slice(-5000);
     store.patchNodeAttrs(n.id, { activity: all.join(',') });
     store.audit(n.caseId, 'activity.added', `${add.length} timestamps for ${n.label}`);
-    return c.json({ count: all.length, circadian: circadian(all) });
+    return c.json({ count: all.length, circadian: circadian(all), dst: dstFingerprint(all) });
   });
   app.get('/api/nodes/:id/activity', (c) => {
     const n = store.getNode(c.req.param('id')); if (!n) return c.json({ error: 'not found' }, 404);
-    const t = activityOf(n); return c.json({ count: t.length, circadian: circadian(t) });
+    const t = activityOf(n); return c.json({ count: t.length, circadian: circadian(t), dst: dstFingerprint(t) });
   });
   app.get('/api/backups', (c) => c.json({ backups: store.listBackups() }));
   app.post('/api/backups', (c) => { const b = store.makeBackup(); return c.json({ backup: b, backups: store.listBackups() }); });

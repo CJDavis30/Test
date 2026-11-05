@@ -246,3 +246,7 @@ body.overlay-open .toolbar, body.overlay-open .sidebar .brand { -webkit-app-regi
 .aph-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .hero-hint { margin: 10px 0 0; font-size: 12px; color: var(--text-3); text-align: center; }
 .hero-hint b { font-weight: 600; color: var(--text-2); }
+.dc-hmeta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--text-2); } .dc-hmeta b { color: var(--text); font-weight: 600; }
+.dc-hops { margin: 8px 0; padding-left: 20px; font-size: 12.5px; } .dc-hops li { margin: 3px 0; } .dc-hops small { display: block; color: var(--text-3); }
+.dc-hf { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.45; }
+.dc-hf li { padding: 6px 10px; border-radius: 9px; background: var(--surface-2); } .dc-hf li.warn { background: color-mix(in srgb, var(--lvl2) 12%, transparent); } .dc-hf li.bad { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }

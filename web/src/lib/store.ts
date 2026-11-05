@@ -60,7 +60,7 @@ interface State {
   autopilot: ApState | null;
   matchLab: { a: string; b: string } | null;
   decode: boolean;
-  stress: Record<string, Stress>;
+  stress: Record<string, StressView>;
   deps: SourceDependency[];
   theme: 'auto' | 'light' | 'dark';
   toasts: Toast[];
@@ -116,6 +116,8 @@ interface Actions {
 
 const LAST = 'plexus.lastCase';
 let stressTimer: ReturnType<typeof setTimeout>;
+export type StressView = Stress & { ledger?: { rows: LedgerRow[]; total: number; allWrongOneIn: number; sources: number } };
+export interface LedgerRow { family: string; name: string; p: number; bits: number }
 export interface SourceDependency { family: string; name: string; weakens: { id: string; type: EntityType; value: string; level: Level }[]; weakensCount: number; collapsesCount: number }
 let toastSeq = 1;
 const closers = new Map<string, () => void>();
@@ -130,7 +132,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     clearTimeout(stressTimer);
     stressTimer = setTimeout(async () => {
       const id = get().caseId; if (!id) return;
-      try { const r = await api.get<{ stress: Record<string, Stress>; deps: SourceDependency[] }>(`/api/cases/${id}/stress`); if (get().caseId === id) set({ stress: r.stress, deps: r.deps }); } catch { /* optional insight */ }
+      try { const r = await api.get<{ stress: Record<string, StressView>; deps: SourceDependency[] }>(`/api/cases/${id}/stress`); if (get().caseId === id) set({ stress: r.stress, deps: r.deps }); } catch { /* optional insight */ }
     }, 250);
   },
 

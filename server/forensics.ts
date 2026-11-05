@@ -1,6 +1,9 @@
 import { circadian, type Circadian } from '../shared/forensics/circadian';
 import { findPlatformRefs, decodeDiscordSnowflake } from '../shared/forensics/ids';
 import { linkProfiles, resolveIdentities, type Match, type Profile, type Resolution } from '../shared/forensics/linker';
+import { findBursts, type Burst } from '../shared/forensics/bursts';
+import { dstFingerprint } from '../shared/forensics/dst';
+import { analyzeHeaders } from '../shared/forensics/headers';
 import { keyFor } from '../shared/normalize';
 import type { GraphNode } from '../shared/types';
 import type { Store } from './store';
@@ -47,21 +50,33 @@ export function profilesFor(store: Store, caseId: string): { profiles: Profile[]
     profiles.push({
       id: n.id, label: n.label, platform, handle, displayName: typeof n.attrs?.displayName === 'string' ? n.attrs.displayName : undefined,
       createdAt: created?.ms, createdPrecision: created?.precision, avatarHash: avatar, contacts, links, circadian: c ? { offsets: c.offsets, strength: c.strength } : undefined,
+      activity: activityOf(n),
     });
   }
   return { profiles, circ };
 }
 
+const slim = (p: Profile): Profile => ({ ...p, activity: undefined }); // the raw timestamps stay on the server
+
 export function matchNodes(store: Store, caseId: string, a: string, b: string, priorOdds?: number): { match: Match; a: Profile; b: Profile } | null {
   const { profiles } = profilesFor(store, caseId);
   const pa = profiles.find((p) => p.id === a), pb = profiles.find((p) => p.id === b);
   if (!pa || !pb) return null;
-  return { match: linkProfiles(pa, pb, { priorOdds }), a: pa, b: pb };
+  return { match: linkProfiles(pa, pb, { priorOdds }), a: slim(pa), b: slim(pb) };
 }
 
-export function identitiesFor(store: Store, caseId: string, priorOdds?: number): Resolution & { profiles: number } {
+export function identitiesFor(store: Store, caseId: string, priorOdds?: number): Resolution & { profiles: number; bursts: Burst[] } {
   const { profiles } = profilesFor(store, caseId);
-  return { ...resolveIdentities(profiles, { priorOdds }), profiles: profiles.length };
+  const r = resolveIdentities(profiles, { priorOdds });
+  const precise = profiles.filter((p) => p.createdAt !== undefined && p.createdPrecision !== 'day');
+  const bursts: Burst[] = findBursts(precise.map((p) => ({ id: p.id, at: p.createdAt! })));
+  return {
+    bursts,
+    identities: r.identities.map((i) => ({ ...i, members: i.members.map(slim) })),
+    maybes: r.maybes.map((m) => ({ ...m, a: slim(m.a), b: slim(m.b) })),
+    separated: r.separated.map((m) => ({ ...m, a: slim(m.a), b: slim(m.b) })),
+    profiles: profiles.length,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------- paste anything
@@ -82,5 +97,5 @@ export function timestampsIn(text: string): number[] {
 export function scan(text: string) {
   const refs = findPlatformRefs(text);
   const times = timestampsIn(text);
-  return { refs, timestamps: times.length, circadian: circadian(times) };
+  return { refs, timestamps: times.length, circadian: circadian(times), dst: dstFingerprint(times), headers: /^Received:/im.test(text) ? analyzeHeaders(text) : null };
 }

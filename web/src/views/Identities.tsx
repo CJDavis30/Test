@@ -4,6 +4,8 @@ import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { EntityGlyph } from '../lib/icons';
 import { fmtWhen, pctText, type IdentitiesResponse, type Profile } from '../lib/forensics';
+import { describeWindow } from '@shared/forensics/bursts';
+import { oneIn } from '@shared/forensics/linker';
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -51,6 +53,12 @@ export function IdentitiesView() {
           </div>
         </section>
       ))}
+      {data && data.bursts.length > 0 && (<>
+        <div className="fsec">Created in a burst <span className="cnt">made in one go, which is how one person makes several accounts</span></div>
+        <div className="idn-list">{data.bursts.slice(0, 5).map((b) => (
+          <div className="idn-link" key={b.ids.join()}><span className="truncate"><b>{b.count} accounts</b> within {describeWindow(b.window)}: {b.ids.map((id) => byId.get(id)?.handle ?? byId.get(id)?.label ?? '?').join(', ')}</span><span className="num" title={`${b.bits.toFixed(1)} bits`}>{oneIn(b.bits)}</span><span className="faint">by chance</span></div>
+        ))}</div>
+      </>)}
       {data && data.maybes.length > 0 && (<>
         <div className="fsec">Might be the same person <span className="cnt">needs your judgement</span></div>
         <div className="idn-list">{data.maybes.map((m) => (
