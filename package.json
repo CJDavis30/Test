@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Plexus \u2014 a local-first investigation workbench. Enter one fact; Plexus finds, scores and connects the rest.",
+  "description": "Plexus — a local-first investigation workbench. Enter one fact; Plexus finds, scores and connects the rest.",
   "engines": {
     "node": ">=22.13"
   },
@@ -17,54 +17,67 @@
     "test": "vitest run",
     "serve": "node dist/server/index.mjs",
     "desktop": "npm run build && electron .",
-    "dist:mac": "npm run build && electron-builder --mac",
     "build:web": "vite build --config web/vite.config.ts",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/index.mjs --external:node:sqlite --log-level=warning --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\""
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/index.mjs --external:node:sqlite --log-level=warning --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\"",
+    "install:mac": "bash scripts/mac/install.sh",
+    "update:mac": "bash scripts/mac/update.sh",
+    "build:app": "electron-builder --mac --dir --publish never"
   },
-  "dependencies": {
+  "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@hono/node-server": "^2.1.6",
+    "@types/d3-force": "^3.0.10",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
     "d3-force": "^3.0.1",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
     "hono": "^4.13.16",
     "libphonenumber-js": "^1.13.15",
     "lucide-react": "^1.68.0",
     "motion": "^14.9.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "zustand": "^5.0.16"
-  },
-  "devDependencies": {
-    "@types/d3-force": "^3.0.10",
-    "@types/node": "^26.6.6",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.2.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.0",
+    "zustand": "^5.0.16"
   },
   "main": "desktop/main.cjs",
   "build": {
     "appId": "app.plexus.desktop",
     "productName": "Plexus",
+    "copyright": "Plexus",
+    "asar": false,
+    "icon": "assets/icon/Plexus.icns",
     "directories": {
       "output": "release"
     },
     "files": [
-      "desktop/**",
-      "dist/**",
+      "desktop/**/*",
+      "dist/**/*",
+      "config.json",
       "package.json"
     ],
+    "extraMetadata": {
+      "main": "desktop/main.cjs"
+    },
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
-        "dmg"
+        {
+          "target": "dir"
+        }
       ],
-      "hardenedRuntime": true,
-      "darkModeSupport": true
-    },
-    "asar": true
-  }
+      "identity": null,
+      "icon": "assets/icon/Plexus.icns",
+      "darkModeSupport": true,
+      "minimumSystemVersion": "11.0"
+    }
+  },
+  "author": "Plexus"
 }

@@ -6,6 +6,7 @@
 .app.no-sidebar .sidebar { border-right-color: transparent; }
 .sidebar .brand { height: var(--toolbar-h); display: flex; align-items: center; gap: 9px; padding: 0 14px 0 16px; flex: none; -webkit-app-region: drag; }
 .brand-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--text); color: var(--bg); display: grid; place-items: center; flex: none; }
+.brand-icon { display: block; flex: none; margin-left: -2px; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.25)); }
 .brand-name { font: 600 14px var(--font-display); letter-spacing: -.02em; }
 .sidebar .scroll { flex: 1; overflow: auto; padding: 4px 10px 10px; }
 .side-label { display: flex; align-items: center; justify-content: space-between; padding: 14px 8px 5px; font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-3); }
@@ -144,5 +145,3 @@ button.float-pill:hover { background: var(--surface); }
 /* ---------- desktop shell (Electron on macOS): leave room for the traffic lights ---------- */
 .is-darwin .sidebar .brand { padding-left: 82px; }
 .is-darwin .app.no-sidebar .toolbar { padding-left: 86px; }
-.is-desktop body { background: transparent; }
-.is-desktop .sidebar { background: transparent; }

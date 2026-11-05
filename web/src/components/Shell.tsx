@@ -22,9 +22,7 @@ export function Sidebar() {
   return (
     <aside className="sidebar" aria-label="Sidebar">
       <div className="brand">
-        <div className="brand-mark">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12 8 4l4 8H4Z" /><circle cx="8" cy="4" r="1.3" fill="currentColor" /><circle cx="4" cy="12" r="1.3" fill="currentColor" /><circle cx="12" cy="12" r="1.3" fill="currentColor" /></svg>
-        </div>
+        <img className="brand-icon" src="/icon.png" width={26} height={26} alt="" draggable={false} />
         <span className="brand-name">Plexus</span>
       </div>
       <div className="scroll">

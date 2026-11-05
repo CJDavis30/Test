@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- macOS Big Sur+ icon grid: 824×824 squircle centred on a 1024 canvas, soft shadow below -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34363d"/>
+      <stop offset="1" stop-color="#0d0e11"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".30"/>
+      <stop offset=".35" stop-color="#ffffff" stop-opacity=".05"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".12" r=".75">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="seed" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6bb7ff"/>
+      <stop offset="1" stop-color="#1573ff"/>
+    </linearGradient>
+    <linearGradient id="node" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d9dbe1"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".38"/>
+    </filter>
+    <filter id="nodeShadow" x="-50%" y="-50%" width="200%" height="220%">
+      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000" flood-opacity=".45"/>
+    </filter>
+    <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="186" ry="186"/></clipPath>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="186" ry="186" fill="url(#bg)" filter="url(#shadow)"/>
+  <g clip-path="url(#sq)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#glow)"/>
+  </g>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="184.5" ry="184.5" fill="none" stroke="url(#rim)" stroke-width="3"/>
+
+  <!-- the mark: one seed, connected outward -->
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <path d="M512 366 L366 650 M512 366 L658 650 M366 650 L658 650" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="30"/>
+      </g>
+  <g filter="url(#nodeShadow)">
+    <circle cx="366" cy="650" r="56" fill="url(#node)"/>
+    <circle cx="658" cy="650" r="56" fill="url(#node)"/>
+    <circle cx="512" cy="366" r="68" fill="url(#seed)"/>
+    <circle cx="512" cy="366" r="68" fill="none" stroke="#ffffff" stroke-opacity=".35" stroke-width="3"/>
+  </g>
+</svg>

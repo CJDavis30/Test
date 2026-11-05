@@ -23,21 +23,24 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 102 unit/integration tests
+npm test           # 121 unit/integration tests
 npm run typecheck
 ```
 
 First launch offers **demo data**: a fictional cast on reserved `.example` domains with deliberately noisy records (conflicting cities, a namesake, stale numbers). It runs fully offline, so you can learn the whole workflow without touching a real source.
 
-### As a Mac app
+### Install as a Mac app
 
 ```bash
-npm i -D electron electron-builder
-npm run desktop      # run in a native window
-npm run dist:mac     # build a .dmg into ./release
+git clone -b claude/wizardly-johnson-cwj8ub https://github.com/CJDavis30/Test.git ~/Plexus
+cd ~/Plexus && ./scripts/mac/install.sh
 ```
 
-> The desktop shell (`desktop/`) was written but **not executed**, because the build environment had no macOS and no Electron binary. See [Verification status](#verification-status).
+Needs Node 22.13+ (`brew install node`) and git. The script builds **Plexus.app** into `/Applications` (or `~/Applications`), gives it the icon, signs it ad-hoc so it runs on Apple Silicon (no Apple Developer account needed), and opens it. Keep the `~/Plexus` folder: it is what updates are built from.
+
+**Updating.** Either use **Plexus menu → Check for Updates…** (it also checks quietly once a day and only speaks up if something is new), or run `./scripts/mac/update.sh`. Both do `git pull`, rebuild, replace the app and reopen it. If a step fails the installed app is left untouched and you get an alert. Your cases live in `~/.plexus`, separate from the app, so updates never touch them. `./scripts/mac/uninstall.sh` removes the app (`--purge` also deletes your cases).
+
+How it runs: the window talks to a local engine that the app starts with your system Node (found at install time, since GUI apps don't inherit your shell PATH), reusing one if it is already running. Logs: `~/Library/Logs/Plexus`. The icon source is `assets/icon/icon.svg`.
 
 ---
 
@@ -157,7 +160,7 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 102 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding.
+- 121 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
 - The UI in a real browser (Chromium): every view in light and dark; **66 end-to-end checks** (`scripts/qa/e2e.cjs`: pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
@@ -167,8 +170,8 @@ Built and tested in a sandbox whose network allowed **only the npm registry**. T
 **Not verified: please check on your machine**
 1. **Live sources against the real APIs.** Response shapes come from the public docs, not live calls. Settings → Sources → **Test** on each one takes seconds and shows the exact error if a shape drifted. Expect to adjust a field or two. The null-safe parsing means a mismatch yields fewer findings, not a crash.
 2. **AI providers.** Request/response handling is tested against stubs; no real OpenRouter/Google/Ollama call was made.
-3. **The Electron shell** (`desktop/`). In particular confirm `node:sqlite` loads in the Electron version you install (it needs Node ≥ 22.5 inside Electron). If not, `server/store.ts` is the only file that touches SQLite.
-4. Code signing / notarization, and Keychain storage for keys.
+3. **The Mac packaging, on a Mac.** Tested here: the update-detection logic against real git repos, the version gate, the engine starting exactly as the app starts it, the installer's prerequisite checks, the icon file's structure. Not testable here (no macOS): `electron-builder` packaging, the ad-hoc signing step, the window itself, and the in-app update flow. If `./scripts/mac/install.sh` fails, `~/Library/Logs/Plexus/install.log` has the reason.
+4. Developer-ID signing / notarization (the app is ad-hoc signed, fine for your own Mac), and Keychain storage for keys.
 
 **Known gaps / next**
 - No Map view yet (needs geocoding + tiles, which is a privacy decision worth making deliberately).
@@ -183,7 +186,9 @@ Built and tested in a sandbox whose network allowed **only the npm registry**. T
 shared/    types, entity detection, canonicalization, scoring (pure, used by server + client)
 server/    SQLite store · orchestrator (fallback chains, streaming) · AI layer · adapters · API
 web/       React UI: design system, canvas graph engine, findings sheet, views, settings
-desktop/   Electron shell (unverified)
-test/      102 tests
+desktop/   Electron shell + tested helpers
+scripts/mac/ install / update / uninstall
+assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
+test/      121 tests
 scripts/qa/  browser end-to-end + stress scripts
 ```

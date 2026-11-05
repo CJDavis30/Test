@@ -63,9 +63,7 @@ export function Onboarding() {
     <>
       <div className="scrim" />
       <motion.div className="modal" role="dialog" aria-label="Welcome" style={{ x: '-50%' }} initial={{ opacity: 0, scale: .97, y: '-48%' }} animate={{ opacity: 1, scale: 1, y: '-50%' }} transition={{ type: 'spring', stiffness: 380, damping: 32 }}>
-        <div className="brand-mark" style={{ width: 40, height: 40, borderRadius: 11, marginBottom: 18 }}>
-          <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12 8 4l4 8H4Z" /><circle cx="8" cy="4" r="1.3" fill="currentColor" /><circle cx="4" cy="12" r="1.3" fill="currentColor" /><circle cx="12" cy="12" r="1.3" fill="currentColor" /></svg>
-        </div>
+        <img src="/icon.png" width={64} height={64} alt="" draggable={false} style={{ display: 'block', margin: '-6px 0 10px -4px' }} />
         <h2>Welcome to Plexus</h2>
         <p>Enter one fact and Plexus gathers what's publicly connected to it, scores how likely each finding is to be true, and lets you confirm the ones that matter. Everything stays on this Mac.</p>
         <p style={{ fontSize: 12.5, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10 }}>
