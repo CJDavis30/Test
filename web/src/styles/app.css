@@ -156,3 +156,18 @@ button.float-pill:hover { background: var(--surface); }
 /* ---------- desktop shell (Electron on macOS): leave room for the traffic lights ---------- */
 .is-darwin .sidebar .brand { padding-left: 82px; }
 .is-darwin .app.no-sidebar .toolbar { padding-left: 86px; }
+
+/* ---------- never let the window's drag area eat a click ---------- */
+.sheet, .sheet-scrim, .settings, .modal, .palette, .scrim, .menu, .toasts, .drawer-scrim, .sidebar .scroll, .sidebar .foot { -webkit-app-region: no-drag; }
+body.overlay-open .toolbar, body.overlay-open .sidebar .brand { -webkit-app-region: no-drag; }
+.sheet:focus, .settings:focus, .modal:focus { outline: none; }
+
+/* ---------- crash recovery ---------- */
+.crash { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--bg); z-index: 1000; -webkit-app-region: no-drag; }
+.crash-card { width: min(460px, 100%); padding: 28px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-float); }
+.crash h1 { font: 650 22px var(--font-display); letter-spacing: -.03em; margin: 0 0 8px; }
+.crash p { color: var(--text-2); margin: 0 0 12px; line-height: 1.5; }
+.crash pre { margin: 0 0 16px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font: 12px var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow: auto; }
+.crash-actions { display: flex; gap: 8px; }
+.drawer-close { display: none; margin-left: auto; -webkit-app-region: no-drag; }
+@media (max-width: 980px) { .drawer-close { display: grid; } }

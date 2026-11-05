@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { X, Sliders, KeyRound, Cpu, ScrollText, Check, ArrowUp, ArrowDown, LoaderCircle, Trash2, Download, Search } from 'lucide-react';
+import { X, Sliders, KeyRound, Cpu, ScrollText, Check, ArrowUp, ArrowDown, LoaderCircle, Trash2, Download, Search, ShieldCheck, ShieldAlert, HardDriveDownload } from 'lucide-react';
 import { ENTITY_LABEL, type AuditEntry, type SourceInfo } from '@shared/types';
 import { useStore, type SettingsTab } from '../lib/store';
 import { api } from '../lib/api';
 import { EntityGlyph } from '../lib/icons';
-import { Switch, download } from './ui';
+import { Switch, download, csvCell, useDialog } from './ui';
 
 const REGIONS = ['US', 'GB', 'CA', 'AU', 'IE', 'NZ', 'DE', 'FR', 'ES', 'IT', 'NL', 'SE', 'IN', 'BR', 'MX', 'JP', 'KR', 'SG', 'ZA', 'AE'];
 const CAP_LABEL: Record<string, string> = {
@@ -18,6 +18,8 @@ const FALLBACK = new Set(['dns', 'registration', 'subdomains', 'passive-dns', 'w
 export function Settings() {
   const s = useStore();
   const tab = s.settingsOpen!;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialog(dialogRef);
   const nav: [SettingsTab, string, typeof Sliders][] = [['general', 'General', Sliders], ['sources', 'Sources', KeyRound], ['ai', 'AI', Cpu], ['audit', 'Audit log', ScrollText]];
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') s.openSettings(null); };
@@ -26,7 +28,7 @@ export function Settings() {
   return (
     <>
       <div className="scrim" onMouseDown={() => s.openSettings(null)} />
-      <motion.div className="settings" role="dialog" aria-label="Settings" style={{ x: '-50%', y: '-50%' }} initial={{ opacity: 0, scale: .96 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 460, damping: 36 }}>
+      <motion.div ref={dialogRef} tabIndex={-1} aria-modal="true" className="settings" role="dialog" aria-label="Settings" style={{ x: '-50%', y: '-50%' }} initial={{ opacity: 0, scale: .96 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 460, damping: 36 }}>
         <nav>
           <h3>Settings</h3>
           {nav.map(([id, label, I]) => <button key={id} className="side-item" aria-current={tab === id} onClick={() => s.openSettings(id)}><I size={16} strokeWidth={1.75} /> {label}</button>)}
@@ -60,6 +62,7 @@ function General() {
         <select value={st.region} onChange={(e) => void set({ region: e.target.value })} aria-label="Region">{REGIONS.map((r) => <option key={r}>{r}</option>)}</select></div>
       <div className="setrow"><div className="grow"><div className="t">Lookup cache</div><div className="d">Source responses are cached for a few hours so repeat lookups are instant and polite to free APIs.</div></div>
         <button className="btn" onClick={async () => { await api.post('/api/cache/clear'); s.toast('Cache cleared'); }}>Clear cache</button></div>
+      <Backups />
       <div className="setrow"><div className="grow"><div className="t">Responsible use</div><div className="d">Plexus is for lawful, authorized research. A name match is a lead, not proof. Every lookup is written to the case's audit log, and exports can be redacted.</div></div></div>
     </>
   );
@@ -201,10 +204,54 @@ function Audit() {
     <>
       <h2>Audit log</h2>
       <p className="lead">Every lookup, decision and export for “{s.snap?.case.name ?? 'this case'}”, newest first.</p>
-      <div className="row" style={{ marginBottom: 12 }}><button className="btn sm" onClick={() => download('audit.csv', 'time,action,detail\n' + rows.map((r) => `${new Date(r.ts).toISOString()},${r.action},"${r.detail.replace(/"/g, '""')}"`).join('\n'), 'text/csv')} disabled={!rows.length}><Download size={13} /> Export CSV</button></div>
+      <Integrity />
+      <div className="row" style={{ marginBottom: 12 }}><button className="btn sm" onClick={() => download('audit.csv', 'time,action,detail,fingerprint\n' + rows.map((r) => [new Date(r.ts).toISOString(), r.action, r.detail, r.hash ?? ''].map(csvCell).join(',')).join('\n'), 'text/csv')} disabled={!rows.length}><Download size={13} /> Export CSV</button></div>
       {rows.length === 0 ? <div className="empty-note">No activity yet.</div> : (
         <table className="audit selectable"><tbody>{rows.map((r) => <tr key={r.id}><td className="num">{new Date(r.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })}</td><td>{r.action}</td><td>{r.detail}</td></tr>)}</tbody></table>
       )}
     </>
+  );
+}
+
+interface IntegrityReport { checkedAt: number; audit: { ok: boolean; count: number; legacy: number; broken?: { action: string; ts: number } }; evidence: { checked: number; unsealed: number; altered: { value: string; source: string }[] }; database: string }
+
+/** Re-checks the case from scratch: the activity log is still an unbroken chain, and every observation still matches the fingerprint taken when it was recorded. */
+function Integrity() {
+  const s = useStore();
+  const [r, setR] = useState<IntegrityReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => { if (!s.caseId) return; setBusy(true); try { setR(await api.get<IntegrityReport>(`/api/cases/${s.caseId}/integrity`)); } catch (e: any) { s.toast(e?.message ?? 'Could not verify'); } finally { setBusy(false); } };
+  useEffect(() => { void run(); }, [s.caseId]);
+  const bad = r && (!r.audit.ok || r.evidence.altered.length > 0 || r.database !== 'ok');
+  return (
+    <div className={`integrity ${bad ? 'bad' : r ? 'good' : ''}`}>
+      <div className="ig-head">
+        {busy && !r ? <LoaderCircle size={18} className="spin" /> : bad ? <ShieldAlert size={18} /> : <ShieldCheck size={18} />}
+        <b>{!r ? 'Checking integrity…' : bad ? 'Something was changed after it was recorded' : 'Record intact'}</b>
+        <div className="grow" />
+        <button className="btn sm" onClick={() => void run()} disabled={busy}>{busy ? 'Checking…' : 'Verify again'}</button>
+      </div>
+      {r && (
+        <ul>
+          <li className={r.audit.ok ? 'y' : 'n'}>{r.audit.ok ? <Check size={13} /> : <X size={13} />} Activity log: {r.audit.ok ? `${r.audit.count} entries, unbroken chain${r.audit.legacy ? ` (${r.audit.legacy} older entries predate chaining)` : ''}` : `broken at “${r.audit.broken?.action}” (${new Date(r.audit.broken?.ts ?? 0).toLocaleString()}). Entries were edited or removed`}</li>
+          <li className={r.evidence.altered.length ? 'n' : 'y'}>{r.evidence.altered.length ? <X size={13} /> : <Check size={13} />} Evidence: {r.evidence.checked} fingerprints re-verified{r.evidence.altered.length ? `, ${r.evidence.altered.length} altered (${r.evidence.altered.slice(0, 3).map((a) => `${a.value} via ${a.source}`).join('; ')})` : ', none altered'}{r.evidence.unsealed ? ` · ${r.evidence.unsealed} older items were recorded before fingerprints existed` : ''}</li>
+          <li className={r.database === 'ok' ? 'y' : 'n'}>{r.database === 'ok' ? <Check size={13} /> : <X size={13} />} Database: {r.database === 'ok' ? 'no corruption found' : r.database}</li>
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function Backups() {
+  const s = useStore();
+  const [list, setList] = useState<{ name: string; size: number; at: number }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.get<{ backups: { name: string; size: number; at: number }[] }>('/api/backups').then((r) => setList(r.backups)).catch(() => setList([])); }, []);
+  const make = async () => { setBusy(true); try { const r = await api.post<{ backups: { name: string; size: number; at: number }[] }>('/api/backups'); setList(r.backups); s.toast('Backup saved'); } catch (e: any) { s.toast(e?.message ?? 'Backup failed'); } finally { setBusy(false); } };
+  const last = list?.[0];
+  return (
+    <div className="setrow"><div className="grow"><div className="t">Backups</div>
+      <div className="d">A full copy is saved automatically when Plexus starts (at most every 6 hours) and before any case is deleted. The newest 10 are kept in <code>~/.plexus/backups</code>.{last ? ` Latest: ${new Date(last.at).toLocaleString()}.` : ' None yet.'}</div></div>
+      <button className="btn" onClick={() => void make()} disabled={busy}><HardDriveDownload size={14} /> {busy ? 'Saving…' : 'Back up now'}</button></div>
   );
 }

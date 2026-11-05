@@ -8,7 +8,7 @@ import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { EntityGlyph } from '../lib/icons';
-import { Kbd, MOD, download } from './ui';
+import { Kbd, MOD, download, useDialog } from './ui';
 
 interface Item {
   id: string; label: string; sub?: string; icon: React.ReactNode; group: string; run: (alt: boolean) => void | Promise<void>; keywords?: string;
@@ -39,6 +39,8 @@ export function Palette() {
   const [override, setOverride] = useState<EntityType | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const close = () => s.toggle('palette', false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  useDialog(boxRef, { focus: false });
   const { one, multi, cycle } = useDetected(q, override);
 
   useEffect(() => { ref.current?.focus(); }, []);
@@ -115,7 +117,7 @@ export function Palette() {
   return (
     <>
       <div className="scrim" onMouseDown={close} />
-      <motion.div className="palette" role="dialog" aria-label="Search or add" style={{ x: '-50%' }} initial={{ opacity: 0, y: -8, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: 'spring', stiffness: 560, damping: 38 }}>
+      <motion.div ref={boxRef} aria-modal="true" className="palette" role="dialog" aria-label="Search or add" style={{ x: '-50%' }} initial={{ opacity: 0, y: -8, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: 'spring', stiffness: 560, damping: 38 }}>
         <div className="input">
           <Search size={18} strokeWidth={1.8} className="faint" />
           <textarea ref={ref} rows={1} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} placeholder="Paste an email, username, domain, name, phone, IP…" spellCheck={false} autoCorrect="off" autoCapitalize="off" aria-label="Search or add" />

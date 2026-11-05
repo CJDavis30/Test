@@ -53,3 +53,32 @@ export function download(name: string, text: string, mime = 'text/plain') {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
+export { csvCell } from '@shared/csv';
+
+const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+/**
+ * Dialog behaviour that keyboard and screen-reader users depend on: focus moves into the dialog when it opens,
+ * Tab stays inside it, and focus returns to where it was when it closes.
+ */
+export function useDialog(ref: React.RefObject<HTMLElement | null>, opts: { focus?: boolean; onEscape?: () => void } = {}) {
+  const { focus = true, onEscape } = opts;
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    const el = ref.current;
+    if (focus && el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => {
+      const box = ref.current; if (!box) return;
+      if (e.key === 'Escape' && onEscape) { e.preventDefault(); onEscape(); return; }
+      if (e.key !== 'Tab') return;
+      const items = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => n.offsetParent !== null || n === document.activeElement);
+      if (items.length === 0) { e.preventDefault(); box.focus(); return; }
+      const first = items[0], last = items[items.length - 1], a = document.activeElement;
+      if (e.shiftKey && (a === first || a === box)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (a === last || !box.contains(a))) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => { document.removeEventListener('keydown', onKey, true); if (prev && document.contains(prev)) prev.focus({ preventScroll: true }); };
+  }, []);
+}

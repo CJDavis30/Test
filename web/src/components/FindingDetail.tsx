@@ -130,6 +130,7 @@ function SourceRow({ e, info, open, onToggle }: { e: Evidence; info?: SourceInfo
           <div className="smeta2">
             {e.via ? <>Checked because “{e.via.label}” was found for this lookup · {ago(e.retrievedAt)}</> : <>Checked {ago(e.retrievedAt)}</>}
             <span className="sdot">·</span><span>{st.label}</span>
+            {e.hash && <span className="sdot">·</span>}{e.hash && <span className="fp" title={`SHA-256 of what Plexus recorded for this observation:\n${e.hash}\nRe-checked under Settings → Audit log.`}>Fingerprint {e.hash.slice(0, 10)}</span>}
             {home && <a className="shome" href={home} target="_blank" rel="noreferrer noopener" title={`About ${e.adapterName}`}>About this source <ExternalLink size={10} style={{ verticalAlign: -1 }} /></a>}
           </div>
         </div>

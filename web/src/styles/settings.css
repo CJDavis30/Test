@@ -36,3 +36,14 @@
 .audit td:first-child { color: var(--text-3); white-space: nowrap; width: 130px; }
 .audit td:nth-child(2) { font-weight: 550; white-space: nowrap; width: 150px; }
 .audit td:last-child { color: var(--text-2); word-break: break-word; }
+
+.integrity { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); }
+.integrity.good { border-color: color-mix(in srgb, var(--lvl4) 40%, var(--line)); }
+.integrity.bad { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); }
+.ig-head { display: flex; align-items: center; gap: 9px; }
+.integrity.good .ig-head > svg { color: var(--lvl4); } .integrity.bad .ig-head > svg { color: var(--danger); }
+.integrity ul { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.integrity li { display: flex; gap: 7px; align-items: flex-start; line-height: 1.4; }
+.integrity li svg { margin-top: 2px; flex: none; }
+.integrity li.y svg { color: var(--lvl4); } .integrity li.n { color: var(--danger); }
+.fp { font-family: var(--mono); font-size: 11px; cursor: help; }

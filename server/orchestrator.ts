@@ -9,6 +9,7 @@ import { adaptersFor, reliabilityFn, usable, priorityOf } from './registry';
 import { getSecret } from './config';
 import { uid, type Store } from './store';
 import { howFor, lookupUrl } from './adapters/how';
+import { fingerprint } from './integrity';
 
 const MAX_CLAIMS_PER_ADAPTER = 150;
 const CROSS_ID = 'cross-check';
@@ -146,10 +147,10 @@ export class Orchestrator {
         const k = keyFor(c.type, c.value, c.attrs);
         if (!k) continue;
         if (c.type === subject.type && k === key) continue; // never "discover" the subject itself
-        const ev: Evidence = {
+        const ev: Evidence = fingerprint({
           id: uid('ev_'), adapter: a.id, adapterName: a.name, family: a.family, url: safeHttpUrl(c.url) ?? lookupUrl(a.id, subject.type, subject.value), urlKind: safeHttpUrl(c.url) ? 'record' : lookupUrl(a.id, subject.type, subject.value) ? 'lookup' : undefined,
           snippet: c.snippet?.slice(0, 400), how: (c.how ?? howFor(a.id, subject.type, subject.value))?.slice(0, 240), kind: 'direct', record: c.record, retrievedAt: now, weight: Math.min(1, Math.max(0.01, c.weight)),
-        };
+        });
         const mapKey = `${c.type}|${k}`;
         let f = byKey.get(mapKey);
         if (!f) {
@@ -335,7 +336,7 @@ export class Orchestrator {
       return { f, answers, via: { findingId: f.id, label: labelFor(f.type, f.value, f.attrs) } };
     }));
 
-    const mkEvidence = (a: Adapter, f: Finding, via: { findingId: string; label: string }, c: Claim, w: number, polarity: 'for' | 'against', verdict: string): Evidence => ({
+    const mkEvidence = (a: Adapter, f: Finding, via: { findingId: string; label: string }, c: Claim, w: number, polarity: 'for' | 'against', verdict: string): Evidence => fingerprint({
       id: uid('ev_'), adapter: a.id, adapterName: a.name, family: a.family, url: safeHttpUrl(c.url) ?? lookupUrl(a.id, f.type, f.value), urlKind: safeHttpUrl(c.url) ? 'record' : lookupUrl(a.id, f.type, f.value) ? 'lookup' : undefined, snippet: c.snippet?.slice(0, 400),
       how: `${howFor(a.id, f.type, f.value) ?? `Asked ${a.name}`} (to check a ${f.type} found for ${subjectLabel})`.slice(0, 260),
       kind: 'cross', polarity, record: c.record, verdict, via, retrievedAt: now, weight: Math.min(0.95, Math.max(0.05, w)),

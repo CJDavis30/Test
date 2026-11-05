@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Network, Table2, Clock, FileText, Plus, Search, Settings as Cog, PanelLeft, PanelRight, Sun, Moon, Monitor, Ellipsis, FlaskConical,
-  LoaderCircle, Inbox, Check, Pencil, Trash2, ChevronDown,
+  LoaderCircle, Inbox, Check, Pencil, Trash2, ChevronDown, X,
 } from 'lucide-react';
 import { useStore, type View } from '../lib/store';
 import { Popover, Kbd, MOD } from './ui';
@@ -24,6 +24,7 @@ export function Sidebar() {
       <div className="brand">
         <img className="brand-icon" src="/icon.png" width={26} height={26} alt="" draggable={false} />
         <span className="brand-name">Plexus</span>
+        <button className="btn icon ghost drawer-close" aria-label="Close sidebar" onClick={() => useStore.getState().toggle('sidebar', false)}><X size={16} /></button>
       </div>
       <div className="scroll">
         <div className="side-label" style={{ paddingTop: 4 }}>View</div>

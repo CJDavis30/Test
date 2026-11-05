@@ -4,7 +4,7 @@ import { ArrowRight, FlaskConical, Upload } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { useDetected, TypeChip } from './Palette';
-import { Check, Kbd, MOD } from './ui';
+import { Check, Kbd, MOD, useDialog } from './ui';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
 import { EntityGlyph } from '../lib/icons';
 
@@ -54,6 +54,8 @@ export function Welcome() {
 
 export function Onboarding() {
   const s = useStore();
+  const boxRef = useRef<HTMLDivElement>(null);
+  useDialog(boxRef);
   const finish = async (demo: boolean) => {
     await api.put('/api/settings', { onboarded: true, ...(demo ? { demoMode: true } : {}) });
     await Promise.all([s.refreshSettings(), s.refreshSources()]);
@@ -62,7 +64,7 @@ export function Onboarding() {
   return (
     <>
       <div className="scrim" />
-      <motion.div className="modal" role="dialog" aria-label="Welcome" style={{ x: '-50%' }} initial={{ opacity: 0, scale: .97, y: '-48%' }} animate={{ opacity: 1, scale: 1, y: '-50%' }} transition={{ type: 'spring', stiffness: 380, damping: 32 }}>
+      <motion.div ref={boxRef} tabIndex={-1} aria-modal="true" className="modal" role="dialog" aria-label="Welcome" style={{ x: '-50%' }} initial={{ opacity: 0, scale: .97, y: '-48%' }} animate={{ opacity: 1, scale: 1, y: '-50%' }} transition={{ type: 'spring', stiffness: 380, damping: 32 }}>
         <img src="/icon.png" width={64} height={64} alt="" draggable={false} style={{ display: 'block', margin: '-6px 0 10px -4px' }} />
         <h2>Welcome to Plexus</h2>
         <p>Enter one fact and Plexus gathers what's publicly connected to it, scores how likely each finding is to be true, and lets you confirm the ones that matter. Everything stays on this Mac.</p>
@@ -81,10 +83,12 @@ export function Onboarding() {
 export function ImportDialog({ items, onClose }: { items: Detected[]; onClose: () => void }) {
   const s = useStore();
   const [sel, setSel] = useState(() => new Set(items.map((_, i) => i)));
+  const boxRef = useRef<HTMLDivElement>(null);
+  useDialog(boxRef, { onEscape: onClose });
   return (
     <>
       <div className="scrim" onMouseDown={onClose} />
-      <div className="modal" role="dialog" aria-label="Import entities" style={{ transform: 'translate(-50%, -50%)' }}>
+      <div ref={boxRef} tabIndex={-1} aria-modal="true" className="modal" role="dialog" aria-label="Import entities" style={{ transform: 'translate(-50%, -50%)' }}>
         <h2>Found {items.length} {items.length === 1 ? 'entity' : 'entities'}</h2>
         <p>Choose what to add to this case.</p>
         <div style={{ maxHeight: 320, overflow: 'auto', margin: '0 -6px' }}>

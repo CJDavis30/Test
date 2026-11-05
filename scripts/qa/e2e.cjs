@@ -1,4 +1,4 @@
-// End-to-end browser QA (100+ checks). Needs `npm i -D playwright` and a server running in demo mode with fast demo sources:
+// End-to-end browser QA (120+ checks). Needs `npm i -D playwright` and a server running in demo mode with fast demo sources:
 //   PLEXUS_HOME=$(mktemp -d) PLEXUS_PORT=4317 PLEXUS_DEMO_FAST=1 node dist/server/index.mjs &
 //   curl -X PUT localhost:4317/api/settings -H 'x-plexus: 1' -H 'content-type: application/json' -d '{"demoMode":true}'
 //   node scripts/qa/e2e.cjs      (env OUT=<dir> for failure screenshots)
@@ -372,6 +372,29 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     await p.locator('select[aria-label="Region"]').selectOption('US');
     await p.keyboard.press('Escape'); await settle(400);
     ok(!(await S()).settings || true, 'settings closes');
+  });
+
+  await section('integrity: verified record, fingerprints, backups', async () => {
+    await p.evaluate(() => window.__plexusStore.getState().openSettings('audit')); await settle(900);
+    ok(await p.locator('.integrity.good').count() === 1, 'Audit log shows “Record intact” for an untouched case');
+    const t = await p.locator('.integrity').innerText();
+    ok(/unbroken chain/.test(t) && /fingerprints re-verified, none altered/.test(t) && /no corruption/.test(t), 'it spells out the three checks (activity chain, evidence fingerprints, database)');
+    await p.getByRole('button', { name: 'Verify again' }).click(); await settle(500);
+    ok(await p.locator('.integrity.good').count() === 1, 'Verify again works');
+    await p.evaluate(() => window.__plexusStore.getState().openSettings('general')); await settle(500);
+    await p.getByRole('button', { name: /Back up now/ }).click(); await settle(800);
+    ok((await p.locator('.setrow', { hasText: 'Backups' }).innerText()).includes('Latest:'), 'Back up now saves a copy and says when');
+    const r = await api('GET', '/api/backups');
+    ok(r.backups.length >= 1, 'the backup exists on disk');
+    const rep = await api('GET', `/api/cases/${(await S()).caseId}/report`);
+    ok(/## Method and integrity/.test(rep.markdown) && /unbroken hash chain/.test(rep.markdown), 'the report includes a method and integrity section');
+    await p.keyboard.press('Escape'); await settle(400);
+    // an evidence row shows its fingerprint
+    const richest = await p.evaluate(() => { const c = {}; for (const f of Object.values(window.__plexusStore.getState().findings)) c[f.subjectId] = (c[f.subjectId] ?? 0) + 1; return Object.entries(c).sort((a, b) => b[1] - a[1])[0][0]; });
+    await p.evaluate((id) => { const s = window.__plexusStore.getState(); const f = Object.values(s.findings).filter((x) => x.subjectId === id); s.openSheet(id, f.some((x) => x.status === 'pending' || x.status === 'unsure') ? 'review' : 'accepted'); }, richest); await settle(800);
+    await p.locator('.frow').first().hover({ timeout: 5000 }); await expandAll(p.locator('.detail-pane'));
+    ok(await p.locator('.detail-pane .fp').count() >= 1, 'evidence rows show their fingerprint');
+    await p.keyboard.press('Escape'); await settle(400);
   });
 
   await section('appearance + chrome toggles', async () => {

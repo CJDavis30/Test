@@ -8,7 +8,7 @@ import { safeImageSrc } from '@shared/normalize';
 import { useStore, keyOfNode, type RunState } from '../lib/store';
 import { EntityGlyph } from '../lib/icons';
 import { TYPE_ORDER, GROUP_LABEL, displayValue, plural } from '../lib/format';
-import { Dots, Kbd, Popover, isTyping, MOD } from './ui';
+import { Kbd, Popover, isTyping, MOD, useDialog } from './ui';
 import { FindingDetail } from './FindingDetail';
 import { Overview } from './Overview';
 import { explainRelation, hedge, subjectNoun } from '@shared/explain';
@@ -52,6 +52,8 @@ export function Sheet() {
     return () => ro.disconnect();
   }, [node?.id]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialog(dialogRef);
   const scroller = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
   const cur = flat[Math.min(cursor, flat.length - 1)];
@@ -156,7 +158,7 @@ export function Sheet() {
   return (
     <>
       <motion.div className="sheet-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={() => s.closeSheet()} />
-      <motion.div className="sheet" role="dialog" aria-label={`Findings for ${node.label}`} style={{ x: '-50%', y: '-50%' }}
+      <motion.div ref={dialogRef} tabIndex={-1} aria-modal="true" className="sheet" role="dialog" aria-label={`Findings for ${node.label}`} style={{ x: '-50%', y: '-50%' }}
         initial={{ opacity: 0, scale: .955, y: '-47%' }} animate={{ opacity: 1, scale: 1, y: '-50%' }} exit={{ opacity: 0, scale: .97, y: '-48%' }} transition={{ type: 'spring', stiffness: 420, damping: 36 }}>
         <div className="sheet-head">
           <span className="subject-chip"><EntityGlyph type={node.type} size={15} /><span className="truncate">{node.label}</span></span>

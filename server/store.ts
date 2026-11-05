@@ -1,10 +1,14 @@
 import { DatabaseSync } from 'node:sqlite';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { HOME } from './config';
+import { sha256 } from './integrity';
 import type {
   AuditEntry, CaseInfo, Evidence, Finding, FindingStatus, GraphEdge, GraphNode, RunInfo, SourceProgress,
 } from '../shared/types';
+
+const auditHash = (prev: string, id: string, caseId: string, ts: number, action: string, detail: string) => sha256([prev, id, caseId, ts, action, detail].join('\u241f'));
 
 export const uid = (p = '') => p + randomUUID().replace(/-/g, '').slice(0, 14);
 
@@ -65,7 +69,12 @@ export class Store {
     this.db.exec(SCHEMA);
     // Databases created before cross-checking existed get the new column; a second run finds it already there.
     try { this.db.exec('ALTER TABLE findings ADD COLUMN checks TEXT'); } catch { /* column already exists */ }
+    // Audit entries are hash-chained (each covers the one before it) so edits or deletions show up when verified.
+    try { this.db.exec('ALTER TABLE audit ADD COLUMN prev TEXT'); } catch { /* column already exists */ }
+    try { this.db.exec('ALTER TABLE audit ADD COLUMN hash TEXT'); } catch { /* column already exists */ }
+    this.path = path;
   }
+  path: string;
   close() { this.db.close(); }
 
   tx<T>(fn: () => T): T {
@@ -244,11 +253,57 @@ export class Store {
 
   // ---- audit ------------------------------------------------------------
   audit(caseId: string, action: string, detail: string) {
-    this.db.prepare('INSERT INTO audit(id,case_id,ts,action,detail) VALUES(?,?,?,?,?)').run(uid('a_'), caseId, Date.now(), action, detail.slice(0, 2000));
+    const id = uid('a_'), ts = Date.now(), d = detail.slice(0, 2000);
+    const last = this.db.prepare('SELECT hash FROM audit WHERE case_id=? ORDER BY rowid DESC LIMIT 1').get(caseId) as { hash: string | null } | undefined;
+    const prev = last?.hash ?? '';
+    this.db.prepare('INSERT INTO audit(id,case_id,ts,action,detail,prev,hash) VALUES(?,?,?,?,?,?,?)').run(id, caseId, ts, action, d, prev, auditHash(prev, id, caseId, ts, action, d));
   }
   listAudit(caseId: string): AuditEntry[] {
-    return (this.db.prepare('SELECT * FROM audit WHERE case_id=? ORDER BY ts DESC LIMIT 1000').all(caseId) as any[])
-      .map((r) => ({ id: r.id, caseId: r.case_id, ts: r.ts, action: r.action, detail: r.detail }));
+    return (this.db.prepare('SELECT * FROM audit WHERE case_id=? ORDER BY ts DESC, rowid DESC LIMIT 1000').all(caseId) as any[])
+      .map((r) => ({ id: r.id, caseId: r.case_id, ts: r.ts, action: r.action, detail: r.detail, hash: r.hash ?? undefined }));
+  }
+  /** Walks the whole chain. `broken` names the first entry that no longer fits (edited, or the one after a deleted entry). */
+  verifyAudit(caseId: string): { ok: boolean; count: number; legacy: number; broken?: { id: string; ts: number; action: string } } {
+    const rows = this.db.prepare('SELECT * FROM audit WHERE case_id=? ORDER BY rowid ASC').all(caseId) as any[];
+    let expected = '', legacy = 0;
+    for (const r of rows) {
+      if (!r.hash) { legacy++; expected = ''; continue; }
+      if ((r.prev ?? '') !== expected || auditHash(r.prev ?? '', r.id, r.case_id, r.ts, r.action, r.detail) !== r.hash) return { ok: false, count: rows.length, legacy, broken: { id: r.id, ts: r.ts, action: r.action } };
+      expected = r.hash;
+    }
+    return { ok: true, count: rows.length, legacy };
+  }
+
+  // ---- safety: integrity check and backups ------------------------------
+  integrityCheck(): string {
+    try { return (this.db.prepare('PRAGMA integrity_check').all() as any[]).map((r) => Object.values(r)[0]).join('; '); } catch (e: any) { return String(e?.message ?? e); }
+  }
+  backupDir() { return join(dirname(this.path), 'backups'); }
+  listBackups(): { name: string; size: number; at: number }[] {
+    try {
+      return readdirSync(this.backupDir()).filter((n) => /^plexus-.*\.db$/.test(n)).map((n) => { const st = statSync(join(this.backupDir(), n)); return { name: n, size: st.size, at: st.mtimeMs }; }).sort((a, b) => b.at - a.at);
+    } catch { return []; }
+  }
+  /** A consistent copy of the whole database (VACUUM INTO), keeping the newest `keep`. */
+  makeBackup(keep = 10): { name: string; size: number; at: number } {
+    mkdirSync(this.backupDir(), { recursive: true, mode: 0o700 });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 23);
+    let name = `plexus-${stamp}.db`;
+    for (let i = 2; existsSync(join(this.backupDir(), name)); i++) name = `plexus-${stamp}-${i}.db`; // two backups in the same millisecond must never collide
+    const file = join(this.backupDir(), name);
+    this.db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+    try { chmodSync(file, 0o600); } catch { /* best effort */ }
+    for (const old of this.listBackups().slice(keep)) { try { unlinkSync(join(this.backupDir(), old.name)); } catch { /* ignore */ } }
+    const st = statSync(file);
+    return { name, size: st.size, at: st.mtimeMs };
+  }
+  /** Backs up at most every `everyMs`, and only when there is something worth keeping. */
+  autoBackup(everyMs = 6 * 3600_000) {
+    const n = (this.db.prepare('SELECT COUNT(*) AS n FROM cases').get() as any).n;
+    if (!n) return null;
+    const newest = this.listBackups()[0];
+    if (newest && Date.now() - newest.at < everyMs) return null;
+    return this.makeBackup();
   }
 
   // ---- feedback & source state -----------------------------------------

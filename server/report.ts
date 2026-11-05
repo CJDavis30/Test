@@ -17,7 +17,7 @@ function compressRefs(nums: number[]): string {
 const ORDER: EntityType[] = ['person', 'org', 'email', 'phone', 'username', 'account', 'location', 'domain', 'ip', 'url', 'wallet', 'breach', 'image'];
 
 /** A plain Markdown report of everything the investigator confirmed, with provenance. */
-export function buildReport(c: CaseInfo, nodes: GraphNode[], edges: GraphEdge[], accepted: Finding[], opts: { redact?: boolean } = {}): string {
+export function buildReport(c: CaseInfo, nodes: GraphNode[], edges: GraphEdge[], accepted: Finding[], opts: { redact?: boolean; integrity?: { auditOk: boolean; auditCount: number; evidenceChecked: number; altered: number } } = {}): string {
   const mask = (s: string) => (opts.redact ? s.replace(/[A-Za-z0-9]/g, '•') : s);
   const lines: string[] = [];
   lines.push(`# ${c.name}`, '');
@@ -46,7 +46,7 @@ export function buildReport(c: CaseInfo, nodes: GraphNode[], edges: GraphEdge[],
       const marks: number[] = [];
       for (const f of fs) for (const e of f.evidence) {
         ref++;
-        refs.push(`${ref}. ${e.adapterName}${e.url ? ` — ${e.url}` : ''}${e.snippet ? ` — “${e.snippet}”` : ''} (retrieved ${new Date(e.retrievedAt).toISOString().slice(0, 10)})`);
+        refs.push(`${ref}. ${e.adapterName}${e.url ? ` — ${e.url}` : ''}${e.snippet ? ` — “${e.snippet}”` : ''} (retrieved ${new Date(e.retrievedAt).toISOString().slice(0, 10)}${e.hash ? ` · fingerprint ${e.hash.slice(0, 12)}` : ''})`);
         marks.push(ref);
       }
       lines.push(`- **${mask(n.label)}**${conf}${marks.length ? ` ${compressRefs(marks)}` : ''}`);
@@ -64,6 +64,11 @@ export function buildReport(c: CaseInfo, nodes: GraphNode[], edges: GraphEdge[],
     for (const e of inferred) lines.push(`- ${name(e.from)} ↔ ${name(e.to)} (${e.label})`);
   }
   if (refs.length) lines.push('', '## Sources', '', ...refs);
+  const ig = opts.integrity;
+  lines.push('', '## Method and integrity', '',
+    '- Each finding is scored from how many *independent* sources report it (sources that share a dataset count once), how much each source has earned your trust, and what cross-checks against other sources confirmed or contradicted. The percentage is an estimate, not a guarantee.',
+    '- Every observation carries a SHA-256 fingerprint of what Plexus recorded (source, question asked, page, quote, record fields, time). The fingerprints above can be re-verified in the app at any time.');
+  if (ig) lines.push(`- Integrity check at export: ${ig.evidenceChecked} observation fingerprints re-verified, ${ig.altered === 0 ? 'none altered' : `**${ig.altered} ALTERED — do not rely on this report**`}; activity log of ${ig.auditCount} entries is ${ig.auditOk ? 'an unbroken hash chain' : '**BROKEN — entries were edited or removed**'}.`);
   lines.push('', '---', '_Findings are leads, not proof. Name-only matches can describe different people. Verify before acting._');
   return lines.join('\n');
 }

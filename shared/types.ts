@@ -51,6 +51,8 @@ export interface Evidence {
   /** Cross-checks: which finding we asked about to get this. */
   via?: { findingId: string; label: string };
   retrievedAt: number;
+  /** SHA-256 of exactly what Plexus recorded for this observation (source, question, page, quote, record, time). Re-checked on demand to prove it was not altered. */
+  hash?: string;
   /** How strongly this single observation supports the claim, 0..1. */
   weight: number;
 }
@@ -253,6 +255,8 @@ export interface AiSettings {
 }
 
 export interface AuditEntry {
+  /** Hash-chain link: this entry's fingerprint, covering the one before it. */
+  hash?: string;
   id: string;
   caseId: string;
   ts: number;

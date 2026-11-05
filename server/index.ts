@@ -16,6 +16,7 @@ import { allAdapters, getAdapter, sourceInfo, demoMode } from './registry';
 import { makeBriefEnhancer, aiSettings, aiReady, listModels, complete, aiLinkHypotheses, DEFAULT_AI } from './ai';
 import { inferLinks } from './links';
 import { buildReport } from './report';
+import { verifyEvidence } from './integrity';
 import { detect, detectMany, extractEntities } from '../shared/detect';
 import { keyFor } from '../shared/normalize';
 import { makeCtx } from './http';
@@ -24,6 +25,9 @@ import { DEMO_SEEDS } from './adapters/demo';
 import { ENTITY_TYPES, type EntityType, type FindingStatus, type RunEvent } from '../shared/types';
 
 export async function createApp(store = new Store()) {
+  const ic = store.integrityCheck();
+  if (ic !== 'ok') console.warn(`WARNING: the database integrity check reported: ${ic}. A backup copy may be in ${store.backupDir()}`);
+  try { store.autoBackup(); } catch (e: any) { console.warn('Automatic backup skipped:', e?.message ?? e); }
   await loadAdapters();
   const svc = new Service(store);
   const hub = new RunHub();
@@ -74,8 +78,19 @@ export async function createApp(store = new Store()) {
     const b = await body<{ name?: unknown; purpose?: unknown }>(c);
     return c.json({ case: store.updateCase(c.req.param('id'), { name: typeof b.name === 'string' ? b.name.slice(0, 120) : undefined, purpose: typeof b.purpose === 'string' ? b.purpose.slice(0, 1000) : undefined }) });
   });
-  app.delete('/api/cases/:id', (c) => { store.deleteCase(c.req.param('id')); return c.json({ ok: true }); });
+  app.delete('/api/cases/:id', (c) => {
+    try { store.makeBackup(); } catch { /* a failed safety copy must not block the user's own delete */ } // last chance to recover a case deleted by mistake
+    store.deleteCase(c.req.param('id')); return c.json({ ok: true });
+  });
   app.get('/api/cases/:id/audit', (c) => c.json({ audit: store.listAudit(c.req.param('id')) }));
+  /** Proves the record is intact: the audit chain still links up, and every piece of evidence still matches the fingerprint taken when it was recorded. */
+  app.get('/api/cases/:id/integrity', (c) => {
+    const id = c.req.param('id');
+    if (!store.getCase(id)) return c.json({ error: 'not found' }, 404);
+    return c.json({ checkedAt: Date.now(), audit: store.verifyAudit(id), evidence: verifyEvidence(store.listFindings(id)), database: store.integrityCheck() });
+  });
+  app.get('/api/backups', (c) => c.json({ backups: store.listBackups() }));
+  app.post('/api/backups', (c) => { const b = store.makeBackup(); return c.json({ backup: b, backups: store.listBackups() }); });
   app.get('/api/cases/:id/findings', (c) => {
     const status = c.req.query('status')?.split(',') as FindingStatus[] | undefined;
     return c.json({ findings: store.listFindings(c.req.param('id'), { subjectId: c.req.query('subject') || undefined, status }) });
@@ -226,7 +241,9 @@ export async function createApp(store = new Store()) {
     const id = c.req.param('id');
     const cs = store.getCase(id);
     if (!cs) return c.json({ error: 'not found' }, 404);
-    const md = buildReport(cs, store.listNodes(id), store.listEdges(id), store.listFindings(id, { status: ['accepted'] }), { redact: c.req.query('redact') === '1' });
+    const ev = verifyEvidence(store.listFindings(id));
+    const au = store.verifyAudit(id);
+    const md = buildReport(cs, store.listNodes(id), store.listEdges(id), store.listFindings(id, { status: ['accepted'] }), { redact: c.req.query('redact') === '1', integrity: { auditOk: au.ok, auditCount: au.count, evidenceChecked: ev.checked, altered: ev.altered.length } });
     store.audit(id, 'export.report', c.req.query('redact') === '1' ? 'markdown (redacted)' : 'markdown');
     return c.json({ markdown: md });
   });
@@ -235,7 +252,8 @@ export async function createApp(store = new Store()) {
     const cs = store.getCase(id);
     if (!cs) return c.json({ error: 'not found' }, 404);
     store.audit(id, 'export.json', 'full case');
-    return c.json({ plexus: 1, exportedAt: Date.now(), case: cs, nodes: store.listNodes(id), edges: store.listEdges(id), findings: store.listFindings(id), audit: store.listAudit(id) });
+    const findings = store.listFindings(id);
+    return c.json({ plexus: 1, exportedAt: Date.now(), case: cs, nodes: store.listNodes(id), edges: store.listEdges(id), findings, audit: store.listAudit(id), integrity: { audit: store.verifyAudit(id), evidence: verifyEvidence(findings) } });
   });
 
   // --- sources & settings -------------------------------------------------------------------------------------

@@ -41,6 +41,7 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && s.sidebar && !s.sheet && !s.palette && !s.settingsOpen) { s.toggle('sidebar', false); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); s.toggle('palette'); }
       else if (mod && e.key === ',') { e.preventDefault(); s.openSettings(s.settingsOpen ? null : 'general'); }
       else if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); s.toggle('sidebar'); }
@@ -76,6 +77,10 @@ export function App() {
     window.addEventListener('dragover', over); window.addEventListener('dragenter', enter); window.addEventListener('dragleave', leave); window.addEventListener('drop', drop);
     return () => { window.removeEventListener('dragover', over); window.removeEventListener('dragenter', enter); window.removeEventListener('dragleave', leave); window.removeEventListener('drop', drop); };
   }, []);
+
+  // While a dialog is open, the window's drag area (toolbar, sidebar header) must not sit under it: on macOS a drag region swallows clicks on anything above it, including the dialog's close button.
+  const overlayOpen = !!(s.sheet || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
+  useEffect(() => { document.body.classList.toggle('overlay-open', overlayOpen); return () => document.body.classList.remove('overlay-open'); }, [overlayOpen]);
 
   if (!s.booted) return <div className="app" style={{ display: 'grid', placeItems: 'center' }}><div className="skeleton" style={{ width: 160, height: 14 }} /></div>;
 
