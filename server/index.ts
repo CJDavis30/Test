@@ -18,7 +18,7 @@ import { buildReport } from './report';
 import { verifyEvidence } from './integrity';
 import { breaker } from './breaker';
 import { Autopilot } from './autopilot';
-import { activityOf, identitiesFor, matchNodes, scan, timestampsIn } from './forensics';
+import { activityOf, chatSummary, identitiesFor, importChat, matchNodes, scan, timestampsIn } from './forensics';
 import { circadian } from '../shared/forensics/circadian';
 import { dependencies, stressTest } from '../shared/stress';
 import { ledger } from '../shared/ledger';
@@ -135,7 +135,18 @@ export async function createApp(store = new Store()) {
   });
   app.post('/api/forensics/scan', async (c) => {
     const b = await body<{ text?: string }>(c);
-    return c.json(scan(String(b.text ?? '').slice(0, 2_000_000)));
+    return c.json(scan(String(b.text ?? '').slice(0, 2_000_000), store));
+  });
+  app.post('/api/forensics/chat', async (c) => {
+    if (Number(c.req.header('content-length') ?? 0) > 40_000_000) return c.json({ error: 'That export is too large (40 MB maximum).' }, 413);
+    const b = await body<{ text?: string }>(c);
+    return c.json({ chat: chatSummary(String(b.text ?? '').slice(0, 35_000_000)) });
+  });
+  app.post('/api/cases/:id/chat-import', async (c) => {
+    const id = c.req.param('id'); if (!store.getCase(id)) return c.json({ error: 'not found' }, 404);
+    if (Number(c.req.header('content-length') ?? 0) > 40_000_000) return c.json({ error: 'That export is too large (40 MB maximum).' }, 413);
+    const b = await body<{ text?: string; speakers?: string[] }>(c);
+    return c.json(importChat(store, id, String(b.text ?? '').slice(0, 35_000_000), Array.isArray(b.speakers) ? b.speakers.map(String).slice(0, 200) : []));
   });
   /** Attach timestamps (from pasted logs, message links, commit times) to an account so its active hours can be worked out. */
   app.post('/api/nodes/:id/activity', async (c) => {

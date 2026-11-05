@@ -91,7 +91,7 @@ export const github = adapter({
       const p = await getJson<any>(ctx, `https://api.github.com/users/${encodeURIComponent(e.value)}`, { headers: ghHeaders(ctx.key) });
       if (!p?.login) return [];
       const url = str(p.html_url) || `https://github.com/${p.login}`;
-      out.push(claim('account', url, 'GitHub profile', 0.7, { url, attrs: { platform: 'GitHub', handle: str(p.login), createdAt: fullIso(p.created_at) ?? '', repos: Number(p.public_repos) || 0, followers: Number(p.followers) || 0 }, when: iso(p.created_at), snippet: `${p.public_repos ?? 0} public repos · ${p.followers ?? 0} followers` }));
+      out.push(claim('account', url, 'GitHub profile', 0.7, { url, attrs: { platform: 'GitHub', githubId: String(p.id ?? ''), handle: str(p.login), createdAt: fullIso(p.created_at) ?? '', repos: Number(p.public_repos) || 0, followers: Number(p.followers) || 0 }, when: iso(p.created_at), snippet: `${p.public_repos ?? 0} public repos · ${p.followers ?? 0} followers` }));
       if (str(p.name)) out.push(claim('person', p.name, 'name on profile', 0.55, { url, snippet: 'Self-reported' }));
       const company = str(p.company).replace(/^@/, '');
       if (company) out.push(claim('org', company, 'company on profile', 0.5, { url, snippet: 'Self-reported' }));

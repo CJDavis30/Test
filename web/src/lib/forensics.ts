@@ -12,6 +12,7 @@ export type { LookAlike };
 export type IdentitiesResponse = Resolution & { profiles: number; bursts: Burst[]; lookalikes: LookAlike[] };
 import type { HeaderReport } from '@shared/forensics/headers';
 export type { HeaderReport };
+export interface ChatSummary { format: string; platform: string; total: number; localTime: boolean; note?: string; speakers: { id: string; name: string; messages: number; first: number; last: number; circadian: Circadian | null; dst: DstResult | null }[] }
 export interface ScanResponse { refs: PlatformRef[]; timestamps: number; circadian: Circadian | null; dst: DstResult | null; headers: HeaderReport | null }
 
 export const fmtWhen = (ms?: number, precision: 'second' | 'day' = 'second') => {

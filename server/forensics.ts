@@ -4,6 +4,9 @@ import { linkProfiles, lookAlikes, resolveIdentities, type LookAlike, type Match
 import { findBursts, type Burst } from '../shared/forensics/bursts';
 import { dstFingerprint } from '../shared/forensics/dst';
 import { analyzeHeaders } from '../shared/forensics/headers';
+import { parseChat } from '../shared/forensics/chat';
+import { uid } from './store';
+import { estimateNote } from './idclocks';
 import { keyFor } from '../shared/normalize';
 import type { GraphNode } from '../shared/types';
 import type { Store } from './store';
@@ -98,8 +101,38 @@ export function timestampsIn(text: string): number[] {
   return out;
 }
 
-export function scan(text: string) {
-  const refs = findPlatformRefs(text);
+export function scan(text: string, store?: Store) {
+  const refs = findPlatformRefs(text).map((r) => { const n = store ? estimateNote(store, r) : undefined; return n ? { ...r, note: n } : r; });
   const times = timestampsIn(text);
   return { refs, timestamps: times.length, circadian: circadian(times), dst: dstFingerprint(times), headers: /^Received:/im.test(text) ? analyzeHeaders(text) : null };
+}
+
+// ---------------------------------------------------------------------------------------------------- chat exports
+export function chatSummary(text: string) {
+  const r = parseChat(text); if (!r) return null;
+  return {
+    format: r.format, platform: r.platform, total: r.total, localTime: r.localTime, note: r.note,
+    speakers: r.speakers.slice(0, 200).map((s) => {
+      const c = !r.localTime && s.times.length >= 12 ? circadian(s.times) : null;
+      return { id: s.id, name: s.name, messages: s.messages, first: s.first, last: s.last, circadian: c, dst: c && c.strength !== 'insufficient' ? dstFingerprint(s.times) : null };
+    }),
+  };
+}
+
+/** Adds the chosen speakers to a case as accounts, with their activity attached when the export's times are in UTC. */
+export function importChat(store: Store, caseId: string, text: string, ids: string[]): { added: number; nodes: string[] } {
+  const r = parseChat(text); if (!r) return { added: 0, nodes: [] };
+  const want = new Set(ids); const nodes: string[] = [];
+  for (const s of r.speakers) {
+    if (!want.has(s.id)) continue;
+    const handle = (s.name || s.id).slice(0, 80);
+    const url = r.platform === 'Discord' && /^\d{15,20}$/.test(s.id) ? `https://discord.com/users/${s.id}` : r.platform === 'Telegram' ? `telegram:${s.id}` : `${r.platform.toLowerCase()}:${s.id}`;
+    const attrs: Record<string, string | number | boolean> = { platform: r.platform, handle, speakerId: s.id, messages: s.messages, ...(r.localTime ? {} : { activity: s.times.slice(-5000).join(',') }) };
+    const key = keyFor('account', url);
+    const n = store.upsertNode({ caseId, type: 'account', value: url, key, label: `${r.platform} · ${handle}`, state: 'seed', attrs });
+    store.patchNodeAttrs(n.id, attrs);
+    nodes.push(n.id);
+  }
+  store.audit(caseId, 'chat.imported', `${nodes.length} speakers from a ${r.platform} export (${r.total} messages)${r.localTime ? ', local times so no activity attached' : ''}`);
+  return { added: nodes.length, nodes };
 }

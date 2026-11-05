@@ -85,6 +85,11 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     const boxes = await p.locator('.cm-node').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; }));
     let overlaps = 0; for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const A = boxes[i], B = boxes[j]; if (A[0] < B[2] - 1 && B[0] < A[2] - 1 && A[1] < B[3] - 1 && B[1] < A[3] - 1) overlaps++; }
     ok(overlaps === 0, `map nodes never overlap (${overlaps})`);
+    // case health: a score with the parts that make it up, collapsed by default and openable
+    ok(await p.locator('.chealth-h').count() === 1, 'overview shows a case health score');
+    await p.locator('.chealth-h').click(); await settle(300);
+    ok(await p.locator('.chealth-p').count() >= 3, 'opening it shows what the score is made of');
+    await p.locator('.chealth-h').click(); await settle(200);
     await p.locator('.cm-node').first().click(); await settle(500);
     ok((await S()).sheet.tab === 'review' || (await S()).sheet.tab === 'accepted', 'clicking a node in the map jumps to that finding');
     await p.locator('.sheet-tabs').getByRole('tab', { name: /Overview/ }).click(); await settle(300);

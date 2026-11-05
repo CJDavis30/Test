@@ -23,6 +23,7 @@
 /* ---------- overview ---------- */
 .ov-scroll { flex: 1; min-height: 0; overflow: auto; }
 .overview { max-width: 980px; margin: 0 auto; padding: 22px 28px 32px; display: flex; flex-direction: column; gap: 22px; }
+.overview > * { flex-shrink: 0; }
 .ov-top { display: grid; grid-template-columns: 68px minmax(0, 1fr) auto; gap: 8px 20px; align-items: start; }
 .photo { position: relative; width: 68px; height: 68px; }
 .photo .img { position: absolute; inset: 5px; border-radius: 50%; overflow: hidden; background: var(--surface-2); display: grid; place-items: center; color: var(--text-2); font: 600 20px var(--font-display); border: 1px solid var(--line); }
@@ -323,3 +324,12 @@
 .dep-h { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; } .dep-h .faint { font-size: 12px; }
 .dep-bar { display: block; height: 5px; border-radius: 3px; background: var(--surface-3); margin: 7px 0; overflow: hidden; } .dep-bar i { display: block; height: 100%; background: var(--lvl2); border-radius: 3px; }
 .dep-v { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 12px; }
+.chealth { flex-shrink: 0; overflow: clip; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.chealth-h { display: flex; gap: 14px; align-items: center; width: 100%; padding: 10px 14px; text-align: left; }
+.chealth-h b { display: block; font-size: 13.5px; } .chealth-h small { color: var(--text-3); font-size: 12px; }
+.chealth-n { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; font: 700 17px var(--font-display); background: var(--surface-2); }
+.chealth-n.strong { background: color-mix(in srgb, var(--lvl4) 16%, transparent); color: var(--lvl4); } .chealth-n.mixed { background: color-mix(in srgb, var(--lvl2) 16%, transparent); color: var(--lvl2); } .chealth-n.thin { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.chealth-parts { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 9px; }
+.hp-top { display: flex; align-items: center; gap: 12px; justify-content: space-between; font-size: 12.5px; font-weight: 550; }
+.hp-bar { width: 38%; height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; } .hp-bar i { display: block; height: 100%; background: var(--text); border-radius: 3px; }
+.chealth-p p { margin: 2px 0 0; font-size: 12px; color: var(--text-2); line-height: 1.45; }

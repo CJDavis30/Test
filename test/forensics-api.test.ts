@@ -102,3 +102,37 @@ describe('paste anything', () => {
     expect((await call('POST', '/api/forensics/scan', {})).status).toBe(200);
   });
 });
+
+describe('chat exports', () => {
+  const chat = (() => { let s = 21; const r = () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    return JSON.stringify({ messages: Array.from({ length: 700 }, (_, i) => ({ id: String(i), timestamp: new Date(Date.UTC(2024, 0, 1) + Math.floor(r() * 250) * 86_400_000 + (16 + Math.floor(r() * 7)) * 3_600_000 + Math.floor(r() * 3_600_000)).toISOString(), author: { id: i % 7 === 0 ? '222222222222222222' : '175928847299117063', name: i % 7 === 0 ? 'friend' : 'night_owl' }, content: 'x' })) }); })();
+  it('summarises speakers with their own clocks, and ignores text that is not a chat', async () => {
+    const r = (await call('POST', '/api/forensics/chat', { text: chat })).json.chat;
+    expect(r.platform).toBe('Discord'); expect(r.total).toBe(700); expect(r.speakers[0].name).toBe('night_owl');
+    expect(r.speakers[0].circadian.strength).not.toBe('insufficient');
+    expect((await call('POST', '/api/forensics/chat', { text: 'just some words' })).json.chat).toBeNull();
+  });
+  it('adds chosen speakers to a case as accounts with their activity attached', async () => {
+    const cid = (await call('POST', '/api/cases', { name: 'Chat', purpose: '' })).json.case.id;
+    const out = (await call('POST', `/api/cases/${cid}/chat-import`, { text: chat, speakers: ['175928847299117063'] })).json;
+    expect(out.added).toBe(1);
+    const n = (await call('GET', `/api/cases/${cid}`)).json.nodes.find((x: any) => x.attrs.platform === 'Discord');
+    expect(n.value).toBe('https://discord.com/users/175928847299117063');
+    const clock = (await call('GET', `/api/nodes/${n.id}/activity`)).json; expect(clock.count).toBeGreaterThan(500); expect(clock.circadian).toBeTruthy();
+    expect((await call('POST', `/api/cases/${cid}/chat-import`, { text: chat, speakers: [] })).json.added).toBe(0);
+  });
+});
+
+describe('ID clocks learn from what Plexus sees', () => {
+  it('stays silent until it has seen enough accounts, then dates an unseen Roblox ID with an honest band', async () => {
+    const { learnIds } = await import('../server/idclocks');
+    const text = 'see https://www.roblox.com/users/777777777/profile';
+    const before = (await call('POST', '/api/forensics/scan', { text })).json.refs[0];
+    expect(before.note ?? '').not.toMatch(/created around/);
+    const T0 = Date.UTC(2010, 0, 1), Y = 365.25 * 86_400_000;
+    const claims = Array.from({ length: 40 }, (_, i) => ({ type: 'account', value: `https://www.roblox.com/users/${Math.round(1e6 * (i + 1) ** 2.2)}/profile`, relation: 'profile', weight: 0.9, attrs: { platform: 'Roblox', robloxId: String(Math.round(1e6 * (i + 1) ** 2.2)), createdAt: new Date(T0 + (i / 39) * 14 * Y).toISOString() } }));
+    expect(learnIds(ctx.store, claims as any)).toBe(40);
+    const after = (await call('POST', '/api/forensics/scan', { text })).json.refs[0];
+    expect(after.note).toMatch(/created around [A-Z][a-z]{2} \d{4} \(±/); expect(after.note).toMatch(/estimated from \d+ accounts/);
+  });
+});

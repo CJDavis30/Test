@@ -161,9 +161,20 @@ const CAUTION: [RegExp, string][] = [
   [/possible vulnerability/i, 'Guessed from software versions; may be a false alarm.'],
 ];
 
+/** Phones, places and jobs change. A claim last reported years ago may simply be out of date, which is different from being wrong. */
+export function staleness(f: { type?: string; relation?: string; when?: string }, now = Date.now()): string | null {
+  if (!f.when || !['phone', 'location', 'org', 'email'].includes(f.type ?? '')) return null;
+  const t = Date.parse(f.when); if (!Number.isFinite(t)) return null;
+  const years = (now - t) / (365.25 * 86_400_000);
+  if (years < 2) return null;
+  const noun = f.type === 'phone' ? 'phone numbers' : f.type === 'location' ? 'addresses' : f.type === 'email' ? 'email addresses' : 'jobs';
+  return `Last reported ${f.when.slice(0, 4)}, about ${Math.floor(years)} years ago. ${noun[0].toUpperCase()}${noun.slice(1)} change, so this may be out of date rather than wrong.`;
+}
+
 /** Only the things worth pausing on, as short lines. Praise is not a warning, so agreement is not listed here. */
-export function warningsFor(f: { relation: string; level: Level; evidence: { family: string; polarity?: 'for' | 'against' }[]; reasons: string[] }): string[] {
+export function warningsFor(f: { relation: string; level: Level; evidence: { family: string; polarity?: 'for' | 'against' }[]; reasons: string[]; type?: string; when?: string }, now = Date.now()): string[] {
   const out: string[] = [];
+  const stale = staleness(f, now); if (stale) out.push(stale);
   const independent = new Set(f.evidence.filter((e) => e.polarity !== 'against').map((e) => e.family)).size;
   const against = f.evidence.filter((e) => e.polarity === 'against').length;
   if (against) out.push(`${against} cross-check${against > 1 ? 's' : ''} contradict${against > 1 ? '' : 's'} it. See the cards marked in red.`);

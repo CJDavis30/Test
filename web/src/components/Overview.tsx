@@ -10,6 +10,7 @@ import { Dots } from './ui';
 import { startAutopilot } from '../lib/autopilot';
 import { api } from '../lib/api';
 import type { Move } from '@shared/planner';
+import { caseHealth } from '@shared/health';
 
 const CONTEXT_IDEAS = ['Employer', 'Other accounts', 'Location', 'Associates'];
 
@@ -84,6 +85,8 @@ export function Overview({ node, run, findings, subjectId, onOpen, onStart, pend
         <button className="btn lg" onClick={() => void startAutopilot({ nodeId: subjectId })} title="Follow the strongest leads on its own and build the graph while you watch"><Rocket size={15} /> Autopilot from here</button>
         <ContextBar subjectId={subjectId} run={run} />
       </div>
+
+      <HealthCard />
 
       <section>
         <div className="ov-title">
@@ -238,4 +241,24 @@ function ConnectionMap({ subject, findings, onOpen }: { subject: { label: string
 /** A few words, not a sentence: "work email", "profile photo". */
 function shortRelation(relation: string): string {
   return relation.replace(/[-_]/g, ' ');
+}
+
+/** How much weight the accepted conclusions in this case can bear, in five plain measures, each with what would improve it. */
+function HealthCard() {
+  const findings = useStore((s) => s.findings), stress = useStore((s) => s.stress);
+  const [open, setOpen] = useState(false);
+  const h = useMemo(() => caseHealth(Object.values(findings), stress), [findings, stress]);
+  if (h.label === 'Empty') return null;
+  return (
+    <section className="chealth">
+      <button className="chealth-h" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className={`chealth-n num ${h.label.toLowerCase()}`}>{h.score}</span>
+        <span className="grow"><b>Case health: {h.label}</b><small>How much weight your accepted conclusions can bear</small></span>
+        <span className="faint" style={{ fontSize: 12 }}>{open ? 'Hide' : 'Details'}</span>
+      </button>
+      {open && <div className="chealth-parts">{h.parts.map((p) => (
+        <div className="chealth-p" key={p.key}><div className="hp-top"><span>{p.label}</span><span className="hp-bar"><i style={{ width: `${p.value * 100}%` }} /></span></div><p>{p.detail}{p.tip ? <> <span className="faint">{p.tip}</span></> : null}</p></div>
+      ))}</div>}
+    </section>
+  );
 }

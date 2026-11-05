@@ -5,7 +5,7 @@ import type { DstResult } from '@shared/forensics/dst';
  * A 24-hour clock of when someone is active (UTC), with the hours that are night at the most likely timezone shaded so you can see
  * for yourself whether the quiet stretch lines up with it. Below it, the timezones in order of likelihood.
  */
-export function ActivityClock({ c, size = 232, compact = false, dst }: { c: Circadian; size?: number; compact?: boolean; dst?: DstResult | null }) {
+export function ActivityClock({ c, size = 232, compact = false, dst, mini = false }: { c: Circadian; size?: number; compact?: boolean; dst?: DstResult | null; mini?: boolean }) {
   const cx = size / 2, cy = size / 2, r0 = size * 0.2, rMax = size * 0.46;
   const max = Math.max(1, ...c.histogram);
   const ang = (h: number) => ((h / 24) * 2 - 0.5 + 0.0) * Math.PI; // 00:00 UTC at the top, clockwise
@@ -29,7 +29,7 @@ export function ActivityClock({ c, size = 232, compact = false, dst }: { c: Circ
         <text x={cx} y={cy - 5} className="ac-mid" textAnchor="middle">{sure ? fmtOffset(c.best.offset) : '?'}</text>
         <text x={cx} y={cy + 11} className="ac-sub" textAnchor="middle">{sure ? `${Math.round(c.best.p * 100)}%` : 'too few'}</text>
       </svg>
-      <div className="ac-side">
+      {!mini && <div className="ac-side">
         <div className="ac-sum">{c.summary}</div>
         {sure && !compact && (
           <div className="ac-offs" role="list" aria-label="Timezones in order of likelihood">
@@ -40,7 +40,7 @@ export function ActivityClock({ c, size = 232, compact = false, dst }: { c: Circ
         )}
         {dst && dst.strength !== 'insufficient' && <div className="ac-dst"><b>Clocks:</b> {dst.summary}</div>}
         <div className="ac-foot">{c.n} timestamps · {c.sessions} separate sittings · hours shown in UTC{sure ? '; shaded = night at the best-fit timezone' : ''}</div>
-      </div>
+      </div>}
     </div>
   );
 }
