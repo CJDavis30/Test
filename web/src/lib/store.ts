@@ -137,7 +137,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   async newCase(name, purpose) {
-    const { case: c } = await api.post<{ case: CaseInfo }>('/api/cases', { name: name ?? 'Untitled case', purpose });
+    const untitled = get().cases.filter((c) => /^Untitled case( \d+)?$/.test(c.name)).length;
+    const { case: c } = await api.post<{ case: CaseInfo }>('/api/cases', { name: name ?? (untitled ? `Untitled case ${untitled + 1}` : 'Untitled case'), purpose });
     set({ cases: [c, ...get().cases] });
     await get().loadCase(c.id);
     return c.id;
@@ -158,7 +159,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   async submit(items, opts = {}) {
     if (!items.length) return;
     let caseId = get().caseId;
-    if (!caseId) caseId = await get().newCase();
+    if (!caseId) caseId = await get().newCase(items[0].value.trim().slice(0, 48) || undefined);
     let first = true;
     for (const it of items) {
       try {

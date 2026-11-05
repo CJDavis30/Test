@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check } from 'lucide-react';
+import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check, Orbit, Shuffle, Wand2 } from 'lucide-react';
 import { LEVEL_LABEL } from '@shared/types';
 import { ENTITY_LABEL } from '@shared/types';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
-import { GraphEngine, type Hover } from '../lib/graph';
+import { GraphEngine, type Hover, type LayoutMode } from '../lib/graph';
 import { neighborhood, shortestPath } from '../lib/graphMath';
 import { EntityGlyph } from '../lib/icons';
 import { Dots, Kbd, Popover, isTyping } from './ui';
@@ -21,6 +21,8 @@ export function GraphView() {
   const [menu, setMenu] = useState<{ id: string | null; x: number; y: number } | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const [sugOpen, setSugOpen] = useState(false);
+  const [mode, setMode] = useState<LayoutMode>(() => { try { return localStorage.getItem('plexus.layout') === 'free' ? 'free' : 'organized'; } catch { return 'organized'; } });
+  const modeRef = useRef(mode); modeRef.current = mode;
 
   const nodes = snap?.nodes ?? [];
   const edges = snap?.edges ?? [];
@@ -35,9 +37,19 @@ export function GraphView() {
       onOpen: (id) => { const st = useStore.getState(); const n = st.snap?.nodes.find((x) => x.id === id); if (n?.pinned && false) return; void st.openNode(id); },
       onContext: (id, x, y) => { if (id) useStore.getState().select([id], false); setMenu({ id, x, y }); },
       onHover: setHover,
-      onSettle: (items) => { const id = useStore.getState().caseId; if (id) void api.post(`/api/cases/${id}/positions`, { items }).catch(() => {}); },
+      onSettle: (items) => {
+        const st = useStore.getState();
+        if (!st.caseId || !st.snap) return;
+        void api.post(`/api/cases/${st.caseId}/positions`, { items }).catch(() => {});
+        // Keep the store's idea of "pinned" in step with what the user did on the canvas, otherwise the next data
+        // change would think those nodes are unpinned and let them drift.
+        const pinned = new Map(items.map((i) => [i.id, i.pinned]));
+        if (st.snap.nodes.some((n) => pinned.has(n.id) && !!n.pinned !== pinned.get(n.id))) {
+          useStore.setState({ snap: { ...st.snap, nodes: st.snap.nodes.map((n) => (pinned.has(n.id) ? { ...n, pinned: pinned.get(n.id) } : n)) } });
+        }
+      },
       onEmptyDouble: () => useStore.getState().openPalette(),
-    });
+    }, modeRef.current);
     eng.current = e;
     if (location.search.includes('debug')) (window as any).__plexusEngine = e;
     const ro = new ResizeObserver(() => { const r = wrap.current!.getBoundingClientRect(); e.setSize(r.width, r.height, window.devicePixelRatio || 1); });
@@ -50,8 +62,13 @@ export function GraphView() {
     const pan = (ev: Event) => e.panTo((ev as CustomEvent<string>).detail);
     window.addEventListener('plexus:fit', fit);
     window.addEventListener('plexus:pan', pan);
-    return () => { ro.disconnect(); mo.disconnect(); mq.removeEventListener('change', pal); window.removeEventListener('plexus:fit', fit); window.removeEventListener('plexus:pan', pan); e.destroy(); eng.current = null; };
+    const tidy = () => e.tidy();
+    window.addEventListener('plexus:tidy', tidy);
+    return () => {
+      window.removeEventListener('plexus:tidy', tidy); ro.disconnect(); mo.disconnect(); mq.removeEventListener('change', pal); window.removeEventListener('plexus:fit', fit); window.removeEventListener('plexus:pan', pan); e.destroy(); eng.current = null; };
   }, []);
+
+  useEffect(() => { eng.current?.setMode(mode); try { localStorage.setItem('plexus.layout', mode); } catch { /* storage unavailable */ } }, [mode]);
 
   // Node positions on the server only matter on load; afterwards the engine owns them.
   useEffect(() => { eng.current?.setData(nodes, edges); }, [nodes, edges]);
@@ -149,7 +166,9 @@ export function GraphView() {
           <div className="zoomctl">
             <button aria-label="Zoom in" onClick={() => eng.current?.zoomBy(1.25)}><Plus size={15} /></button>
             <button aria-label="Zoom out" onClick={() => eng.current?.zoomBy(0.8)}><Minus size={15} /></button>
-            <button aria-label="Fit to window" onClick={() => eng.current?.fit(true)}><Maximize2 size={14} /></button>
+            <button aria-label="Fit to window" title="Fit to window (0)" onClick={() => eng.current?.fit(true)}><Maximize2 size={14} /></button>
+            <button aria-label={`Layout: ${mode === 'organized' ? 'organized' : 'free-form'}. Click to switch`} title={mode === 'organized' ? 'Organized layout. Click for free-form' : 'Free-form layout. Click for organized'} onClick={() => setMode(mode === 'organized' ? 'free' : 'organized')}>{mode === 'organized' ? <Orbit size={15} /> : <Shuffle size={15} />}</button>
+            <button aria-label="Tidy up" title="Tidy up: forget manual positions" onClick={() => eng.current?.tidy()}><Wand2 size={14} /></button>
           </div>
         </>
       )}
@@ -179,6 +198,7 @@ function NodeMenu({ menu, onClose, eng }: { menu: { id: string | null; x: number
       <Popover onClose={onClose} className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
         <button className="item" onClick={() => { onClose(); s.openPalette(); }}><Plus size={14} /> Add something…</button>
         <button className="item" onClick={() => { onClose(); eng?.fit(true); }}><Maximize2 size={14} /> Fit to window</button>
+        <button className="item" onClick={() => { onClose(); eng?.tidy(); }}><Wand2 size={14} /> Tidy up layout</button>
       </Popover>
     );
   }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Sparkles, FlaskConical, CornerDownLeft, Eraser, KeyRound, Cpu,
+  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, FlaskConical, CornerDownLeft, Eraser, KeyRound, Cpu,
 } from 'lucide-react';
 import { detect, detectMany } from '@shared/detect';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
@@ -74,6 +74,7 @@ export function Palette() {
       { id: 'export', group: 'Case', label: 'Export case as JSON', sub: 'Includes evidence and audit log', icon: <Download size={15} />, keywords: 'download backup', run: async () => {
         if (!s.caseId) return; const j = await api.get<any>(`/api/cases/${s.caseId}/export`); download(`${s.snap?.case.name ?? 'case'}.plexus.json`, JSON.stringify(j, null, 2), 'application/json');
       } },
+      { id: 'tidy', group: 'Graph', label: 'Tidy up the graph layout', sub: 'Forget manual positions and re-organize', icon: <Wand2 size={15} />, keywords: 'layout organize reset', run: () => { s.setView('graph'); setTimeout(() => window.dispatchEvent(new CustomEvent('plexus:tidy')), 80); } },
       { id: 'fit', group: 'Graph', label: 'Fit graph to window', icon: <Maximize2 size={15} />, run: () => { s.setView('graph'); window.dispatchEvent(new CustomEvent('plexus:fit')); } },
       { id: 'ai-links', group: 'Graph', label: 'Suggest links with AI', sub: s.settings?.aiReady.ok ? undefined : 'Turn on AI in Settings first', icon: <Sparkles size={15} />, run: () => { s.setView('graph'); void s.refreshSuggestions(true); s.toast('Looking for connections…'); } },
       { id: 'sidebar', group: 'View', label: 'Toggle sidebar', icon: <PanelLeft size={15} />, run: () => s.toggle('sidebar') },

@@ -4,9 +4,14 @@ import {
 import type { EntityType, GraphEdge, GraphNode, Level } from '@shared/types';
 import { initials } from '@shared/normalize';
 import { canvasIcon, thumb } from './icons';
+import { organize, descendants, type Layout } from './layout';
+
+export type LayoutMode = 'organized' | 'free';
 
 export interface SimNode extends SimulationNodeDatum {
   id: string; type: EntityType; label: string; state: GraphNode['state']; score?: number; level?: Level; r: number; degree: number; born: number; pinned: boolean; image?: string;
+  /** organized layout: where the node is heading, and where it sits around its component's centre (drives label placement) */
+  tx?: number; ty?: number; ang?: number; depth?: number; comp?: number;
 }
 export interface SimLink extends SimulationLinkDatum<SimNode> { id: string; label: string; strength: number; kind: GraphEdge['kind']; curve: number; born: number }
 
@@ -29,6 +34,7 @@ export interface Callbacks {
 
 const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 const backOut = (t: number) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const FONT = '-apple-system, "SF Pro Text", Inter, system-ui, sans-serif';
 
 export function readPalette(): Palette {
   const cs = getComputedStyle(document.documentElement);
@@ -57,19 +63,23 @@ export class GraphEngine {
   focus: Set<string> | null = null;
   hover: Hover | null = null;
   lasso: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  mode: LayoutMode = 'organized';
+  layout: Layout | null = null;
   private dirty = true;
   private raf = 0;
-  private drag: { id: string; sx: number; sy: number; moved: boolean; ox: number; oy: number } | null = null;
+  private drag: { id: string; sx: number; sy: number; moved: boolean; group: string[]; start: Map<string, { x: number; y: number }> } | null = null;
   private pan: { sx: number; sy: number; cx: number; cy: number; moved: boolean } | null = null;
   private settleTimer = 0;
   private lastClick = { t: 0, id: '' };
   private fitted = false;
   private disposed = false;
+  private animating = false;
   reduceMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  constructor(private canvas: HTMLCanvasElement, private cb: Callbacks) {
+  constructor(private canvas: HTMLCanvasElement, private cb: Callbacks, mode: LayoutMode = 'organized') {
     this.ctx = canvas.getContext('2d')!;
     this.palette = readPalette();
+    this.mode = mode;
     this.sim = forceSimulation<SimNode, SimLink>([])
       .force('link', forceLink<SimNode, SimLink>([]).id((d) => d.id).distance((l) => 118 + (1 - l.strength) * 64).strength(0.5))
       .force('charge', forceManyBody<SimNode>().strength((d) => -380 - d.degree * 26).distanceMax(640))
@@ -78,10 +88,51 @@ export class GraphEngine {
       .force('y', forceY<SimNode>(0).strength(0.035))
       .alphaDecay(0.045).velocityDecay(0.52)
       .on('tick', () => { this.dirty = true; })
-      .on('end', () => this.emitSettle());
+      .on('end', () => { if (this.mode === 'free') this.emitSettle(); });
+    this.sim.stop();
     this.bind();
     this.loop();
   }
+
+  // ---------------------------------------------------------------------------------------------- layout modes
+  setMode(m: LayoutMode) {
+    if (m === this.mode) return;
+    this.mode = m;
+    if (m === 'organized') {
+      this.sim.stop();
+      this.relayout();
+    } else {
+      for (const n of this.nodes) { n.vx = 0; n.vy = 0; }
+      this.sim.alpha(0.5).restart();
+    }
+    this.dirty = true;
+    setTimeout(() => this.fit(true), 60);
+  }
+
+  /** Compute the organized layout and set every unpinned node's target. */
+  private relayout() {
+    const L = organize(
+      this.nodes.map((n) => ({ id: n.id, type: n.type, label: n.label, seed: n.state === 'seed', createdAt: n.born })),
+      this.links.map((l) => ({ id: l.id, from: (l.source as SimNode).id ?? String(l.source), to: (l.target as SimNode).id ?? String(l.target), strength: l.strength })),
+    );
+    this.layout = L;
+    for (const n of this.nodes) {
+      const p = L.pos.get(n.id);
+      if (!p) continue;
+      n.ang = p.angle; n.depth = p.depth; n.comp = p.comp;
+      if (n.fx != null && n.fy != null) { n.tx = n.fx; n.ty = n.fy; }
+      else { n.tx = p.x; n.ty = p.y; }
+    }
+    this.animating = true;
+  }
+
+  /** Tidy: forget every manual position and snap back to the organized layout. */
+  tidy() {
+    for (const n of this.nodes) { n.fx = null; n.fy = null; n.pinned = false; }
+    if (this.mode === 'organized') { this.relayout(); this.emitSettle(); this.setTimeout(() => this.fit(true), 350); }
+    else this.reheat();
+  }
+  private setTimeout(fn: () => void, ms: number) { window.setTimeout(() => { if (!this.disposed) fn(); }, ms); }
 
   // ---------------------------------------------------------------------------------------------- data
   setData(nodes: GraphNode[], edges: GraphEdge[]) {
@@ -102,44 +153,46 @@ export class GraphEngine {
       let s = this.byId.get(n.id);
       if (!s) {
         let x = n.x, y = n.y;
-        if (x === undefined || y === undefined) {
+        if (this.mode === 'organized' || x === undefined || y === undefined) {
           const anchor = (adjacency.get(n.id) ?? []).map((id) => this.byId.get(id)).find((a) => a && a.x !== undefined);
           const ang = Math.random() * Math.PI * 2;
-          if (anchor) { x = anchor.x! + Math.cos(ang) * 30; y = anchor.y! + Math.sin(ang) * 30; }
-          else { x = (Math.random() - 0.5) * 240; y = (Math.random() - 0.5) * 240; }
+          if (anchor) { x = anchor.x! + Math.cos(ang) * 24; y = anchor.y! + Math.sin(ang) * 24; }
+          else { x = n.x ?? (Math.random() - 0.5) * 240; y = n.y ?? (Math.random() - 0.5) * 240; }
         }
         s = { id: n.id, type: n.type, label: n.label, state: n.state, r, degree: d, born: performance.now(), pinned: !!n.pinned, x, y, vx: 0, vy: 0 } as SimNode;
-        if (n.pinned && n.x !== undefined) { s.fx = n.x; s.fy = n.y; }
+        if (n.pinned && n.x !== undefined && n.y !== undefined) { s.x = n.x; s.y = n.y; s.fx = n.x; s.fy = n.y; }
         this.byId.set(n.id, s);
       }
       s.type = n.type; s.label = n.label; s.state = n.state; s.score = n.score; s.level = n.level; s.r = r; s.degree = d;
       s.image = n.type === 'image' && /^(data:image|https?:)/.test(n.value) ? n.value : undefined;
-      if (n.pinned !== s.pinned) { s.pinned = !!n.pinned; if (!s.pinned && !this.drag) { s.fx = null; s.fy = null; } }
+      if (!!n.pinned !== s.pinned) {
+        s.pinned = !!n.pinned;
+        if (s.pinned) { s.fx = s.x; s.fy = s.y; } else if (!this.drag) { s.fx = null; s.fy = null; }
+      }
       next.push(s);
     }
     for (const id of [...this.byId.keys()]) if (!ids.has(id)) this.byId.delete(id);
     this.nodes = next;
 
-    // parallel edges between the same pair get fanned out
+    // parallel edges between the same pair get fanned out (free mode)
     const pairCount = new Map<string, number>();
+    const totals = new Map<string, number>();
+    for (const e of live) { const k = [e.from, e.to].sort().join('|'); totals.set(k, (totals.get(k) ?? 0) + 1); }
     const prevBorn = new Map(this.links.map((l) => [l.id, l.born]));
     this.links = live.map((e) => {
       const key = [e.from, e.to].sort().join('|');
       const i = pairCount.get(key) ?? 0; pairCount.set(key, i + 1);
-      return { id: e.id, source: e.from, target: e.to, label: e.label, strength: e.strength, kind: e.kind, curve: i, born: prevBorn.get(e.id) ?? performance.now() } as SimLink;
-    });
-    const totals = new Map<string, number>();
-    for (const e of live) { const k = [e.from, e.to].sort().join('|'); totals.set(k, (totals.get(k) ?? 0) + 1); }
-    this.links.forEach((l) => {
-      const k = [(l.source as any), (l.target as any)].map((x) => (typeof x === 'string' ? x : x.id)).sort().join('|');
-      const t = totals.get(k) ?? 1;
-      l.curve = t > 1 ? (l.curve - (t - 1) / 2) * 26 : 0;
+      const t = totals.get(key) ?? 1;
+      return { id: e.id, source: e.from, target: e.to, label: e.label, strength: e.strength, kind: e.kind, curve: t > 1 ? (i - (t - 1) / 2) * 26 : 0, born: prevBorn.get(e.id) ?? performance.now() } as SimLink;
     });
 
     this.sim.nodes(this.nodes);
     (this.sim.force('link') as any).links(this.links);
 
-    if (firstLoad && unplaced > 20) {
+    if (this.mode === 'organized') {
+      this.relayout();
+      if (firstLoad) { for (const n of this.nodes) { n.x = n.tx; n.y = n.ty; } this.animating = false; }
+    } else if (firstLoad && unplaced > 20) {
       this.sim.alpha(1);
       for (let i = 0; i < 260; i++) this.sim.tick();
       this.sim.alpha(0.15).restart();
@@ -173,16 +226,18 @@ export class GraphEngine {
 
   toWorld(sx: number, sy: number) { return { x: (sx - this.cam.x) / this.cam.k, y: (sy - this.cam.y) / this.cam.k }; }
   toScreen(wx: number, wy: number) { return { x: wx * this.cam.k + this.cam.x, y: wy * this.cam.k + this.cam.y }; }
+  private px(n: SimNode) { return this.mode === 'organized' && n.tx !== undefined && n.fx == null ? n.tx : n.x ?? 0; }
+  private py(n: SimNode) { return this.mode === 'organized' && n.ty !== undefined && n.fy == null ? n.ty : n.y ?? 0; }
 
   fit(animated = true, ids?: string[]) {
     const list = ids ? this.nodes.filter((n) => ids.includes(n.id)) : this.nodes;
     if (!list.length || !this.w) return;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const n of list) { x0 = Math.min(x0, (n.x ?? 0) - n.r); y0 = Math.min(y0, (n.y ?? 0) - n.r); x1 = Math.max(x1, (n.x ?? 0) + n.r); y1 = Math.max(y1, (n.y ?? 0) + n.r + 18); }
-    const pad = 64;
+    for (const n of list) { const x = this.px(n), y = this.py(n); x0 = Math.min(x0, x - n.r - 70); y0 = Math.min(y0, y - n.r); x1 = Math.max(x1, x + n.r + 70); y1 = Math.max(y1, y + n.r + 22); }
+    const pad = 56;
     const aw = Math.max(80, this.w - this.insets.left - this.insets.right - pad * 2);
     const ah = Math.max(80, this.h - this.insets.top - this.insets.bottom - pad * 2);
-    const k = Math.min(1.5, Math.max(0.12, Math.min(aw / Math.max(1, x1 - x0), ah / Math.max(1, y1 - y0))));
+    const k = Math.min(1.4, Math.max(0.1, Math.min(aw / Math.max(1, x1 - x0), ah / Math.max(1, y1 - y0))));
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     const tx = this.insets.left + (this.w - this.insets.left - this.insets.right) / 2 - cx * k;
     const ty = this.insets.top + (this.h - this.insets.top - this.insets.bottom) / 2 - cy * k;
@@ -197,11 +252,34 @@ export class GraphEngine {
   }
   panTo(id: string) {
     const n = this.byId.get(id); if (!n) return;
-    const tx = this.insets.left + (this.w - this.insets.left - this.insets.right) / 2 - (n.x ?? 0) * this.cam.k;
-    const ty = this.insets.top + (this.h - this.insets.top - this.insets.bottom) / 2 - (n.y ?? 0) * this.cam.k;
+    const tx = this.insets.left + (this.w - this.insets.left - this.insets.right) / 2 - this.px(n) * this.cam.k;
+    const ty = this.insets.top + (this.h - this.insets.top - this.insets.bottom) / 2 - this.py(n) * this.cam.k;
     this.camTarget = { x: tx, y: ty, k: this.cam.k }; this.dirty = true;
   }
-  reheat() { this.sim.alpha(0.6).restart(); }
+  reheat() { if (this.mode === 'free') this.sim.alpha(0.6).restart(); }
+
+  // ---------------------------------------------------------------------------------------------- edge geometry
+  /** Tree edges (and everything in free mode) are straight. Cross links bow toward their component's centre so they bundle together instead of slashing across the picture. */
+  private isCross(l: SimLink): boolean { return this.mode === 'organized' && !!this.layout && !this.layout.treeEdges.has(l.id); }
+  private geom(l: SimLink): { x0: number; y0: number; x1: number; y1: number; cx?: number; cy?: number } | null {
+    const a = l.source as SimNode, b = l.target as SimNode;
+    if (!a || !b || typeof a === 'string') return null;
+    const x0 = a.x ?? 0, y0 = a.y ?? 0, x1 = b.x ?? 0, y1 = b.y ?? 0;
+    if (this.isCross(l)) {
+      const rootId = this.layout!.roots[a.comp ?? 0];
+      const root = rootId ? this.byId.get(rootId) : undefined;
+      const rx = root?.x ?? 0, ry = root?.y ?? 0;
+      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      const same = (a.comp ?? 0) === (b.comp ?? 0);
+      const beta = same ? 0.55 : 0;
+      return { x0, y0, x1, y1, cx: mx + (rx - mx) * beta, cy: my + (ry - my) * beta };
+    }
+    if (l.curve) {
+      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, nx = -(y1 - y0), ny = x1 - x0, nl = Math.hypot(nx, ny) || 1;
+      return { x0, y0, x1, y1, cx: mx + (nx / nl) * l.curve, cy: my + (ny / nl) * l.curve };
+    }
+    return { x0, y0, x1, y1 };
+  }
 
   // ---------------------------------------------------------------------------------------------- hit tests
   nodeAt(sx: number, sy: number): SimNode | null {
@@ -214,17 +292,27 @@ export class GraphEngine {
     }
     return best;
   }
+  /** Quiet cross links can only be picked once they are lit up (hover/selection), so clicking never grabs an invisible line. */
+  private edgeVisible(l: SimLink): boolean {
+    if (!this.isCross(l)) return true;
+    const a = (l.source as SimNode).id, b = (l.target as SimNode).id;
+    return this.selection.has(a) || this.selection.has(b) || this.selectedEdge === l.id || !!this.highlight?.edges.has(l.id);
+  }
   edgeAt(sx: number, sy: number): SimLink | null {
     let best: SimLink | null = null, bd = 6;
     for (const l of this.links) {
-      const a = l.source as SimNode, b = l.target as SimNode;
-      if (!a || !b || typeof a === 'string') continue;
-      const p = this.toScreen(a.x ?? 0, a.y ?? 0), q = this.toScreen(b.x ?? 0, b.y ?? 0);
-      const dx = q.x - p.x, dy = q.y - p.y;
-      const t = Math.max(0, Math.min(1, ((sx - p.x) * dx + (sy - p.y) * dy) / (dx * dx + dy * dy || 1)));
-      let d = Math.hypot(p.x + t * dx - sx, p.y + t * dy - sy);
-      if (l.curve) d = Math.abs(d - Math.abs(l.curve) * 0.5);
-      if (d < bd) { bd = d; best = l; }
+      if (!this.edgeVisible(l)) continue;
+      const g = this.geom(l); if (!g) continue;
+      const pts: [number, number][] = [];
+      if (g.cx !== undefined) for (let i = 0; i <= 14; i++) { const t = i / 14, u = 1 - t; pts.push([u * u * g.x0 + 2 * u * t * g.cx + t * t * g.x1, u * u * g.y0 + 2 * u * t * g.cy! + t * t * g.y1]); }
+      else pts.push([g.x0, g.y0], [g.x1, g.y1]);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p = this.toScreen(pts[i][0], pts[i][1]), q = this.toScreen(pts[i + 1][0], pts[i + 1][1]);
+        const dx = q.x - p.x, dy = q.y - p.y;
+        const t = Math.max(0, Math.min(1, ((sx - p.x) * dx + (sy - p.y) * dy) / (dx * dx + dy * dy || 1)));
+        const d = Math.hypot(p.x + t * dx - sx, p.y + t * dy - sy);
+        if (d < bd) { bd = d; best = l; }
+      }
     }
     return best;
   }
@@ -240,7 +328,10 @@ export class GraphEngine {
       const p = pos(e);
       const n = this.nodeAt(p.x, p.y);
       if (n) {
-        this.drag = { id: n.id, sx: p.x, sy: p.y, moved: false, ox: (n.x ?? 0), oy: (n.y ?? 0) };
+        // In the organized layout a whole branch travels with the node it hangs from (hold Alt to move just this one).
+        const group = this.mode === 'organized' && this.layout && !e.altKey ? [n.id, ...descendants(this.layout, n.id)] : [n.id];
+        const start = new Map(group.map((id) => [id, { x: this.byId.get(id)!.x ?? 0, y: this.byId.get(id)!.y ?? 0 }]));
+        this.drag = { id: n.id, sx: p.x, sy: p.y, moved: false, group, start };
       } else if (e.shiftKey) {
         this.lasso = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
       } else {
@@ -255,12 +346,17 @@ export class GraphEngine {
         const d = this.drag;
         if (!d.moved && Math.hypot(p.x - d.sx, p.y - d.sy) > 3) {
           d.moved = true;
-          this.sim.alphaTarget(0.25).restart();
+          if (this.mode === 'free') this.sim.alphaTarget(0.25).restart();
           if (!this.selection.has(d.id)) this.cb.onSelect([d.id], false);
         }
         if (d.moved) {
-          const w = this.toWorld(p.x, p.y), n = this.byId.get(d.id)!;
-          n.fx = w.x; n.fy = w.y; this.dirty = true;
+          const w0 = this.toWorld(d.sx, d.sy), w = this.toWorld(p.x, p.y);
+          const dx = w.x - w0.x, dy = w.y - w0.y;
+          for (const id of d.group) {
+            const n = this.byId.get(id)!, s0 = d.start.get(id)!;
+            n.x = s0.x + dx; n.y = s0.y + dy; n.fx = n.x; n.fy = n.y; n.tx = n.x; n.ty = n.y;
+          }
+          this.dirty = true;
         }
         return;
       }
@@ -271,13 +367,12 @@ export class GraphEngine {
         return;
       }
       if (this.lasso) { this.lasso.x1 = p.x; this.lasso.y1 = p.y; this.dirty = true; return; }
-      // hover
       const n = this.nodeAt(p.x, p.y);
       const h: Hover | null = n ? { kind: 'node', id: n.id, x: p.x, y: p.y } : (() => { const l = this.edgeAt(p.x, p.y); return l ? { kind: 'edge' as const, id: l.id, x: p.x, y: p.y } : null; })();
       if (h?.id !== this.hover?.id || h?.kind !== this.hover?.kind || (h && this.hover && (Math.abs(h.x - this.hover.x) > 2 || Math.abs(h.y - this.hover.y) > 2))) {
         this.hover = h; this.cb.onHover(h); this.dirty = true;
       }
-      c.style.cursor = n ? 'pointer' : h ? 'pointer' : 'default';
+      c.style.cursor = h ? 'pointer' : 'default';
     });
 
     c.addEventListener('pointerup', (e) => {
@@ -286,9 +381,8 @@ export class GraphEngine {
       if (this.drag) {
         const d = this.drag; this.drag = null;
         if (d.moved) {
-          const n = this.byId.get(d.id)!;
-          n.pinned = true; // dragging pins; double-click or the inspector unpins
-          this.sim.alphaTarget(0);
+          for (const id of d.group) { const n = this.byId.get(id)!; n.pinned = true; }
+          if (this.mode === 'free') this.sim.alphaTarget(0);
           this.emitSettle();
         } else {
           const now = performance.now();
@@ -334,7 +428,7 @@ export class GraphEngine {
     });
   }
 
-  unpin(id: string) { const n = this.byId.get(id); if (n) { n.fx = null; n.fy = null; n.pinned = false; this.reheat(); } }
+  unpin(id: string) { const n = this.byId.get(id); if (n) { n.fx = null; n.fy = null; n.pinned = false; if (this.mode === 'organized') this.relayout(); else this.reheat(); } }
   pin(id: string) { const n = this.byId.get(id); if (n) { n.fx = n.x; n.fy = n.y; n.pinned = true; this.dirty = true; this.emitSettle(); } }
 
   // ---------------------------------------------------------------------------------------------- render
@@ -348,9 +442,25 @@ export class GraphEngine {
       if (Math.abs(t.x - this.cam.x) < 0.3 && Math.abs(t.y - this.cam.y) < 0.3 && Math.abs(t.k - this.cam.k) < 0.001) { this.cam = { ...t }; this.camTarget = null; }
       this.dirty = true;
     }
-    const animating = this.nodes.some((n) => now - n.born < 600) || this.links.some((l) => now - l.born < 600);
-    if (this.dirty || animating) { this.dirty = false; this.draw(now); }
+    if (this.mode === 'organized' && this.animating && !this.drag) {
+      // glide every node to its place; nodes ease in rather than jumping
+      let any = false;
+      for (const n of this.nodes) {
+        if (n.tx === undefined || n.ty === undefined) continue;
+        const dx = n.tx - (n.x ?? 0), dy = n.ty - (n.y ?? 0);
+        if (Math.abs(dx) + Math.abs(dy) < 0.35) { n.x = n.tx; n.y = n.ty; continue; }
+        const f = this.reduceMotion ? 1 : 0.17;
+        n.x = (n.x ?? 0) + dx * f; n.y = (n.y ?? 0) + dy * f; any = true;
+      }
+      this.dirty = true;
+      if (!any) { this.animating = false; this.emitSettle(); }
+    }
+    const young = this.nodes.some((n) => now - n.born < 600) || this.links.some((l) => now - l.born < 600);
+    if (this.dirty || young) { this.dirty = false; this.draw(now); }
   };
+
+  /** Stroke width in world units for a desired on-screen width, never thinner than ~0.7px, so zoomed-out graphs stay visible. */
+  private sw(px: number): number { return Math.max(0.7, px * Math.min(1, 0.55 + this.cam.k * 0.45)) / this.cam.k; }
 
   private dim(id: string): number {
     if (this.highlight) return this.highlight.nodes.has(id) ? 1 : 0.14;
@@ -374,39 +484,42 @@ export class GraphEngine {
 
     ctx.save();
     ctx.translate(cam.x, cam.y); ctx.scale(cam.k, cam.k);
-    const lod = cam.k < 0.32;
-    const selNeighbors = new Set<string>();
+    const lod = cam.k < 0.3;
+    const selEdges = new Set<string>();
     for (const l of this.links) {
       const a = l.source as SimNode, b = l.target as SimNode;
-      if (this.selection.has(a.id)) selNeighbors.add(l.id);
-      if (this.selection.has(b.id)) selNeighbors.add(l.id);
+      if (this.selection.has(a.id) || this.selection.has(b.id) || this.hover?.id === a.id || this.hover?.id === b.id) selEdges.add(l.id);
     }
     const hasSel = this.selection.size > 0;
-    const labelAll = selNeighbors.size <= 8; // a 27-link hub would turn into confetti
+    const labelAll = selEdges.size <= 8; // a 27-link hub would turn into confetti
 
-    // edges
-    for (const l of this.links) {
+    // edges: cross links first and very quiet, tree edges on top
+    const ordered = [...this.links].sort((x, y) => Number(this.isCross(y)) - Number(this.isCross(x)));
+    for (const l of ordered) {
+      const g = this.geom(l); if (!g) continue;
       const a = l.source as SimNode, b = l.target as SimNode;
-      if (!a || !b || typeof a === 'string') continue;
       const age = Math.min(1, (now - l.born) / 450);
       const inPath = this.highlight?.edges.has(l.id);
       const dim = Math.min(this.dim(a.id), this.dim(b.id));
       const sel = this.selectedEdge === l.id;
-      const hot = selNeighbors.has(l.id) || this.hover?.id === l.id;
-      ctx.globalAlpha = (inPath ? 1 : dim) * (this.reduceMotion ? 1 : ease(age)) * (hasSel && !selNeighbors.has(l.id) && !inPath && !sel ? 0.4 : 1);
+      const hot = selEdges.has(l.id);
+      const cross = this.isCross(l);
+      const quiet = cross && !hot && !sel && !inPath;
+      if (quiet && cam.k < 0.22) continue;
+      const base = quiet ? 0.24 : hasSel && !hot && !inPath && !sel ? 0.45 : 1;
+      ctx.globalAlpha = (inPath ? 1 : dim) * (this.reduceMotion ? 1 : ease(age)) * base;
       ctx.lineCap = 'round';
-      const x0 = a.x ?? 0, y0 = a.y ?? 0, x1 = b.x ?? 0, y1 = b.y ?? 0;
-      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
-      const nx = -(y1 - y0), ny = x1 - x0, nl = Math.hypot(nx, ny) || 1;
-      const cx = mx + (nx / nl) * l.curve, cy = my + (ny / nl) * l.curve;
-      const path = () => { ctx.beginPath(); ctx.moveTo(x0, y0); if (l.curve) ctx.quadraticCurveTo(cx, cy, x1, y1); else ctx.lineTo(x1, y1); };
-      if (inPath) { path(); ctx.strokeStyle = P.accentSoft; ctx.lineWidth = 9 / cam.k * 1.0; ctx.stroke(); }
+      const path = () => { ctx.beginPath(); ctx.moveTo(g.x0, g.y0); if (g.cx !== undefined) ctx.quadraticCurveTo(g.cx, g.cy!, g.x1, g.y1); else ctx.lineTo(g.x1, g.y1); };
+      if (inPath) { path(); ctx.strokeStyle = P.accentSoft; ctx.lineWidth = 9 / Math.max(cam.k, 0.4); ctx.stroke(); }
       path();
       ctx.strokeStyle = inPath || sel ? P.accent : hot ? P.text2 : P.edge;
-      ctx.lineWidth = (0.8 + l.strength * 1.5 + (inPath || sel ? 1 : 0)) / Math.max(0.6, cam.k) * Math.min(1, cam.k + 0.3);
-      ctx.setLineDash(l.kind === 'inferred' ? [5 / cam.k, 4 / cam.k] : l.kind === 'manual' ? [1.5 / cam.k, 3.5 / cam.k] : []);
+      ctx.lineWidth = this.sw((quiet ? 0.7 : 0.95) + l.strength * (quiet ? 0.6 : 1.4) + (inPath || sel ? 1 : 0));
+      ctx.setLineDash(l.kind === 'inferred' ? [5 / Math.max(cam.k, 0.5), 4 / Math.max(cam.k, 0.5)] : l.kind === 'manual' ? [1.5 / Math.max(cam.k, 0.5), 3.5 / Math.max(cam.k, 0.5)] : []);
       ctx.stroke(); ctx.setLineDash([]);
-      if ((this.hover?.id === l.id || sel || inPath || (hot && labelAll)) && cam.k > 0.55) this.pill(l.label, cx * 0.5 + mx * 0.5, cy * 0.5 + my * 0.5, ctx.globalAlpha);
+      if ((this.hover?.id === l.id || sel || inPath || (hot && labelAll)) && cam.k > 0.45) {
+        const mx = g.cx !== undefined ? (g.x0 + 2 * g.cx + g.x1) / 4 : (g.x0 + g.x1) / 2, my = g.cy !== undefined ? (g.y0 + 2 * g.cy + g.y1) / 4 : (g.y0 + g.y1) / 2;
+        this.pill(l.label, mx, my, ctx.globalAlpha);
+      }
     }
 
     // nodes
@@ -426,7 +539,7 @@ export class GraphEngine {
         const img = thumb(n.image, () => (this.dirty = true));
         if (img) { ctx.save(); ctx.beginPath(); ctx.arc(x, y, Math.max(0.01, r - 1), 0, Math.PI * 2); ctx.clip(); ctx.drawImage(img, x - r, y - r, r * 2, r * 2); ctx.restore(); }
       }
-      ctx.lineWidth = (sel ? 2.4 : 1.3) / Math.max(0.7, cam.k) * Math.min(1, cam.k + 0.4);
+      ctx.lineWidth = this.sw(sel ? 2.4 : 1.4);
       ctx.strokeStyle = sel ? P.accent : P.nodeStroke;
       ctx.setLineDash(n.state === 'seed' ? [4 / cam.k, 3 / cam.k] : []);
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
@@ -440,19 +553,17 @@ export class GraphEngine {
       // glyph
       if (!lod && !n.image) {
         if (n.type === 'person' || n.type === 'org') {
-          ctx.fillStyle = P.nodeInk; ctx.font = `600 ${Math.round(r * 0.78)}px -apple-system, "SF Pro Text", Inter, system-ui, sans-serif`;
+          ctx.fillStyle = P.nodeInk; ctx.font = `600 ${Math.round(r * 0.78)}px ${FONT}`;
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.fillText(n.type === 'org' ? initials(n.label).slice(0, 2) : initials(n.label), x, y + 0.5);
+          ctx.fillText(initials(n.label).slice(0, 2), x, y + 0.5);
         } else {
           const img = canvasIcon(n.type, P.nodeInk, () => (this.dirty = true));
           if (img) { const s = r * 1.18; ctx.drawImage(img, x - s / 2, y - s / 2, s, s); }
         }
       }
       if (n.pinned && !lod) { ctx.beginPath(); ctx.arc(x + r * 0.78, y - r * 0.78, 2.6, 0, Math.PI * 2); ctx.fillStyle = P.accent; ctx.fill(); }
-
     }
-
-    // labels: greedy placement by priority so they never pile on top of each other
+    ctx.globalAlpha = 1;
     if (!lod) this.drawLabels(now);
     ctx.restore();
     ctx.globalAlpha = 1;
@@ -465,30 +576,48 @@ export class GraphEngine {
     }
   }
 
+  /**
+   * Labels, placed greedily by importance. Every node circle and every earlier label is an obstacle. Each label tries its
+   * preferred spot (outward from the centre in the organized layout) and then the alternatives, and is dropped if none is clear.
+   */
   private drawLabels(now: number) {
     const { ctx, palette: P, cam } = this;
     const fs = 12 / Math.max(0.85, Math.min(1.15, cam.k));
+    const org = this.mode === 'organized';
     const cands = this.nodes
-      .filter((n) => cam.k >= 0.72 || this.selection.has(n.id) || this.hover?.id === n.id || n.state === 'seed')
+      .filter((n) => cam.k >= 0.5 || this.selection.has(n.id) || this.hover?.id === n.id || n.state === 'seed' || n.degree >= 6)
       .map((n) => ({ n, pri: (this.selection.has(n.id) || this.hover?.id === n.id ? 1e6 : 0) + (n.state === 'seed' ? 5e5 : 0) + n.degree * 10 + (n.score ?? 0) * 5 }))
       .sort((a, b) => b.pri - a.pri);
-    const placed: [number, number, number, number][] = [];
+    type Box = [number, number, number, number, string];
+    const placed: Box[] = this.nodes.map((n) => [(n.x ?? 0) - n.r - 4, (n.y ?? 0) - n.r - 4, (n.x ?? 0) + n.r + 4, (n.y ?? 0) + n.r + 4, n.id]);
+    const hits = (r: Box) => placed.some((q) => q[4] !== r[4] && r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1]);
     ctx.lineJoin = 'round';
     for (const { n, pri } of cands) {
       const sel = this.selection.has(n.id), hov = this.hover?.id === n.id;
       const age = Math.min(1, (now - n.born) / 520);
       const text = n.label.length > 26 ? `${n.label.slice(0, 25)}…` : n.label;
-      ctx.font = `${sel || n.state === 'seed' ? 600 : 500} ${fs}px -apple-system, "SF Pro Text", Inter, system-ui, sans-serif`;
+      ctx.font = `${sel || n.state === 'seed' ? 600 : 500} ${fs}px ${FONT}`;
       const w = ctx.measureText(text).width, h = fs + 2;
-      const x = n.x ?? 0, y = (n.y ?? 0) + n.r + 6;
-      const rect: [number, number, number, number] = [x - w / 2 - 3, y - 1, x + w / 2 + 3, y + h];
-      const clash = placed.some((q) => rect[0] < q[2] && rect[2] > q[0] && rect[1] < q[3] && rect[3] > q[1]);
-      if (clash && pri < 5e5) continue;
-      placed.push(rect);
+      const x = n.x ?? 0, y = n.y ?? 0, pad = n.r + 7;
+      type Opt = { lx: number; ly: number; align: CanvasTextAlign; base: CanvasTextBaseline };
+      const right: Opt = { lx: x + pad, ly: y, align: 'left', base: 'middle' }, left: Opt = { lx: x - pad, ly: y, align: 'right', base: 'middle' };
+      const below: Opt = { lx: x, ly: y + n.r + 6, align: 'center', base: 'top' }, above: Opt = { lx: x, ly: y - n.r - 6, align: 'center', base: 'bottom' };
+      let opts: Opt[] = [below, above, right, left];
+      if (org && (n.depth ?? 0) > 0 && n.ang !== undefined) {
+        const cs = Math.cos(n.ang), sn = Math.sin(n.ang);
+        opts = Math.abs(cs) > 0.5 ? (cs > 0 ? [right, below, above, left] : [left, below, above, right]) : sn < 0 ? [above, right, left, below] : [below, right, left, above];
+      }
+      const box = (o: Opt): Box => o.align === 'center'
+        ? [o.lx - w / 2 - 3, o.base === 'bottom' ? o.ly - h : o.ly - 1, o.lx + w / 2 + 3, o.base === 'bottom' ? o.ly + 1 : o.ly + h, n.id]
+        : o.align === 'left' ? [o.lx - 3, o.ly - h / 2, o.lx + w + 3, o.ly + h / 2, n.id] : [o.lx - w - 3, o.ly - h / 2, o.lx + 3, o.ly + h / 2, n.id];
+      let chosen: Opt | null = null;
+      for (const o of opts) if (!hits(box(o))) { chosen = o; break; }
+      if (!chosen) { if (pri < 5e5) continue; chosen = opts[0]; }
+      placed.push(box(chosen));
       ctx.globalAlpha = this.dim(n.id) * Math.min(1, age * 2.2);
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.lineWidth = 4; ctx.strokeStyle = P.bg; ctx.strokeText(text, x, y);
-      ctx.fillStyle = sel || hov ? P.text : P.text2; ctx.fillText(text, x, y);
+      ctx.textAlign = chosen.align; ctx.textBaseline = chosen.base;
+      ctx.lineWidth = 4; ctx.strokeStyle = P.bg; ctx.strokeText(text, chosen.lx, chosen.ly);
+      ctx.fillStyle = sel || hov ? P.text : P.text2; ctx.fillText(text, chosen.lx, chosen.ly);
     }
     ctx.globalAlpha = 1;
   }
@@ -496,7 +625,7 @@ export class GraphEngine {
   private pill(text: string, x: number, y: number, alpha: number) {
     const { ctx, palette: P, cam } = this;
     const fs = 11 / cam.k;
-    ctx.font = `500 ${fs}px -apple-system, "SF Pro Text", Inter, system-ui, sans-serif`;
+    ctx.font = `500 ${fs}px ${FONT}`;
     const w = ctx.measureText(text).width + 12 / cam.k, h = 18 / cam.k;
     const prev = ctx.globalAlpha; ctx.globalAlpha = alpha;
     ctx.beginPath(); ctx.roundRect(x - w / 2, y - h / 2, w, h, h / 2.2);
