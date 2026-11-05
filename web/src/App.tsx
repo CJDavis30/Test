@@ -7,6 +7,10 @@ import { GraphView } from './components/GraphView';
 import { Inspector } from './components/Inspector';
 import { Sheet } from './components/Sheet';
 import { Shortcuts } from './components/Shortcuts';
+import { MatchLab } from './components/forensics/MatchLab';
+import { Decode } from './components/forensics/Decode';
+import { AutopilotHud } from './components/AutopilotHud';
+import { IdentitiesView } from './views/Identities';
 import { Palette } from './components/Palette';
 import { Settings } from './components/Settings';
 import { Onboarding, ImportDialog } from './components/Welcome';
@@ -43,14 +47,14 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState(); // always the live state: this handler outlives the render that created it
       const mod = e.metaKey || e.ctrlKey;
-      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && st.sidebar && !st.sheet && !st.palette && !st.settingsOpen && !st.shortcuts) { st.toggle('sidebar', false); return; }
+      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && st.sidebar && !st.sheet && !st.palette && !st.settingsOpen && !st.shortcuts && !st.matchLab && !st.decode) { st.toggle('sidebar', false); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); st.toggle('palette'); }
       else if (mod && e.key === ',') { e.preventDefault(); st.openSettings(st.settingsOpen ? null : 'general'); }
       else if (e.key === '?' && !mod && !isTyping(e.target)) { e.preventDefault(); st.setShortcuts(!st.shortcuts); }
       else if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); st.toggle('sidebar'); }
       else if (mod && e.key.toLowerCase() === 'i' && !e.altKey) { e.preventDefault(); st.toggle('inspector'); }
       else if (mod && e.key.toLowerCase() === 'z' && !st.sheet && !isTyping(e.target)) { e.preventDefault(); void st.undo(); }
-      else if (mod && /^[1-4]$/.test(e.key)) { e.preventDefault(); st.setView((['graph', 'table', 'timeline', 'report'] as const)[Number(e.key) - 1]); }
+      else if (mod && /^[1-5]$/.test(e.key)) { e.preventDefault(); st.setView((['graph', 'table', 'timeline', 'identities', 'report'] as const)[Number(e.key) - 1]); }
     };
     // Pasting anywhere (outside a field) opens the palette with what you pasted.
     const onPaste = (e: ClipboardEvent) => {
@@ -82,7 +86,7 @@ export function App() {
   }, []);
 
   // While a dialog is open, the window's drag area (toolbar, sidebar header) must not sit under it: on macOS a drag region swallows clicks on anything above it, including the dialog's close button.
-  const overlayOpen = !!(s.sheet || s.shortcuts || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
+  const overlayOpen = !!(s.sheet || s.shortcuts || s.matchLab || s.decode || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
   useEffect(() => { document.body.classList.toggle('overlay-open', overlayOpen); return () => document.body.classList.remove('overlay-open'); }, [overlayOpen]);
 
   if (!s.booted) return <div className="app" style={{ display: 'grid', placeItems: 'center' }}><div className="skeleton" style={{ width: 160, height: 14 }} /></div>;
@@ -95,9 +99,11 @@ export function App() {
         <div className="drawer-scrim" onClick={() => s.toggle('sidebar', false)} aria-hidden />
         <Toolbar />
         <div className="main">
+          <AutopilotHud />
           {s.view === 'graph' && <GraphView key={s.caseId ?? 'none'} />}
           {s.view === 'table' && <TableView />}
           {s.view === 'timeline' && <TimelineView />}
+          {s.view === 'identities' && <IdentitiesView />}
           {s.view === 'report' && <ReportView />}
           <AnimatePresence initial={false}>
             {showInspector && (
@@ -112,6 +118,8 @@ export function App() {
       {s.palette && <Palette />}
       {s.settingsOpen && <Settings />}
       {s.shortcuts && <Shortcuts />}
+      {s.matchLab && <MatchLab />}
+      {s.decode && <Decode />}
       {s.settings && !s.settings.onboarded && <Onboarding />}
       {imported && <ImportDialog items={imported} onClose={() => setImported(null)} />}
       {dropping && <div className="dropzone">Drop to extract emails, domains, phones and IPs</div>}

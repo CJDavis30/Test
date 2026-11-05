@@ -10,8 +10,10 @@ import { Dots } from './ui';
 import { ConnectionPath, SourceCards } from './FindingDetail';
 import { explainRelation } from '@shared/explain';
 import { displayValue } from '../lib/format';
+import { ActivityClock } from './forensics/ActivityClock';
+import type { Circadian } from '../lib/forensics';
 
-type Tab = 'overview' | 'evidence' | 'notes';
+type Tab = 'overview' | 'evidence' | 'activity' | 'notes';
 
 export function Inspector() {
   const s = useStore();
@@ -91,7 +93,7 @@ function NodePanel({ node }: { node: GraphNode }) {
         <button className="btn sm ghost icon danger" aria-label="Remove" title="Remove from graph" onClick={() => void s.removeNodes([node.id])}><Trash2 size={14} /></button>
       </div>
       <div className="tabs" role="tablist">
-        {(['overview', 'evidence', 'notes'] as Tab[]).map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}{t === 'evidence' && fs.length ? <span className="faint num"> {fs.reduce((n, f) => n + f.evidence.length, 0)}</span> : null}</button>)}
+        {((node.type === 'account' || node.type === 'username' ? ['overview', 'evidence', 'activity', 'notes'] : ['overview', 'evidence', 'notes']) as Tab[]).map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}{t === 'evidence' && fs.length ? <span className="faint num"> {fs.reduce((n, f) => n + f.evidence.length, 0)}</span> : null}</button>)}
       </div>
       <div className="insp-body selectable">
         {tab === 'overview' && (<>
@@ -130,6 +132,7 @@ function NodePanel({ node }: { node: GraphNode }) {
             );
           })}
         </>)}
+        {tab === 'activity' && <ActivityTab node={node} />}
         {tab === 'notes' && <Notes node={node} />}
       </div>
     </>
@@ -203,6 +206,28 @@ function EdgePanel({ id }: { id: string }) {
           {f.evidence.map((ev) => <div key={ev.id} style={{ padding: '4px 0' }}><div style={{ fontWeight: 600 }}>{ev.adapterName}</div><div className="muted" style={{ fontSize: 12.5 }}>{ev.snippet || 'Match found.'}</div></div>)}</>)}
         {e.kind === 'inferred' && <p className="muted" style={{ fontSize: 12.5 }}>You accepted this link based on a structural hint, not a direct record. It is shown dashed on the graph.</p>}
         <button className="btn sm danger" style={{ marginTop: 16 }} onClick={async () => { await api.del(`/api/edges/${e.id}`); await s.loadCase(s.caseId!); }}><Trash2 size={13} /> Remove link</button>
+      </div>
+    </>
+  );
+}
+
+/** When this account is active, from timestamps you have attached (pasted logs, message links, commit times). */
+function ActivityTab({ node }: { node: GraphNode }) {
+  const s = useStore();
+  const [data, setData] = useState<{ count: number; circadian: Circadian | null } | null>(null);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { let live = true; api.get<{ count: number; circadian: Circadian | null }>(`/api/nodes/${node.id}/activity`).then((r) => { if (live) setData(r); }).catch(() => {}); return () => { live = false; }; }, [node.id]);
+  const others = (s.snap?.nodes ?? []).filter((n) => (n.type === 'account' || n.type === 'username') && n.id !== node.id);
+  const add = async () => { setBusy(true); try { const r = await api.post<{ count: number; circadian: Circadian | null }>(`/api/nodes/${node.id}/activity`, { text }); setData(r); setText(''); s.toast('Timestamps added'); } finally { setBusy(false); } };
+  return (
+    <>
+      <div className="sec-title">Active hours</div>
+      {data?.circadian ? <ActivityClock c={data.circadian} size={200} compact /> : <div className="faint" style={{ marginBottom: 8 }}>{data?.count ? `${data.count} timestamps so far: not enough yet.` : 'No timestamps yet. Paste message links, a chat export or a log and Plexus will work out when this person is awake, and roughly where.'}</div>}
+      <textarea className="field" style={{ width: '100%', minHeight: 84, marginTop: 10, font: '12px var(--mono)' }} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste Discord message links, ISO times, Unix times…" aria-label="Timestamps to add" />
+      <div className="row" style={{ marginTop: 8, gap: 6, flexWrap: 'wrap' }}>
+        <button className="btn sm" onClick={() => void add()} disabled={!text.trim() || busy}>Add timestamps</button>
+        {others.length > 0 && <select className="field" style={{ height: 28 }} defaultValue="" onChange={(e) => { if (e.target.value) s.setMatchLab({ a: node.id, b: e.target.value }); }} aria-label="Compare with another account"><option value="">Compare with…</option>{others.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>}
       </div>
     </>
   );

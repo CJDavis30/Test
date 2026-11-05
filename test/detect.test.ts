@@ -106,3 +106,24 @@ describe('untrusted URL handling', () => {
     expect(labelFor('account', 'https://github.com/maralinden', { platform: 'GitHub' })).toBe('GitHub · maralinden');
   });
 });
+
+describe('gaming and chat platforms', () => {
+  it('recognises profile links as accounts, not generic pages', () => {
+    expect(detect('https://www.roblox.com/users/3148802991/profile')).toMatchObject({ type: 'account' });
+    expect(detect('https://discord.com/users/175928847299117063')).toMatchObject({ type: 'account', value: 'https://discord.com/users/175928847299117063' });
+    expect(detect('https://steamcommunity.com/id/gaben')).toMatchObject({ type: 'account' });
+    expect(detect('https://www.twitch.tv/shroud')).toMatchObject({ type: 'account' });
+    expect(detect('https://t.me/durov')).toMatchObject({ type: 'account' });
+  });
+  it('treats a bare Discord-sized number as a possible account, with lower confidence, and leaves phones and short numbers alone', () => {
+    const d = detect('175928847299117063')!; expect(d.type).toBe('account'); expect(d.confidence).toBeLessThan(0.9);
+    expect(detect('+1 415 555 0142')!.type).toBe('phone');
+    expect(detect('12345')!.type).not.toBe('account');
+  });
+  it('keeps ordinary links, other sites and invites as they were', () => {
+    expect(detect('https://example.com/a/b')!.type).toBe('url');
+    expect(detect('https://github.com/octocat')!.type).toBe('url');
+    expect(detect('https://discord.gg/abcDEF')!.type).toBe('url');
+    expect(detect('https://discord.com/channels/111111111111111111/222222222222222222/175928847299117063')!.type).toBe('url');
+  });
+});

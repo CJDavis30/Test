@@ -53,7 +53,7 @@ const run = async (p, where) => { const probs = await audit(p, where); const n =
     // --- main window
     await run(p, w('graph'));
     if (wname === 'narrow') { await click(p.getByRole('button', { name: 'Toggle sidebar' })); await run(p, w('sidebar drawer')); await click(p.getByRole('button', { name: 'Close sidebar' })); checked++; if (await p.evaluate(() => document.querySelector('.sidebar').getBoundingClientRect().right > 10)) bad(w('Close sidebar button did not close the drawer')); await click(p.getByRole('button', { name: 'Toggle sidebar' })); await p.keyboard.press('Escape'); await p.waitForTimeout(400); checked++; if (await p.evaluate(() => document.querySelector('.sidebar').getBoundingClientRect().right > 10)) bad(w('Esc did not close the sidebar drawer')); }
-    for (const v of ['table', 'timeline', 'report']) { await p.evaluate((v) => window.__plexusStore.getState().setView(v), v); await p.waitForTimeout(500); await run(p, w(v)); }
+    for (const v of ['table', 'timeline', 'identities', 'report']) { await p.evaluate((v) => window.__plexusStore.getState().setView(v), v); await p.waitForTimeout(500); await run(p, w(v)); }
     await p.evaluate(() => window.__plexusStore.getState().setView('graph')); await p.waitForTimeout(300);
     await p.evaluate(() => window.__plexusStore.getState().toggle('inspector', true)); await p.waitForTimeout(500);
     const first = (await S()).nodes[0]; await p.evaluate((id) => window.__plexusStore.getState().select([id]), first.id); await p.waitForTimeout(400);
@@ -94,6 +94,20 @@ const run = async (p, where) => { const probs = await audit(p, where); const n =
     if (await sc()) bad(w('Esc did not close the shortcuts list'));
     await p.keyboard.press('?'); await p.waitForTimeout(400); await p.mouse.click(5, 5); await p.waitForTimeout(400); checked++;
     if (await sc()) bad(w('clicking outside did not close the shortcuts list'));
+
+    // forensics surfaces
+    await p.evaluate(() => window.__plexusStore.getState().setView('identities')); await p.waitForTimeout(1000); await run(p, w('identities'));
+    const accts = (await S()).nodes.filter((n) => n.type === 'account' && n.attrs && n.attrs.platform && n.attrs.createdAt);
+    if (accts.length >= 2) {
+      await p.evaluate(([a, b]) => window.__plexusStore.getState().setMatchLab({ a, b }), [accts[0].id, accts[1].id]); await p.waitForTimeout(1100); await run(p, w('match lab'));
+      await click(p.getByRole('button', { name: 'Close Match Lab' })); checked++; if (await p.locator('.matchlab').count()) bad(w('Close Match Lab button did not close it'));
+      await p.evaluate(([a, b]) => window.__plexusStore.getState().setMatchLab({ a, b }), [accts[0].id, accts[1].id]); await p.waitForTimeout(900); await p.keyboard.press('Escape'); await p.waitForTimeout(500); checked++; if (await p.locator('.matchlab').count()) bad(w('Esc did not close Match Lab'));
+      await p.evaluate(([a, b]) => window.__plexusStore.getState().setMatchLab({ a, b }), [accts[0].id, accts[1].id]); await p.waitForTimeout(900); await p.mouse.click(5, 5); await p.waitForTimeout(500); checked++; if (await p.locator('.matchlab').count()) bad(w('clicking outside did not close Match Lab'));
+    }
+    await p.evaluate(() => window.__plexusStore.getState().setDecode(true)); await p.waitForTimeout(600); await run(p, w('decode'));
+    await click(p.getByRole('button', { name: 'Close decoder' })); checked++; if (await p.locator('.decode').count()) bad(w('Close decoder button did not close it'));
+    await p.evaluate(() => window.__plexusStore.getState().setDecode(true)); await p.waitForTimeout(500); await p.keyboard.press('Escape'); await p.waitForTimeout(500); checked++; if (await p.locator('.decode').count()) bad(w('Esc did not close Decode'));
+    await p.evaluate(() => window.__plexusStore.getState().setView('graph')); await p.waitForTimeout(400);
 
     // findings sheet: every tab, triage, close
     const email = (await S()).nodes.find((n) => n.type === 'email');

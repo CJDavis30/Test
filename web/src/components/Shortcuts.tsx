@@ -5,9 +5,9 @@ import { useStore } from '../lib/store';
 import { Kbd, MOD, useDialog } from './ui';
 
 const GROUPS: { title: string; rows: [string[], string][] }[] = [
-  { title: 'Anywhere', rows: [[[`${MOD}K`], 'Search, add or run a command'], [[`${MOD},`], 'Settings'], [[`${MOD}B`], 'Show or hide the sidebar'], [[`${MOD}I`], 'Show or hide the inspector'], [[`${MOD}1`, '–', '4'], 'Graph, Table, Timeline, Report'], [[`${MOD}Z`], 'Undo'], [['?'], 'This list']] },
+  { title: 'Anywhere', rows: [[[`${MOD}K`], 'Search, add or run a command'], [[`${MOD},`], 'Settings'], [[`${MOD}B`], 'Show or hide the sidebar'], [[`${MOD}I`], 'Show or hide the inspector'], [[`${MOD}1`, '–', '5'], 'Graph, Table, Timeline, Identities, Report'], [[`${MOD}Z`], 'Undo'], [['?'], 'This list']] },
   { title: 'Reviewing findings', rows: [[['↑', '↓'], 'Move through the list'], [['A'], 'Accept'], [['R'], 'Reject'], [['U'], 'Not sure, decide later'], [['↵'], 'Open details (narrow windows)'], [['T'], 'One finding at a time'], [[`${MOD}↵`], 'Add accepted findings to the graph'], [['Esc'], 'Back, then close']] },
-  { title: 'Graph', rows: [[['Click'], 'Select'], [['Shift', 'Click'], 'Add to selection'], [['Drag'], 'Move and pin a node'], [['↵'], 'Open findings'], [['R'], 'Run checks again'], [['F'], 'Focus on the selection'], [['P'], 'Trace the strongest path between two'], [['L'], 'Link two nodes'], [['M'], 'Merge two nodes'], [['⌫'], 'Remove (undoable)'], [['0'], 'Fit to window']] },
+  { title: 'Graph', rows: [[['Click'], 'Select'], [['Shift', 'Click'], 'Add to selection'], [['Drag'], 'Move and pin a node'], [['↵'], 'Open findings'], [['R'], 'Run checks again'], [['F'], 'Focus on the selection'], [['P'], 'Trace the strongest path between two'], [['L'], 'Link two nodes'], [['C'], 'Compare two accounts (Match Lab)'], [['M'], 'Merge two nodes'], [['⌫'], 'Remove (undoable)'], [['0'], 'Fit to window']] },
 ];
 
 /** Every shortcut in one place. Open with ? */

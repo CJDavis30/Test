@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, FlaskConical, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard,
+  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, FlaskConical, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard, Users, ScanSearch, Scale, Rocket,
 } from 'lucide-react';
 import { detect, detectMany } from '@shared/detect';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { pickAndImport } from '../lib/portable';
+import { startAutopilot } from '../lib/autopilot';
 import { EntityGlyph } from '../lib/icons';
 import { Kbd, MOD, download, useDialog } from './ui';
 
@@ -71,6 +72,10 @@ export function Palette() {
         id: 'lookup', group: 'Investigate', label: one.value, sub: `Look up this ${ENTITY_LABEL[one.type].toLowerCase()}`, icon: <EntityGlyph type={one.type} size={15} />,
         run: (alt) => s.submit([{ type: one.type, value: one.value }], { run: !alt }),
       });
+      out.push({
+        id: 'autopilot', group: 'Investigate', label: `Autopilot: ${one.value}`, sub: 'Follow the strongest leads on its own and build the graph live', icon: <Rocket size={15} />, keywords: 'auto build everything',
+        run: () => { void startAutopilot({ type: one.type, value: one.value }); },
+      });
     }
     if (t && multi.length <= 1) {
       const needle = t.toLowerCase();
@@ -82,6 +87,7 @@ export function Palette() {
       { id: 'v-graph', group: 'Go to', label: 'Graph', icon: <Network size={15} />, run: () => s.setView('graph') },
       { id: 'v-table', group: 'Go to', label: 'Table', icon: <Table2 size={15} />, run: () => s.setView('table') },
       { id: 'v-timeline', group: 'Go to', label: 'Timeline', icon: <Clock size={15} />, run: () => s.setView('timeline') },
+      { id: 'v-identities', group: 'Go to', label: 'Identities', sub: 'Who is who in this case', icon: <Users size={15} />, run: () => s.setView('identities') },
       { id: 'v-report', group: 'Go to', label: 'Report', icon: <FileText size={15} />, run: () => s.setView('report') },
       { id: 'new', group: 'Case', label: 'New case', icon: <Plus size={15} />, run: () => void s.newCase() },
       { id: 'export', group: 'Case', label: 'Export case as JSON', sub: 'Includes evidence and audit log', icon: <Download size={15} />, keywords: 'download backup', run: async () => {
@@ -106,6 +112,8 @@ export function Palette() {
       { id: 'th-l', group: 'Appearance', label: 'Light mode', icon: <Sun size={15} />, run: () => s.setTheme('light') },
       { id: 'th-d', group: 'Appearance', label: 'Dark mode', icon: <Moon size={15} />, run: () => s.setTheme('dark') },
       { id: 'th-a', group: 'Appearance', label: 'Match system appearance', icon: <Monitor size={15} />, run: () => s.setTheme('auto') },
+      { id: 'decode', group: 'Forensics', label: 'Decode IDs, links and timestamps…', sub: 'Paste a chat log or a pile of links', icon: <ScanSearch size={15} />, keywords: 'discord roblox snowflake timezone activity paste forensics', run: () => s.setDecode(true) },
+      ...(s.selection.length === 2 && s.selection.every((id) => ['account', 'username'].includes(nodes.find((n) => n.id === id)?.type ?? '')) ? [{ id: 'compare', group: 'Forensics', label: 'Compare the two selected accounts', sub: 'Match Lab: same operator?', icon: <Scale size={15} />, run: () => s.setMatchLab({ a: s.selection[0], b: s.selection[1] }) } as Item] : []),
       { id: 'keys', group: 'Help', label: 'Keyboard shortcuts', sub: 'Press ? anywhere', icon: <Keyboard size={15} />, keywords: 'help hotkeys', run: () => s.setShortcuts(true) },
       { id: 's-src', group: 'Settings', label: 'Sources & API keys', icon: <KeyRound size={15} />, run: () => s.openSettings('sources') },
       { id: 's-ai', group: 'Settings', label: 'AI model', icon: <Cpu size={15} />, run: () => s.openSettings('ai') },

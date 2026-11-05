@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check, Orbit, Shuffle, Wand2 } from 'lucide-react';
+import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check, Orbit, Shuffle, Wand2, Rocket } from 'lucide-react';
+import { startAutopilot } from '../lib/autopilot';
 import { LEVEL_LABEL } from '@shared/types';
 import { ENTITY_LABEL } from '@shared/types';
 import { useStore } from '../lib/store';
@@ -97,6 +98,7 @@ export function GraphView() {
       else if (e.key === 'Escape') { st.setPath(null); setFocusMode(false); st.select([], false); st.selectEdge(null); setMenu(null); }
       else if ((e.key === 'Enter' || e.key === 'r') && sel.length === 1) { e.preventDefault(); void (e.key === 'r' ? st.runNode(sel[0]) : st.openNode(sel[0])); }
       else if (e.key === 'l' && sel.length === 2) { void st.addEdge(sel[0], sel[1]); }
+      else if (e.key === 'c' && sel.length === 2 && sel.every((id) => ['account', 'username'].includes(st.snap?.nodes.find((n) => n.id === id)?.type ?? ''))) { st.setMatchLab({ a: sel[0], b: sel[1] }); }
       else if (e.key === 'm' && sel.length === 2) { void st.mergeNodes(sel[0], sel[1]); }
       else if (e.key === 'a' && !e.shiftKey) { /* reserved */ }
     };
@@ -208,6 +210,7 @@ function NodeMenu({ menu, onClose, eng }: { menu: { id: string | null; x: number
     <Popover onClose={onClose} className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
       <button className="item" onClick={run(() => void s.openNode(n.id))}><FolderOpen size={14} /> Open findings</button>
       <button className="item" onClick={run(() => void s.runNode(n.id))}><Play size={14} /> Run checks again</button>
+      <button className="item" onClick={run(() => void startAutopilot({ nodeId: n.id }))}><Rocket size={14} /> Autopilot from here</button>
       <div className="sep" />
       {others.length === 1 && <>
         <button className="item" onClick={run(() => s.setPath([menu.id!, others[0]]))}><Route size={14} /> Trace path to selected</button>

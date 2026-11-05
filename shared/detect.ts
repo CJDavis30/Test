@@ -1,6 +1,10 @@
 import { parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js/min';
 import type { Detected, EntityType } from './types';
 import { displayFor, normalizeDomain } from './normalize';
+import { findPlatformRefs } from './forensics/ids';
+
+/** Platforms where a link or ID names an account that is worth looking up as an account. */
+const ACCOUNT_PLATFORMS = new Set(['Discord', 'Roblox', 'Steam', 'Telegram', 'TikTok', 'Twitch']);
 
 const TLDS = new Set(
   ('com net org io co ai app dev edu gov mil int info biz me us uk de fr es it nl se no dk fi pl ru ua cz at ch be ie pt gr ro hu ' +
@@ -46,6 +50,15 @@ export function detect(input: string, region: CountryCode = 'US'): Detected | nu
   if (RE.email.test(raw)) {
     alts.push({ type: 'username', value: raw.split('@')[0] });
     return done('email', raw, 0.99);
+  }
+  // Gaming and chat platforms: a profile link or a bare Discord/Steam ID is an account, not a generic page or a username.
+  if (/^(https?:\/\/|www\.)?\S+$/i.test(raw) || /^\d{17,20}$/.test(raw)) {
+    const refs = findPlatformRefs(raw).filter((r) => ACCOUNT_PLATFORMS.has(r.platform) && (r.kind === 'user' || r.kind === 'handle') && !r.url.startsWith('discord:'));
+    if (refs.length === 1 && refs[0].raw.length >= raw.replace(/^(https?:\/\/)?(www\.)?/i, '').replace(/[/?#].*$/, (m) => (m.length > 1 ? m : '')).length * 0.85) {
+      const r = refs[0];
+      alts.push({ type: 'username', value: r.kind === 'handle' ? r.id : r.id });
+      return done('account', r.url, /^\d+$/.test(raw) ? 0.8 : 0.95);
+    }
   }
   if (RE.eth.test(raw)) return done('wallet', raw, 0.97);
   if (RE.ipv4.test(raw) || (RE.ipv6.test(raw) && raw.includes(':'))) return done('ip', raw, 0.98);

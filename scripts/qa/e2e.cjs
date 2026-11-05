@@ -1,4 +1,4 @@
-// End-to-end browser QA (130+ checks). Needs `npm i -D playwright` and a server running in demo mode with fast demo sources:
+// End-to-end browser QA (150+ checks). Needs `npm i -D playwright` and a server running in demo mode with fast demo sources:
 //   PLEXUS_HOME=$(mktemp -d) PLEXUS_PORT=4317 PLEXUS_DEMO_FAST=1 node dist/server/index.mjs &
 //   curl -X PUT localhost:4317/api/settings -H 'x-plexus: 1' -H 'content-type: application/json' -d '{"demoMode":true}'
 //   node scripts/qa/e2e.cjs      (env OUT=<dir> for failure screenshots)
@@ -336,7 +336,7 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     await p.keyboard.press('Control+3'); await settle(600);
     ok(await p.locator('.tl-item, .emptystate').count() >= 1, 'timeline renders');
     if (await p.locator('.tl-item').count()) { await p.locator('.tl-item').first().click(); await settle(700); ok((await S()).view === 'graph' || !!(await S()).sheet, 'timeline item navigates'); await p.keyboard.press('Escape'); await settle(500); }
-    await p.keyboard.press('Control+4'); await settle(900);
+    await p.keyboard.press('Control+5'); await settle(900);
     ok(await p.locator('.doc h1').count() === 1, 'report renders');
     const txt = await p.locator('.doc').innerText();
     await p.getByRole('button', { name: /Redact values/ }).click(); await settle(900);
@@ -430,6 +430,65 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     const imported = (await S()).caseId;
     await p.evaluate((id) => window.__plexusStore.getState().loadCase(id), cid); await settle(800);
     await api('DELETE', `/api/cases/${imported}`); await p.evaluate(() => window.__plexusStore.getState().refreshCases()); await settle(300);
+  });
+
+  await section('forensics: Autopilot, Identities, Match Lab, Decode, Activity clock', async () => {
+    // Autopilot from the palette on a fresh case
+    const cid0 = (await S()).caseId;
+    await p.evaluate(() => window.__plexusStore.getState().newCase('Forensics QA'));
+    await settle(700);
+    const fcase = (await S()).caseId;
+    await p.keyboard.press('Control+k'); await settle(300); await p.keyboard.type('maralinden'); await settle(500);
+    await p.locator('.pitem', { hasText: 'Autopilot: maralinden' }).click();
+    await p.waitForSelector('.aphud', { timeout: 8000 });
+    ok(await p.locator('.aphud').getByRole('button', { name: /Stop/ }).count() === 1, 'Autopilot shows a live panel with a Stop button');
+    await p.waitForFunction(() => window.__plexusStore.getState().autopilot?.status !== 'running', null, { timeout: 90000 });
+    await settle(800);
+    const ap = await p.evaluate(() => window.__plexusStore.getState().autopilot);
+    ok(ap.status === 'done' && ap.summary.subjects >= 2 && ap.summary.accepted > 3, `Autopilot finished and built the graph (${ap.summary?.subjects} lookups, ${ap.summary?.accepted} accepted)`);
+    ok(await p.locator('.aphud').innerText().then((t) => /several independent sources/.test(t)), 'it explains what it did and did not accept');
+    ok((await S()).findings.some((f) => f.status === 'pending'), 'it left the doubtful findings for review');
+    await p.locator('.aphud').getByRole('button', { name: 'Dismiss Autopilot' }).click();
+    await p.waitForSelector('.aphud', { state: 'detached', timeout: 3000 }).catch(() => {}); await settle(200);
+    ok(await p.locator('.aphud').count() === 0, 'Dismiss closes the Autopilot panel');
+    // Earlier sections taught the engine to trust these sources less (by design), so state the accounts explicitly to keep this check deterministic.
+    const accts = (await api('GET', `/api/cases/${fcase}/findings`)).findings.filter((f) => f.type === 'account' && f.status === 'pending' && /roblox|discord/i.test(f.value) && !/\/users\/1246285629751427076/.test(f.value));
+    await api('POST', '/api/findings/review', { ids: accts.map((f) => f.id), status: 'accepted' }); await api('POST', `/api/cases/${fcase}/commit`, {});
+    await p.evaluate((id) => window.__plexusStore.getState().loadCase(id), fcase); await settle(800);
+
+    // Identities and Match Lab
+    await p.keyboard.press('Control+4'); await settle(1200);
+    ok(await p.locator('.idn-card').count() >= 1, 'Identities groups the Roblox and Discord accounts into one operator');
+    ok(/Roblox/.test(await p.locator('.idn-card').first().innerText()) && /Discord/.test(await p.locator('.idn-card').first().innerText()), 'the card names both platforms');
+    await p.locator('.idn-card').getByRole('button', { name: /Why/ }).first().click(); await settle(1200);
+    ok(await p.locator('.matchlab').count() === 1, 'Why opens the Match Lab');
+    const lab = await p.locator('.matchlab').innerText();
+    ok(/Created at about the same time/.test(lab) && /Handle/.test(lab) && /Active hours/.test(lab) && /bits/.test(lab), 'the Match Lab shows every signal in bits');
+    ok(/99\./.test(lab) || />99\.99%/.test(lab), 'and a probability');
+    const before = await p.locator('.ml-big').innerText();
+    await p.locator('#prior').fill('6'); await settle(300);
+    ok((await p.locator('.ml-big').innerText()) !== before, 'moving the prior slider changes the answer live');
+    const closeLab = p.getByRole('button', { name: 'Close Match Lab' }); await closeLab.click(); await settle(400);
+    ok(await p.locator('.matchlab').count() === 0, 'Match Lab closes');
+
+    // Decode
+    await p.keyboard.press('Control+k'); await settle(300); await p.keyboard.type('decode ids'); await settle(300);
+    await p.locator('.pitem', { hasText: 'Decode IDs, links and timestamps' }).click(); await settle(500);
+    await p.fill('textarea[aria-label="Text to decode"]', 'https://discord.com/channels/111111111111111111/222222222222222222/175928847299117063 https://www.roblox.com/users/3148802991/profile https://steamcommunity.com/profiles/76561197960287930'); await settle(900);
+    const dec = await p.locator('.decode').innerText();
+    ok(/2016-04-30 11:18:25 UTC/.test(dec), 'Decode reads the exact send time from a Discord message link');
+    ok(/Individual account/.test(dec) && /Roblox user 3148802991/.test(dec), 'and decodes Steam and Roblox references');
+    await p.getByRole('button', { name: 'Close decoder' }).click(); await settle(400);
+    ok(await p.locator('.decode').count() === 0, 'Decode closes');
+
+    // Activity clock in the inspector
+    await p.evaluate(() => { const s = window.__plexusStore.getState(); s.setView('graph'); s.toggle('inspector', true); const n = s.snap.nodes.find((x) => x.attrs?.platform === 'Roblox'); s.select([n.id]); });
+    await settle(800);
+    await p.locator('.inspector [role=tab]', { hasText: 'Activity' }).click(); await settle(700);
+    ok(await p.locator('.aclock svg').count() === 1 && /UTC−6/.test(await p.locator('.aclock').innerText()), 'the Activity tab draws the clock and leans UTC−6');
+    await p.evaluate(() => window.__plexusStore.getState().toggle('inspector', false));
+    await p.evaluate((id) => window.__plexusStore.getState().loadCase(id), cid0); await settle(800);
+    await api('DELETE', `/api/cases/${fcase}`); await p.evaluate(() => window.__plexusStore.getState().refreshCases()); await settle(300);
   });
 
   await section('appearance + chrome toggles', async () => {

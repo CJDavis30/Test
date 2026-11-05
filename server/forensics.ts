@@ -24,8 +24,11 @@ export function profilesFor(store: Store, caseId: string): { profiles: Profile[]
   const edges = store.listEdges(caseId);
   const neighbours = (id: string) => edges.filter((e) => e.from === id || e.to === id).map((e) => byId.get(e.from === id ? e.to : e.from)).filter(Boolean) as GraphNode[];
   const profiles: Profile[] = []; const circ = new Map<string, Circadian>();
+  // A bare username is only the handle itself. Once an account with that handle is on the case, the account is the thing to compare.
+  const accountHandles = new Set(nodes.filter((n) => n.type === 'account' && typeof n.attrs?.handle === 'string').map((n) => String(n.attrs.handle).toLowerCase().replace(/^@/, '')));
   for (const n of nodes) {
     if (n.type !== 'account' && n.type !== 'username') continue;
+    if (n.type === 'username' && accountHandles.has(n.value.toLowerCase().replace(/^@/, ''))) continue;
     const ref = n.type === 'account' ? findPlatformRefs(n.value).find((r) => r.kind !== 'post' && r.kind !== 'message') : undefined;
     const platform = (typeof n.attrs?.platform === 'string' && n.attrs.platform) || ref?.platform;
     let handle = (typeof n.attrs?.handle === 'string' && n.attrs.handle) || (ref && ref.kind === 'handle' ? ref.id : undefined) || (n.type === 'username' ? n.value.replace(/^@/, '') : undefined);

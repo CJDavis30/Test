@@ -160,6 +160,9 @@ export function labelFor(type: EntityType, value: string, attrs?: Record<string,
   switch (type) {
     case 'account': {
       const plat = typeof attrs?.platform === 'string' ? (attrs.platform as string) : '';
+      // a source that knows the account's real handle beats guessing it from the URL (IDs and "/profile" are not names)
+      const handle = typeof attrs?.handle === 'string' ? attrs.handle.replace(/^@/, '') : '';
+      if (handle && plat) return `${plat} · ${handle}`;
       try {
         const u = new URL(v);
         const seg = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() ?? u.searchParams.get('id') ?? '').replace(/^@/, '');

@@ -291,3 +291,23 @@
 .st-bar .after { background: var(--text); }
 .st-val { text-align: right; font-weight: 600; }
 .stress .st-up { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); }
+
+/* ---------- activity clock ---------- */
+.aclock { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.aclock svg { flex: none; }
+.ac-ring { fill: var(--surface-2); stroke: var(--line); }
+.ac-night { fill: color-mix(in srgb, var(--text) 9%, transparent); }
+.ac-bar { stroke: var(--text); }
+.ac-sleep { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1 5; }
+.ac-lab { font: 600 10px var(--font); fill: var(--text-3); }
+.ac-mid { font: 700 17px var(--font-display); fill: var(--text); letter-spacing: -.02em; }
+.ac-sub { font: 500 11px var(--font); fill: var(--text-2); }
+.ac-side { flex: 1; min-width: 190px; }
+.ac-sum { font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
+.ac-offs { display: flex; flex-direction: column; gap: 4px; }
+.ac-off { display: grid; grid-template-columns: 54px minmax(0, 1fr) 70px 34px; gap: 8px; align-items: center; font-size: 12px; }
+.ac-reg { color: var(--text-2); }
+.ac-bar2 { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.ac-bar2 i { display: block; height: 100%; background: var(--text); border-radius: 3px; }
+.ac-p { text-align: right; font-weight: 600; }
+.ac-foot { margin-top: 8px; font-size: 11.5px; color: var(--text-3); line-height: 1.4; }

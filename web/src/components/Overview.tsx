@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, Check, Sparkles, TriangleAlert, X } from 'lucide-react';
+import { ChevronRight, Check, Rocket, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { ENTITY_LABEL, type EntityType, type Finding } from '@shared/types';
 import { initials, safeImageSrc } from '@shared/normalize';
 import { explainRelation } from '@shared/explain';
@@ -7,6 +7,7 @@ import { useStore, type RunState } from '../lib/store';
 import { EntityGlyph } from '../lib/icons';
 import { TYPE_ORDER, displayValue, plural } from '../lib/format';
 import { Dots } from './ui';
+import { startAutopilot } from '../lib/autopilot';
 
 const CONTEXT_IDEAS = ['Employer', 'Other accounts', 'Location', 'Associates'];
 
@@ -71,6 +72,7 @@ export function Overview({ node, run, findings, subjectId, onOpen, onStart, pend
         <button className="btn primary lg" onClick={onStart} disabled={pendingCount === 0}>
           {pendingCount > 0 ? <>Review {pendingCount} {pendingCount === 1 ? 'finding' : 'findings'} <ChevronRight size={15} /></> : run?.status === 'running' ? 'Waiting for results…' : 'Nothing left to review'}
         </button>
+        <button className="btn lg" onClick={() => void startAutopilot({ nodeId: subjectId })} title="Follow the strongest leads on its own and build the graph while you watch"><Rocket size={15} /> Autopilot from here</button>
         <ContextBar subjectId={subjectId} run={run} />
       </div>
 

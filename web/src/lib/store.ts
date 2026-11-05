@@ -9,7 +9,7 @@ import { api, streamRun } from './api';
 import type { ApState } from './autopilot';
 import type { Stress } from '@shared/stress';
 
-export type View = 'graph' | 'table' | 'timeline' | 'report';
+export type View = 'graph' | 'table' | 'timeline' | 'identities' | 'report';
 export type SheetTab = 'overview' | 'review' | 'accepted' | 'rejected';
 export type SettingsTab = 'general' | 'sources' | 'ai' | 'audit';
 
@@ -58,6 +58,8 @@ interface State {
   settingsOpen: SettingsTab | null;
   shortcuts: boolean;
   autopilot: ApState | null;
+  matchLab: { a: string; b: string } | null;
+  decode: boolean;
   stress: Record<string, Stress>;
   deps: SourceDependency[];
   theme: 'auto' | 'light' | 'dark';
@@ -102,6 +104,8 @@ interface Actions {
   openPalette(seed?: string): void;
   openSettings(t: SettingsTab | null): void;
   setShortcuts(v: boolean): void;
+  setMatchLab(v: { a: string; b: string } | null): void;
+  setDecode(v: boolean): void;
   setTheme(t: State['theme']): void;
   toast(text: string, action?: Toast['action']): void;
   dismissToast(id: number): void;
@@ -118,7 +122,7 @@ const closers = new Map<string, () => void>();
 
 export const useStore = create<State & Actions>((set, get) => ({
   booted: false, cases: [], caseId: null, snap: null, findings: {}, runs: {}, suggestions: [], settings: null, sources: [],
-  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false, autopilot: null, stress: {}, deps: [],
+  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false, autopilot: null, matchLab: null, decode: false, stress: {}, deps: [],
   theme: (localStorage.getItem('plexus.theme') as State['theme']) || 'auto', toasts: [], undoStack: [], focusNodeId: null, pathFor: null,
 
   /** What each conclusion survives if one source is wrong. Debounced: decisions and runs both ask for it. */
@@ -346,6 +350,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   openPalette(seed = '') { set({ palette: true, paletteSeed: seed }); },
   openSettings(t) { set({ settingsOpen: t }); },
   setShortcuts(v) { set({ shortcuts: v }); },
+  setMatchLab(v) { set({ matchLab: v }); },
+  setDecode(v) { set({ decode: v }); },
   setTheme(theme) {
     set({ theme });
     try { localStorage.setItem('plexus.theme', theme); } catch { /* storage may be unavailable */ }

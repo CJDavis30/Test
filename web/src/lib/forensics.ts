@@ -1,0 +1,16 @@
+import type { Circadian } from '@shared/forensics/circadian';
+import type { PlatformRef } from '@shared/forensics/ids';
+import type { Match, Profile, Resolution } from '@shared/forensics/linker';
+
+export type { Circadian, PlatformRef, Match, Profile, Resolution };
+export interface MatchResponse { match: Match; a: Profile; b: Profile }
+export type IdentitiesResponse = Resolution & { profiles: number };
+export interface ScanResponse { refs: PlatformRef[]; timestamps: number; circadian: Circadian | null }
+
+export const fmtWhen = (ms?: number, precision: 'second' | 'day' = 'second') => {
+  if (ms === undefined) return 'unknown';
+  const d = new Date(ms);
+  return precision === 'day' ? d.toISOString().slice(0, 10) : d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+};
+export const pctText = (p: number) => (p >= 0.9999 ? '>99.99%' : p <= 0.0001 ? '<0.01%' : `${(p * 100).toFixed(p > 0.995 || p < 0.005 ? 2 : 1)}%`);
+export const signed = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(1)}`;

@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { ArrowRight, FlaskConical, Upload } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
+import { startAutopilot } from '../lib/autopilot';
 import { useDetected, TypeChip } from './Palette';
 import { Check, Kbd, MOD, useDialog } from './ui';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
@@ -29,13 +30,15 @@ export function Welcome() {
         <div className="hero-input">
           <input ref={ref} value={v} onChange={(e) => setV(e.target.value)} placeholder="jane@example.com" spellCheck={false} aria-label="Start an investigation"
             onKeyDown={(e) => {
-              if (e.key === 'Enter') go();
+              if (e.key === 'Enter' && e.shiftKey && one) { void startAutopilot({ type: one.type, value: one.value }); setV(''); }
+              else if (e.key === 'Enter') go();
               if (e.key === 'Tab' && one && cycle.length > 1) { e.preventDefault(); setOverride(cycle[(cycle.indexOf(override ?? one.type) + 1) % cycle.length]); }
             }}
             onPaste={(e) => { const t = e.clipboardData.getData('text'); if (t.trim().includes('\n')) { e.preventDefault(); s.openPalette(t); } }} />
           {one && v.trim() && <TypeChip type={one.type} alts={cycle.length > 1 ? cycle.length : 0} onCycle={() => setOverride(cycle[(cycle.indexOf(override ?? one.type) + 1) % cycle.length])} />}
           <button className="btn primary icon" style={{ width: 38, height: 38, borderRadius: 11 }} onClick={go} disabled={!one} aria-label="Look up"><ArrowRight size={18} /></button>
         </div>
+        {one && v.trim() && <div className="hero-hint"><b>↵</b> look it up · <b>⇧↵</b> Autopilot: follow the strongest leads on its own and build the graph while you watch</div>}
         <div className="examples">
           {examples.map((e) => (
             <button key={e.v} className="example" onClick={() => void s.submit([{ type: e.t, value: e.v }])}><EntityGlyph type={e.t} size={13} /> {e.v}</button>
