@@ -6,7 +6,8 @@ A local-first investigation workbench. Enter one fact (an email, username, domai
 
 |  |  |
 |---|---|
-| ![Findings](docs/screenshots/sheet.png) | ![Triage](docs/screenshots/triage.png) |
+| ![Overview](docs/screenshots/overview.png) | ![Review](docs/screenshots/sheet.png) |
+| ![Narrow window](docs/screenshots/narrow.png) | ![Triage](docs/screenshots/triage.png) |
 
 Everything stays on your machine: cases and findings in SQLite, API keys in a private file, and a per-case audit log of every lookup and export.
 
@@ -58,7 +59,7 @@ input ─► detect type ─► run sources (fallback chains) ─► merge by ca
 2. **Query sources.** Sources that answer the same question form a **fallback chain**: they are tried in priority order and the next one runs if the previous fails, returns nothing, or is rate-limited. Sources that return different data (e.g. username checks) all run. Results stream in as each source answers.
 3. **Merge.** Claims from different sources about the same thing collapse into one finding by canonical key (`Jane.Doe+x@gmail.com` = `janedoe@gmail.com`, `Doe, Jane` = `Jane Doe`, tracking params stripped). Rejected findings are never resurrected by a re-run.
 4. **Score.** See below.
-5. **Review.** A brief at the top, a ranked list below, keyboard-first. Accepted findings become nodes and evidenced edges.
+5. **Review.** Four tabs: **Overview** (a two-line summary, the overall confidence, a map of how everything connects, and what to dig into next), **To review** (a ranked list with a details panel beside it), **Accepted** and **Rejected**. In the details panel the confidence and how it was reached sit at the top, then the chain *what you searched → how it relates → what was found*, then one compact row per source that opens to show exactly what was asked, what came back, the record's fields and a link to check it yourself. Accept / Reject / Not sure stay pinned at the bottom. In a narrow window the details slide over the list (with Back and ‹ › buttons) and the sidebar becomes a drawer, so nothing ever disappears. Accepted findings become nodes and evidenced edges.
 6. **Connect.** The graph uses an **organized layout** by default (see below). Deterministic link suggestions (same handle as an email, profile URL ↔ username, name variants → "possibly the same", people sharing an employer, subdomain families), shortest strongest-evidence path between any two nodes, optional AI hypotheses.
 
 ### The graph layout
@@ -105,7 +106,7 @@ The model is **never a source of facts**. It reads scored, numbered findings and
 | | |
 |---|---|
 | `⌘K` | Search / add anything · paste a list · run commands |
-| Findings sheet | `↑↓` move · `A` accept · `R` reject · `U` unsure · `Space` evidence · `T` triage · `⌘Z` undo · `⌘↵` add to graph |
+| Findings sheet | `↑↓` move · `A` accept · `R` reject · `U` unsure · `↵`/`Space` open details (narrow windows) · `T` one-by-one · `Esc` back · `⌘Z` undo · `⌘↵` add to graph |
 | Graph | click · shift-click · drag-box · drag to pin · `↵` open · `R` run checks · `F` focus · `P` trace path · `L` link · `M` merge · `⌫` remove (undoable) · `0` fit |
 | Anywhere | `⌘,` settings · `⌘B` sidebar · `⌘I` inspector · `⌘1–4` views · drop a file to extract entities · paste to start |
 
@@ -174,7 +175,7 @@ Built and tested in a sandbox whose network allowed **only the npm registry**. T
 **Verified here**
 - 159 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
-- The UI in a real browser (Chromium): every view in light and dark; **96 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score card = stored score, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
+- The UI in a real browser (Chromium): every view in light and dark; **110+ end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
 - The production server bundle runs standalone and serves the app; `npm run dev` works including streaming through the proxy.
 - Behaviour when **every** source fails (this sandbox's reality): honest per-source errors, a "couldn't reach most sources" state, and no fake "nothing found".

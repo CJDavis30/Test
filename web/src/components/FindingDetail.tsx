@@ -1,4 +1,5 @@
-import { ArrowDown, Check, CircleHelp, CircleCheck, CircleX, ExternalLink, Minus, TriangleAlert, X } from 'lucide-react';
+import { useState } from 'react';
+import { Check, ChevronDown, ChevronRight, CircleCheck, CircleHelp, CircleX, ExternalLink, Minus, TriangleAlert, X } from 'lucide-react';
 import { ENTITY_LABEL, type EntityType, type Evidence, type Finding, type GraphEdge, type GraphNode } from '@shared/types';
 import { confidenceSentence, evidenceStrength, explainRelation, hedge, warningsFor } from '@shared/explain';
 import { safeHttpUrl } from '@shared/normalize';
@@ -10,6 +11,7 @@ import { Dots, Kbd } from './ui';
 export interface Subject { type: EntityType; label: string }
 
 const initialOf = (n: string) => n.trim()[0]?.toUpperCase() ?? '?';
+const nice = (r: string) => r.replace(/[-_]/g, ' ');
 
 /** The chain of lookups that led to this one: start → … → the thing you looked up. Follows accepted findings back up the graph. */
 function lineage(subjectId: string, nodes: GraphNode[], edges: GraphEdge[]): { node: GraphNode; via?: string }[] {
@@ -26,164 +28,190 @@ function lineage(subjectId: string, nodes: GraphNode[], edges: GraphEdge[]): { n
   return chain;
 }
 
-/** What you entered → (how it led here) → what was found. A few chips, readable at a glance. */
+/** What you entered → (how it led here) → what was found, left to right. Wraps on narrow screens. */
 export function ConnectionPath({ subject, f, subjectId }: { subject: Subject; f: Finding; subjectId?: string }) {
   const snap = useStore((s) => s.snap);
   const chain = subjectId && snap ? lineage(subjectId, snap.nodes, snap.edges) : [];
-  const steps = chain.length > 1 ? chain : [{ node: { type: subject.type, label: subject.label } as GraphNode, via: undefined }];
+  const steps = chain.length > 1 ? chain : [{ node: { type: subject.type, label: subject.label } as GraphNode, via: undefined as string | undefined }];
   return (
-    <div className="cpath" role="group" aria-label="Connection">
+    <div className="chain" role="group" aria-label="Connection">
       {steps.map((st, i) => (
-        <div key={i} className="cstep">
-          {i > 0 && <Link label={steps[i].via ?? 'led to'} />}
-          <div className="crow">
-            <span className="ctag">{i === 0 && steps.length > 1 ? 'Started from' : i === steps.length - 1 ? 'You searched' : 'Then'}</span>
-            <span className="cnode" title={st.node.label}><EntityGlyph type={st.node.type} size={14} /><span className="truncate">{st.node.label}</span></span>
-          </div>
-        </div>
+        <span key={i} className="chain-part">
+          {i > 0 && <Hop label={steps[i].via ?? 'led to'} />}
+          <span className="cnode" title={st.node.label}>
+            <small>{i === 0 && steps.length > 1 ? 'Started from' : i === steps.length - 1 ? 'You searched' : 'Then'}</small>
+            <span className="cv"><EntityGlyph type={st.node.type} size={13} /><span className="truncate">{st.node.label}</span></span>
+          </span>
+        </span>
       ))}
-      <div className="cstep">
-        <Link label={f.relation} />
-        <div className="crow"><span className="ctag">Found</span><span className="cnode found" title={f.value}><EntityGlyph type={f.type} size={14} /><span className="truncate">{displayValue(f)}</span></span></div>
-      </div>
+      <span className="chain-part">
+        <Hop label={nice(f.relation)} />
+        <span className="cnode found" title={f.value}>
+          <small>Found</small>
+          <span className="cv"><EntityGlyph type={f.type} size={13} /><span className="truncate">{displayValue(f)}</span></span>
+        </span>
+      </span>
     </div>
   );
 }
-const Link = ({ label }: { label: string }) => <div className="clink"><span className="cline" /><span className="clabel">{label}</span><ArrowDown size={12} /></div>;
+const Hop = ({ label }: { label: string }) => <span className="hop"><span className="hop-l">{label}</span><span className="hop-line" /></span>;
 
-/** Evidence in two groups: what sources returned directly, and what other sources said when we cross-checked it. */
-export function SourceCards({ f }: { f: Finding }) {
+const OFFLINE = new Set(['derive', 'phone-offline']);
+type SourceInfo = { description: string; trust: number; decisions: number; homepage?: string; demo?: boolean };
+
+/** Evidence in two groups, each source a compact row that opens to show exactly what was asked and what came back. */
+export function SourceCards({ f, defaultOpen = 'first' }: { f: Finding; defaultOpen?: 'first' | 'none' | 'all' }) {
   const sources = useStore((s) => s.sources);
   const byWeight = (a: Evidence, b: Evidence) => b.weight - a.weight;
   const direct = f.evidence.filter((e) => e.kind !== 'cross').sort(byWeight);
   const cross = f.evidence.filter((e) => e.kind === 'cross').sort((a, b) => Number(b.polarity !== 'against') - Number(a.polarity !== 'against') || byWeight(a, b));
   const ok = cross.filter((e) => e.polarity !== 'against').length, bad = cross.length - ok;
+  const ordered = [...direct, ...cross];
+  const [open, setOpen] = useState<Set<string>>(() => new Set(defaultOpen === 'all' ? ordered.map((e) => e.id) : defaultOpen === 'first' && ordered[0] ? [ordered[0].id] : []));
+  const allOpen = ordered.length > 0 && ordered.every((e) => open.has(e.id));
+  const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (!n.delete(id)) n.add(id); return n; });
   const info = (e: Evidence) => sources.find((x) => x.id === e.adapter);
+  const group = (list: Evidence[]) => <div className="scards">{list.map((e) => <SourceRow key={e.id} e={e} info={info(e)} open={open.has(e.id)} onToggle={() => toggle(e.id)} />)}</div>;
   return (
     <>
-      {direct.length > 0 && (
-        <>
-          <div className="fsec">Found directly <span className="cnt">{direct.length} {direct.length === 1 ? 'source' : 'sources'}</span></div>
-          <div className="scards">{direct.map((e) => <SourceCard key={e.id} e={e} info={info(e)} />)}</div>
-        </>
-      )}
-      {cross.length > 0 && (
-        <>
-          <div className="fsec">Cross-checks <span className="cnt">{ok > 0 && <span className="okc">{ok} confirm</span>}{ok > 0 && bad > 0 && ' · '}{bad > 0 && <span className="badc">{bad} contradict</span>}</span></div>
-          <div className="scards">{cross.map((e) => <SourceCard key={e.id} e={e} info={info(e)} />)}</div>
-        </>
-      )}
+      <div className="fsec">
+        Evidence <span className="cnt">{ordered.length}</span>
+        <button className="linkish" onClick={() => setOpen(allOpen ? new Set() : new Set(ordered.map((e) => e.id)))}>{allOpen ? 'Collapse all' : 'Expand all'}</button>
+      </div>
+      {direct.length > 0 && (<>
+        <div className="fsub">Found directly <span className="cnt">{direct.length} {direct.length === 1 ? 'source' : 'sources'}</span></div>
+        {group(direct)}
+      </>)}
+      {cross.length > 0 && (<>
+        <div className="fsub">Cross-checks <span className="cnt">{ok > 0 && <span className="okc">{ok} confirm</span>}{ok > 0 && bad > 0 && ' · '}{bad > 0 && <span className="badc">{bad} contradict</span>}</span></div>
+        {group(cross)}
+      </>)}
     </>
   );
 }
 
-const OFFLINE = new Set(['derive', 'phone-offline']);
-
-function SourceCard({ e, info }: { e: Evidence; info?: { description: string; trust: number; decisions: number; homepage?: string; demo?: boolean } }) {
+function SourceRow({ e, info, open, onToggle }: { e: Evidence; info?: SourceInfo; open: boolean; onToggle: () => void }) {
   const st = evidenceStrength(e.weight, info?.trust ?? 1);
   const url = safeHttpUrl(e.url);
   const about = info?.description?.replace(/\s*\(Simulated, fictional data\.?\)\s*$/i, '');
   const against = e.polarity === 'against';
+  const cross = e.kind === 'cross';
   const facts = e.record?.facts ?? [];
+  const home = safeHttpUrl(info?.homepage);
   return (
-    <div className={`scard selectable ${e.kind === 'cross' ? (against ? 'bad' : 'ok') : ''}`}>
-      <div className="shead">
+    <div className={`scard selectable ${cross ? (against ? 'bad' : 'ok') : ''} ${open ? 'open' : ''}`}>
+      <button className="shead" aria-expanded={open} onClick={onToggle} title={about}>
+        {open ? <ChevronDown size={14} className="chev" /> : <ChevronRight size={14} className="chev" />}
         <span className="sic" aria-hidden>{initialOf(e.adapterName)}</span>
-        <span className="sname truncate" title={about}>{e.adapterName}{safeHttpUrl(info?.homepage) && <a className="shome" href={safeHttpUrl(info?.homepage)} target="_blank" rel="noreferrer noopener" title={`About ${e.adapterName}`} aria-label={`About ${e.adapterName}`}><ExternalLink size={11} /></a>}</span>
-        <span className="sstr" title={`${st.label}: the source's claim strength combined with how much Plexus trusts it${info ? ` (${Math.round(info.trust * 100)}%${info.decisions ? `, learned from your ${info.decisions} decisions` : ''})` : ''}.`}><Dots level={st.level} /><span>{st.label.replace(' evidence', '')}</span></span>
-      </div>
-      {e.kind === 'cross' && e.verdict && (
-        <div className={`sverdict ${against ? 'bad' : 'ok'}`}>{against ? <CircleX size={14} /> : <CircleCheck size={14} />}<span>{e.verdict}</span></div>
-      )}
-      <dl className="strail">
-        {e.how && <><dt>Asked</dt><dd>{e.how}</dd></>}
-        {e.snippet && <><dt>Found</dt><dd className="quote">{e.snippet}</dd></>}
-        {!e.snippet && facts.length === 0 && <><dt>Found</dt><dd className="quote">A match, with no extra detail.</dd></>}
-        {url
-          ? <><dt>Check</dt><dd><a href={url} target="_blank" rel="noreferrer noopener" title={url}>{e.urlKind === 'record' ? 'Open the record' : 'Repeat this lookup'} · {hostOf(url)} <ExternalLink size={11} style={{ verticalAlign: -1 }} /></a></dd></>
-          : <><dt>Check</dt><dd className="faint">{info?.demo ? 'Simulated source: there is no real page to open.' : OFFLINE.has(e.adapter) ? 'Worked out on this Mac. Nothing to open.' : 'This source gave no page to link to.'}</dd></>}
-      </dl>
-      {facts.length > 0 && (
-        <div className="srecord">
-          <div className="rtitle">{e.record!.title}</div>
-          <table><tbody>{facts.slice(0, 7).map(([k, v]) => <tr key={k}><th>{k}</th><td>{v}</td></tr>)}</tbody></table>
+        <span className="sbody">
+          <span className="sname truncate">{e.adapterName}</span>
+          {!open && <span className="sline truncate">{cross && e.verdict ? e.verdict : e.snippet ?? 'A match, with no extra detail.'}</span>}
+        </span>
+        {cross && (against ? <CircleX size={15} className="vbad" aria-label="Contradicts" /> : <CircleCheck size={15} className="vok" aria-label="Confirms" />)}
+        <span className="sstr" title={`${st.label}: the source's claim strength combined with how much Plexus trusts it${info ? ` (${Math.round(info.trust * 100)}%${info.decisions ? `, learned from your ${info.decisions} decisions` : ''})` : ''}.`}><Dots level={st.level} /></span>
+      </button>
+      {open && (
+        <div className="sopen">
+          {cross && e.verdict && <div className={`sverdict ${against ? 'bad' : 'ok'}`}>{against ? <CircleX size={14} /> : <CircleCheck size={14} />}<span>{e.verdict}</span></div>}
+          <dl className="strail">
+            {e.how && <><dt>Asked</dt><dd>{e.how}</dd></>}
+            {e.snippet && <><dt>Found</dt><dd className="quote">{e.snippet}</dd></>}
+            {!e.snippet && facts.length === 0 && <><dt>Found</dt><dd className="quote">A match, with no extra detail.</dd></>}
+            {url
+              ? <><dt>Check</dt><dd><a href={url} target="_blank" rel="noreferrer noopener" title={url}>{e.urlKind === 'record' ? 'Open the record' : 'Repeat this lookup'} · {hostOf(url)} <ExternalLink size={11} style={{ verticalAlign: -1 }} /></a></dd></>
+              : <><dt>Check</dt><dd className="faint">{info?.demo ? 'Simulated source: there is no real page to open.' : OFFLINE.has(e.adapter) ? 'Worked out on this Mac. Nothing to open.' : 'This source gave no page to link to.'}</dd></>}
+          </dl>
+          {facts.length > 0 && (
+            <div className="srecord">
+              <div className="rtitle">{e.record!.title}</div>
+              <table><tbody>{facts.slice(0, 8).map(([k, v]) => <tr key={k}><th>{k}</th><td>{v}</td></tr>)}</tbody></table>
+            </div>
+          )}
+          <div className="smeta2">
+            {e.via ? <>Checked because “{e.via.label}” was found for this lookup · {ago(e.retrievedAt)}</> : <>Checked {ago(e.retrievedAt)}</>}
+            <span className="sdot">·</span><span>{st.label}</span>
+            {home && <a className="shome" href={home} target="_blank" rel="noreferrer noopener" title={`About ${e.adapterName}`}>About this source <ExternalLink size={10} style={{ verticalAlign: -1 }} /></a>}
+          </div>
         </div>
       )}
-      {e.via && <div className="svia">Checked because “{e.via.label}” was found for this lookup · {ago(e.retrievedAt)}</div>}
-      {!e.via && <div className="smeta2">Checked {ago(e.retrievedAt)}</div>}
     </div>
   );
 }
 
-/** How the number was reached: what found it, what confirmed it, what disagreed, and what was asked but had nothing. */
-function ScoreCard({ f }: { f: Finding }) {
+/** How the number was reached, as a few short chips. */
+function ScoreChips({ f }: { f: Finding }) {
   const direct = new Set(f.evidence.filter((e) => e.kind !== 'cross' && e.polarity !== 'against').map((e) => e.family)).size;
   const confirm = f.evidence.filter((e) => e.kind === 'cross' && e.polarity !== 'against');
   const against = f.evidence.filter((e) => e.polarity === 'against');
   const quiet = (f.checks ?? []).filter((c) => c.result === 'neutral' || c.result === 'failed');
+  const names = (l: Evidence[]) => [...new Set(l.map((e) => e.adapterName))].join(', ');
   return (
-    <ul className="scorecard">
-      <li className="y"><Check size={13} /> Found directly by {direct} {direct === 1 ? 'source' : 'sources'}</li>
-      {confirm.length > 0 && <li className="y"><Check size={13} /> {confirm.length} cross-check{confirm.length > 1 ? 's' : ''} confirm it ({[...new Set(confirm.map((e) => e.adapterName))].join(', ')})</li>}
-      {against.length > 0 && <li className="n"><X size={13} /> {against.length} cross-check{against.length > 1 ? 's' : ''} contradict it ({[...new Set(against.map((e) => e.adapterName))].join(', ')})</li>}
-      {quiet.length > 0 && <li className="z"><Minus size={13} /> Also asked, no answer either way: {quiet.map((c) => `${c.source}${c.result === 'failed' ? ' (unreachable)' : ''}`).join(', ')}</li>}
-    </ul>
+    <div className="chips2">
+      <span className="chip2 y" title="Independent sources that returned this directly"><Check size={12} /> Found by {direct} {direct === 1 ? 'source' : 'sources'}</span>
+      {confirm.length > 0 && <span className="chip2 y" title={names(confirm)}><Check size={12} /> {confirm.length} {confirm.length === 1 ? 'check confirms' : 'checks confirm'}</span>}
+      {against.length > 0 && <span className="chip2 n" title={names(against)}><X size={12} /> {against.length} {against.length === 1 ? 'check contradicts' : 'checks contradict'}</span>}
+      {quiet.length > 0 && <span className="chip2 z" title={quiet.map((c) => `${c.source}${c.result === 'failed' ? ' (unreachable)' : ''}`).join(', ')}><Minus size={12} /> {quiet.length} no answer</span>}
+    </div>
   );
 }
 
-/** Everything someone needs to approve or reject a finding: the trail first, warnings only when something is shaky. */
-export function FindingDetail({ f, subject, compact = false, onDecide }: { f: Finding; subject: Subject; compact?: boolean; onDecide?: (s: 'accepted' | 'rejected' | 'unsure') => void }) {
+/** Everything someone needs to approve or reject a finding. The decision bar stays pinned at the bottom while the evidence scrolls. */
+export function FindingDetail({ f, subject, onDecide }: { f: Finding; subject: Subject; onDecide?: (s: 'accepted' | 'rejected' | 'unsure') => void }) {
   const all = useStore((s) => s.findings);
   const independent = new Set(f.evidence.filter((e) => e.polarity !== 'against').map((e) => e.family)).size;
   const rivals = (f.conflictsWith ?? []).map((id) => all[id]).filter(Boolean);
   const warns = warningsFor(f);
+  const quiet = (f.checks ?? []).filter((c) => c.result === 'neutral' || c.result === 'failed');
+  const R = 21, C = 2 * Math.PI * R;
   return (
-    <div className={`fdetail ${compact ? 'compact' : ''}`}>
-      {!compact && (
+    <div className="fdetail">
+      <div className="fscroll">
         <div className="fhead">
           <span className="fic"><EntityGlyph type={f.type} size={18} /></span>
-          <div style={{ minWidth: 0 }}>
+          <div className="fhead-t">
             <div className="fvalue selectable">{displayValue(f)}</div>
             <div className="ftype">{ENTITY_LABEL[f.type]}{f.when ? ` · from ${fmtDate(f.when)}` : ''}</div>
           </div>
+          <div className="fscore" title="An estimate from how many independent sources agree, how much each is trusted, and what cross-checks found. Not a guarantee.">
+            <svg viewBox="0 0 50 50" width="50" height="50" aria-hidden>
+              <circle cx="25" cy="25" r={R} fill="none" stroke="var(--line)" strokeWidth="3" />
+              <circle cx="25" cy="25" r={R} fill="none" stroke={`var(--lvl${f.level})`} strokeWidth="3" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - f.score)} transform="rotate(-90 25 25)" />
+            </svg>
+            <b className="num" style={{ color: `var(--lvl${f.level})` }}>{Math.round(f.score * 100)}%</b>
+          </div>
         </div>
-      )}
 
-      <div className="fverdict">
-        <div className="row" style={{ gap: 10 }}><span className="fpct num" style={{ color: `var(--lvl${f.level})` }}>{Math.round(f.score * 100)}%</span><Dots level={f.level} label /><span className="faint" style={{ fontSize: 12 }} title="An estimate from how many independent sources agree, how much each is trusted, and what cross-checks found. Not a guarantee.">confidence</span></div>
-        <span className="fsentence">{confidenceSentence(f.level, independent)}</span>
-        <ScoreCard f={f} />
+        <p className="fsentence">{confidenceSentence(f.level, independent)}</p>
+        <ScoreChips f={f} />
+        {quiet.length > 0 && <div className="fquiet">Also asked, no answer either way: {quiet.map((c) => `${c.source}${c.result === 'failed' ? ' (unreachable)' : ''}`).join(', ')}.</div>}
+
+        {(warns.length > 0 || rivals.length > 0) && (
+          <div className="fwatch">
+            {warns.map((w) => <div key={w} className="w"><TriangleAlert size={13} />{w}</div>)}
+            {rivals.length > 0 && <div className="w"><TriangleAlert size={13} />Sources disagree. Pick the answer you trust:</div>}
+            {rivals.length > 0 && (
+              <div className="rivals">
+                {[f, ...rivals].sort((a, b) => b.score - a.score).map((r) => (
+                  <div key={r.id} className="rival" data-self={r.id === f.id}><span className="grow truncate">{displayValue(r)}{r.id === f.id ? ' (this one)' : ''}</span><Dots level={r.level} /><span className="faint num">{r.evidence.length} {r.evidence.length === 1 ? 'source' : 'sources'}</span></div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="fsec">How it’s connected</div>
+        <ConnectionPath subject={subject} f={f} subjectId={f.subjectId} />
+        <p className="plain selectable">{hedge(explainRelation(f.relation, subject.label, displayValue(f)), f.level, f.evidence.some((e) => e.polarity === 'against'))}</p>
+
+        <SourceCards f={f} />
       </div>
 
       {onDecide && (
-        <div className="fbuttons">
-          <button className="btn primary" onClick={() => onDecide('accepted')} title="Add this to your graph, linked to what you searched"><Check size={14} /> Accept <Kbd>A</Kbd></button>
+        <div className="fdecide">
           <button className="btn" onClick={() => onDecide('rejected')} title="This is wrong or irrelevant. Plexus will trust the sources that reported it a little less."><X size={14} /> Reject <Kbd>R</Kbd></button>
           <button className="btn ghost" onClick={() => onDecide('unsure')} title="Park it and decide later"><CircleHelp size={14} /> Not sure <Kbd>U</Kbd></button>
+          <button className="btn primary grow" onClick={() => onDecide('accepted')} title="Add this to your graph, linked to what you searched"><Check size={14} /> Accept <Kbd>A</Kbd></button>
         </div>
-      )}
-
-      <div className="fsec">How it’s connected</div>
-      <ConnectionPath subject={subject} f={f} subjectId={f.subjectId} />
-      <p className="plain selectable">{hedge(explainRelation(f.relation, subject.label, displayValue(f)), f.level, f.evidence.some((e) => e.polarity === 'against'))}</p>
-
-      <SourceCards f={f} />
-
-      {(warns.length > 0 || rivals.length > 0) && (
-        <>
-          <div className="fsec warn">Watch out</div>
-          <ul className="watch">
-            {warns.map((w) => <li key={w}><TriangleAlert size={13} />{w}</li>)}
-            {rivals.length > 0 && <li><TriangleAlert size={13} />Sources disagree. Pick the answer you trust:</li>}
-          </ul>
-          {rivals.length > 0 && (
-            <div className="rivals">
-              {[f, ...rivals].sort((a, b) => b.score - a.score).map((r) => (
-                <div key={r.id} className="rival" data-self={r.id === f.id}><span className="grow truncate">{displayValue(r)}{r.id === f.id ? ' (this one)' : ''}</span><Dots level={r.level} /><span className="faint num">{r.evidence.length} {r.evidence.length === 1 ? 'source' : 'sources'}</span></div>
-              ))}
-            </div>
-          )}
-        </>
       )}
     </div>
   );

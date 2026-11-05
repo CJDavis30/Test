@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useStore } from './lib/store';
 import { api } from './lib/api';
@@ -19,6 +19,21 @@ export function App() {
   const [dropping, setDropping] = useState(false);
   const [imported, setImported] = useState<Detected[] | null>(null);
 
+  // Narrow windows turn the sidebar into a drawer: start it closed, and close it again when you pick something.
+  const autoClosed = useRef(false);
+  useEffect(() => {
+    const m = window.matchMedia('(max-width: 980px)');
+    const f = () => {
+      const st = useStore.getState();
+      if (m.matches && st.sidebar) { autoClosed.current = true; st.toggle('sidebar', false); }
+      else if (!m.matches && autoClosed.current) { autoClosed.current = false; st.toggle('sidebar', true); }
+    };
+    f(); m.addEventListener('change', f);
+    return () => m.removeEventListener('change', f);
+  }, []);
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 980px)').matches && useStore.getState().sidebar) s.toggle('sidebar', false);
+  }, [s.caseId, s.sheet?.subjectId, s.view]);
   useEffect(() => { void s.boot().catch((e) => s.toast(`Can't reach the Plexus engine: ${e.message}`)); }, []);
   useEffect(() => { if (s.theme !== 'auto') document.documentElement.dataset.theme = s.theme; }, []);
 
@@ -69,6 +84,7 @@ export function App() {
     <>
       <div className={`app ${s.sidebar ? '' : 'no-sidebar'}`}>
         <Sidebar />
+        <div className="drawer-scrim" onClick={() => s.toggle('sidebar', false)} aria-hidden />
         <Toolbar />
         <div className="main">
           {s.view === 'graph' && <GraphView key={s.caseId ?? 'none'} />}
@@ -77,7 +93,7 @@ export function App() {
           {s.view === 'report' && <ReportView />}
           <AnimatePresence initial={false}>
             {showInspector && (
-              <motion.div key="insp" initial={{ width: 0, opacity: 0 }} animate={{ width: 336, opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ type: 'spring', stiffness: 420, damping: 40 }} style={{ overflow: 'hidden', flex: 'none', display: 'flex' }}>
+              <motion.div key="insp" className="insp-wrap" initial={{ width: 0, opacity: 0 }} animate={{ width: 336, opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ type: 'spring', stiffness: 420, damping: 40 }} style={{ overflow: 'hidden', flex: 'none', display: 'flex' }}>
                 <div style={{ width: 336, flex: 'none', display: 'flex' }}><Inspector /></div>
               </motion.div>
             )}

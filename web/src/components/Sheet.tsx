@@ -1,20 +1,20 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  X, Check, Info, ChevronUp, ChevronDown, RefreshCw, TriangleAlert, ChevronRight, CircleHelp, ArrowLeft, Layers, LoaderCircle, CircleCheck, CircleX, Clock, SkipForward, KeyRound, Minus, ExternalLink, Zap, Sparkles, Undo2,
+  X, Check, ChevronUp, ChevronDown, RefreshCw, ArrowLeft, Layers, LoaderCircle, CircleCheck, CircleX, Clock, SkipForward, KeyRound, Minus, Zap, Undo2, CircleHelp,
 } from 'lucide-react';
-import { ENTITY_LABEL, LEVEL_LABEL, type EntityType, type Finding, type SourceProgress } from '@shared/types';
-import { initials, safeHttpUrl, safeImageSrc } from '@shared/normalize';
+import { ENTITY_LABEL, type EntityType, type Finding, type SourceProgress } from '@shared/types';
+import { safeImageSrc } from '@shared/normalize';
 import { useStore, keyOfNode, type RunState } from '../lib/store';
 import { EntityGlyph } from '../lib/icons';
-import { TYPE_ORDER, GROUP_LABEL, displayValue, hostOf, ago, fmtDate, plural } from '../lib/format';
+import { TYPE_ORDER, GROUP_LABEL, displayValue, plural } from '../lib/format';
 import { Dots, Kbd, Popover, isTyping, MOD } from './ui';
 import { FindingDetail } from './FindingDetail';
+import { Overview } from './Overview';
 import { explainRelation, hedge, subjectNoun } from '@shared/explain';
 
-const CONTEXT_IDEAS = ['Employer', 'Other accounts', 'Location', 'Associates', 'Infrastructure', 'Money'];
-const HINT_KEY = 'plexus.hint.review';
-const readHint = () => { try { return localStorage.getItem(HINT_KEY) === '1'; } catch { return false; } };
+/** Below this width of the dialog body the findings list and the details can't sit side by side. */
+const WIDE_AT = 840;
 
 export function Sheet() {
   const s = useStore();
@@ -34,34 +34,37 @@ export function Sheet() {
   const rejected = useMemo(() => findings.filter((f) => f.status === 'rejected'), [findings]);
   const toAdd = useMemo(() => accepted.filter((f) => !nodeKeys.has(`${f.type}:${f.key}`)).length, [accepted, nodeKeys]);
   const tab = sheet.tab;
-  const shown = tab === 'review' ? review : tab === 'accepted' ? accepted : rejected;
+  const shown = tab === 'review' ? review : tab === 'accepted' ? accepted : tab === 'rejected' ? rejected : [];
 
   const groups = useMemo(() => TYPE_ORDER.map((t) => ({ type: t, items: shown.filter((f) => f.type === t).sort((a, b) => b.rank - a.rank) })).filter((g) => g.items.length), [shown]);
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
   const [cursor, setCursor] = useState(0);
-  const [expanded, setExpanded] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [srcOpen, setSrcOpen] = useState(false);
-  const [wide, setWide] = useState(() => window.innerWidth >= 1180);
-  const [hintGone, setHintGone] = useState(readHint);
-  const [briefOpen, setBriefOpen] = useState(() => { try { return localStorage.getItem('plexus.brief') !== 'closed'; } catch { return true; } });
-  const decided = accepted.length + rejected.length;
-  const decidedBefore = useRef(decided);
+  const [bodyW, setBodyW] = useState(1000);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const wide = bodyW >= WIDE_AT;
+  const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    let pref: string | null = null; try { pref = localStorage.getItem('plexus.brief'); } catch { /* storage unavailable */ }
-    if (decidedBefore.current === 0 && decided > 0 && !pref) setBriefOpen(false); // first decision: give the evidence the room
-    decidedBefore.current = decided;
-  }, [decided]);
-  const toggleBrief = () => { const v = !briefOpen; setBriefOpen(v); try { localStorage.setItem('plexus.brief', v ? 'open' : 'closed'); } catch { /* storage unavailable */ } };
-  useEffect(() => { const f = () => setWide(window.innerWidth >= 1180); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
+    const el = bodyRef.current; if (!el) return;
+    const ro = new ResizeObserver(() => setBodyW(el.clientWidth)); ro.observe(el); setBodyW(el.clientWidth);
+    return () => ro.disconnect();
+  }, [node?.id]);
+
   const scroller = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
   const cur = flat[Math.min(cursor, flat.length - 1)];
+  const flatRef = useRef(flat); flatRef.current = flat;
+  const cursorRef = useRef(cursor); cursorRef.current = cursor;
+  const wideRef = useRef(wide); wideRef.current = wide;
+  const detailRef = useRef(detailOpen); detailRef.current = detailOpen;
+  const toAddRef = useRef(toAdd); toAddRef.current = toAdd;
 
   // Bring a brief that was never computed in this session (e.g. after reload) up to date.
   useEffect(() => { if (findings.length && !run?.brief && run?.status !== 'running' && !run?.briefLoading) void s.refreshBrief(subjectId); }, [subjectId, findings.length === 0]);
 
+  /** Go to a finding wherever it lives: right tab, row highlighted, and on narrow screens its details open. */
   const jumpTo = useCallback((id: string) => {
     const f = useStore.getState().findings[id]; if (!f) return;
     const t = f.status === 'accepted' ? 'accepted' : f.status === 'rejected' ? 'rejected' : 'review';
@@ -70,12 +73,22 @@ export function Sheet() {
       const idx = flatRef.current.findIndex((x) => x.id === id);
       if (idx >= 0) setCursor(idx);
       setFlash(id); setTimeout(() => setFlash(null), 1100);
+      if (!wideRef.current) setDetailOpen(true);
       rowRefs.current.get(id)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }, 60);
   }, []);
-  const flatRef = useRef(flat); flatRef.current = flat;
 
   const act = useCallback((id: string | undefined, status: Finding['status']) => { if (id) void useStore.getState().review([id], status); }, []);
+
+  const finish = async () => {
+    const st = useStore.getState();
+    if (toAddRef.current > 0) {
+      const { added } = await st.commit(subjectId);
+      st.toast(added > 0 ? `Added ${added} to the graph` : 'Graph updated');
+      st.closeSheet();
+      setTimeout(() => window.dispatchEvent(new CustomEvent('plexus:fit')), 450);
+    } else st.closeSheet();
+  };
 
   // --- keyboard -------------------------------------------------------------------------------------------------
   useEffect(() => {
@@ -86,7 +99,7 @@ export function Sheet() {
         if (srcOpen) return;
         e.preventDefault();
         if (isTyping(e.target)) { (e.target as HTMLElement).blur(); return; }
-        if (expanded) setExpanded(null); else if (st.sheet.triage) st.setSheet({ triage: false }); else st.closeSheet();
+        if (detailRef.current) setDetailOpen(false); else if (st.sheet.triage) st.setSheet({ triage: false }); else st.closeSheet();
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); void st.undo(); return; }
@@ -104,45 +117,41 @@ export function Sheet() {
         else if (e.key === 'ArrowLeft' || k === 'z') { e.preventDefault(); void st.undo(); }
         return;
       }
+      if (st.sheet.tab === 'overview') {
+        if (e.key === 'Enter') { e.preventDefault(); st.setSheet({ tab: 'review' }); }
+        return;
+      }
       if (e.key === 'ArrowDown' || k === 'j') { e.preventDefault(); setCursor((c) => Math.min(flatRef.current.length - 1, c + 1)); }
       else if (e.key === 'ArrowUp' || k === 'k') { e.preventDefault(); setCursor((c) => Math.max(0, c - 1)); }
-      else if (k === ' ') { e.preventDefault(); if (wideRef.current) return; const id = flatRef.current[Math.min(cursorRef.current, flatRef.current.length - 1)]?.id; if (id) setExpanded((x) => (x === id ? null : id)); }
+      else if (k === ' ' || e.key === 'Enter') { e.preventDefault(); if (!wideRef.current && flatRef.current.length) setDetailOpen((v) => !v); }
       else if (k === 'a' || k === 'r' || k === 'u') {
         e.preventDefault();
         const f = flatRef.current[Math.min(cursorRef.current, flatRef.current.length - 1)];
         act(f?.id, k === 'a' ? 'accepted' : k === 'r' ? 'rejected' : 'unsure');
-      } else if (k === 'p' && e.shiftKey) { /* reserved */ }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expanded, srcOpen, act, toAdd]);
-  const cursorRef = useRef(cursor); cursorRef.current = cursor;
-  const wideRef = useRef(wide); wideRef.current = wide;
+  }, [srcOpen, act]);
   useEffect(() => { setCursor((c) => Math.min(c, Math.max(0, flat.length - 1))); }, [flat.length]);
+  useEffect(() => { if (flat.length === 0) setDetailOpen(false); }, [flat.length]);
+  useEffect(() => { setDetailOpen(false); }, [tab, sheet.triage]);
+  useEffect(() => { if (wide) setDetailOpen(false); }, [wide]);
   useEffect(() => { if (cur && !sheet.triage) rowRefs.current.get(cur.id)?.scrollIntoView({ block: 'nearest' }); }, [cur?.id]);
-
-  const finish = async () => {
-    const st = useStore.getState();
-    if (toAddRef.current > 0) {
-      const { added } = await st.commit(subjectId);
-      st.toast(added > 0 ? `Added ${added} to the graph` : 'Graph updated');
-      st.closeSheet();
-      setTimeout(() => window.dispatchEvent(new CustomEvent('plexus:fit')), 450);
-    } else st.closeSheet();
-  };
-  const toAddRef = useRef(toAdd); toAddRef.current = toAdd;
 
   if (!node) return null;
   const strongPending = review.filter((f) => f.status === 'pending' && f.level >= 3);
   const weakPending = review.filter((f) => f.status === 'pending' && f.level === 1);
-  const done = run?.status === 'done';
+  const pendingCount = review.filter((f) => f.status === 'pending').length;
   const srcs = run?.sources ?? [];
-  const finished = srcs.filter((x) => !['queued', 'running'].includes(x.state)).length;
   const crossing = srcs.find((x) => x.capability === 'verify');
   const active = srcs.filter((x) => x.state !== 'needs_key' && x.state !== 'skipped' && x.capability !== 'verify');
   const activeDone = active.filter((x) => !['queued', 'running'].includes(x.state)).length;
   const pct = active.length ? (activeDone / active.length) * 100 : 0;
-  void finished;
+  const subject = { type: node.type, label: node.label };
+  const overlay = !wide && detailOpen && !!cur && tab !== 'overview';
+  const idx = cur ? flat.findIndex((x) => x.id === cur.id) : -1;
+  const TABS = [['overview', 'Overview', null], ['review', 'To review', review.length], ['accepted', 'Accepted', accepted.length], ['rejected', 'Rejected', rejected.length]] as const;
 
   return (
     <>
@@ -151,11 +160,11 @@ export function Sheet() {
         initial={{ opacity: 0, scale: .955, y: '-47%' }} animate={{ opacity: 1, scale: 1, y: '-50%' }} exit={{ opacity: 0, scale: .97, y: '-48%' }} transition={{ type: 'spring', stiffness: 420, damping: 36 }}>
         <div className="sheet-head">
           <span className="subject-chip"><EntityGlyph type={node.type} size={15} /><span className="truncate">{node.label}</span></span>
-          <span className="faint" style={{ fontSize: 12 }}>{ENTITY_LABEL[node.type]}</span>
+          <span className="faint head-type" style={{ fontSize: 12 }}>{ENTITY_LABEL[node.type]}</span>
           <div className="grow" />
-          <button className="src-pill" onClick={() => setSrcOpen(!srcOpen)} aria-expanded={srcOpen}>
+          <button className="src-pill" onClick={() => setSrcOpen(!srcOpen)} aria-expanded={srcOpen} title="Which sources answered">
             {run?.status === 'running' ? <LoaderCircle size={14} className="spin" /> : <Layers size={14} />}
-            {srcs.length === 0 ? 'Sources' : run?.status === 'running' ? (crossing?.state === 'running' ? `Cross-checking ${crossing.note ?? ''}` : `Checking ${activeDone} of ${active.length}`) : `${active.filter((x) => x.state === 'done').length} of ${active.length} sources answered`}
+            <span className="src-txt">{srcs.length === 0 ? 'Sources' : run?.status === 'running' ? (crossing?.state === 'running' ? `Cross-checking ${crossing.note ?? ''}` : `Checking ${activeDone} of ${active.length}`) : `${active.filter((x) => x.state === 'done').length} of ${active.length} sources answered`}</span>
           </button>
           <button className="btn icon ghost" aria-label="Run checks again" title="Run checks again" onClick={() => void s.runNode(subjectId, run?.context ?? '', false)} disabled={run?.status === 'running'}><RefreshCw size={15} /></button>
           <button className="btn icon ghost" aria-label="Close" onClick={() => s.closeSheet()}><X size={17} /></button>
@@ -163,68 +172,77 @@ export function Sheet() {
         {run?.status === 'running' && <div className="progress"><i style={{ width: `${Math.max(6, pct)}%` }} /></div>}
         {srcOpen && <SourcesPopover run={run} onClose={() => setSrcOpen(false)} />}
 
-        <div className="sheet-body">
+        {!sheet.triage && (
+          <div className="sheet-tabs">
+            <div className="tabs" role="tablist">
+              {TABS.map(([id, label, n]) => (
+                <button key={id} role="tab" aria-selected={tab === id} onClick={() => s.setSheet({ tab: id })}>{label}{n !== null && <span className="n num">{n}</span>}</button>
+              ))}
+            </div>
+            <div className="grow" />
+            {tab === 'review' && pendingCount > 0 && <button className="btn sm outline" title="Go through them one card at a time" onClick={() => s.setSheet({ triage: true })}><Zap size={13} /> <span className="lbl">One by one</span> <Kbd>T</Kbd></button>}
+          </div>
+        )}
+
+        <div className="sheet-body" ref={bodyRef}>
           {sheet.triage ? (
-            <Triage subject={{ type: node.type, label: node.label }} queue={flat.filter((f) => f.status === 'pending')} total={review.length + accepted.length + rejected.length} running={run?.status === 'running'} parked={review.filter((f) => f.status === 'unsure').length}
+            <Triage subject={subject} queue={flat.filter((f) => f.status === 'pending')} total={review.length + accepted.length + rejected.length} running={run?.status === 'running'} parked={review.filter((f) => f.status === 'unsure').length}
               onExit={() => s.setSheet({ triage: false })} onFinish={finish} toAdd={toAdd} act={act} />
+          ) : tab === 'overview' ? (
+            <div className="ov-scroll">
+              <Overview node={subject} run={run} findings={findings} subjectId={subjectId} onOpen={jumpTo} pendingCount={pendingCount} onStart={() => s.setSheet({ tab: 'review' })} />
+            </div>
           ) : (
-            <>
-              {briefOpen ? <Brief node={node} run={run} findings={findings} onJump={jumpTo} subjectId={subjectId} onCollapse={toggleBrief} /> : <BriefMini node={node} run={run} onExpand={toggleBrief} />}
-              <ContextBar subjectId={subjectId} run={run} />
-              <div className={`split ${wide ? '' : 'narrow'}`}>
-                <div className="left">
-                  {tab === 'review' && !hintGone && review.length > 0 && (
-                    <div className="review-hint" role="note">
-                      <Info size={16} style={{ flex: 'none', marginTop: 1, color: 'var(--accent)' }} />
-                      <div><b>How to review:</b> look at each finding and the explanation beside it. <b>Accept</b> what looks right and it joins your graph. <b>Reject</b> what’s wrong, and Plexus learns to trust that source less. Not sure? Mark it <b>Not sure</b> and come back.</div>
-                      <button className="btn icon sm ghost" aria-label="Dismiss tip" onClick={() => { setHintGone(true); try { localStorage.setItem(HINT_KEY, '1'); } catch { /* storage unavailable */ } }}><X size={13} /></button>
-                    </div>
-                  )}
-                  <div className="list-head">
-                    <div className="tabs" role="tablist">
-                      {([['review', 'To review', review.length], ['accepted', 'Accepted', accepted.length], ['rejected', 'Rejected', rejected.length]] as const).map(([id, label, n]) => (
-                        <button key={id} role="tab" aria-selected={tab === id} onClick={() => s.setSheet({ tab: id })}>{label}<span className="n num">{n}</span></button>
-                      ))}
-                    </div>
-                    <div className="grow" />
-                    {tab === 'review' && strongPending.length > 0 && <button className="btn sm" title="Accept every finding that several sources agree on" onClick={() => void s.review(strongPending.map((f) => f.id), 'accepted', { toast: true })}>Accept {strongPending.length} likely</button>}
-                    {tab === 'review' && weakPending.length > 0 && <button className="btn sm ghost" title="Reject every weak lead" onClick={() => void s.review(weakPending.map((f) => f.id), 'rejected', { toast: true })}>Reject {weakPending.length} weak</button>}
-                    {tab === 'review' && review.some((f) => f.status === 'pending') && <button className="btn sm outline" title="Go through them one card at a time" onClick={() => s.setSheet({ triage: true })}><Zap size={13} /> One by one <Kbd>T</Kbd></button>}
+            <div className={`split ${wide ? '' : 'narrow'}`}>
+              <div className="left">
+                {tab === 'review' && (strongPending.length > 0 || weakPending.length > 0) && (
+                  <div className="bulkbar">
+                    <span className="faint">Quick actions</span>
+                    {strongPending.length > 0 && <button className="btn sm" title="Accept every finding that several sources agree on" onClick={() => void s.review(strongPending.map((f) => f.id), 'accepted', { toast: true })}>Accept {strongPending.length} likely</button>}
+                    {weakPending.length > 0 && <button className="btn sm ghost" title="Reject every weak lead" onClick={() => void s.review(weakPending.map((f) => f.id), 'rejected', { toast: true })}>Reject {weakPending.length} weak</button>}
                   </div>
-                  <div className="list-scroll" ref={scroller}>
-                    {flat.length === 0 && <EmptyList run={run} tab={tab} hasAny={findings.length > 0} subjectId={subjectId} />}
-                    {groups.map((g) => (
-                      <section key={g.type}>
-                        <div className="ghead">
-                          <EntityGlyph type={g.type} size={13} /> {GROUP_LABEL[g.type]} <span className="cnt num">{g.items.length}</span>
-                          {tab === 'review' && (
-                            <span className="acts">
-                              {g.items.some((f) => f.status === 'pending' && f.level >= 3) && <button className="btn sm ghost" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending' && f.level >= 3).map((f) => f.id), 'accepted', { toast: true })}>Accept likely</button>}
-                              {g.items.some((f) => f.status === 'pending' && f.level === 1) && <button className="btn sm ghost" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending' && f.level === 1).map((f) => f.id), 'rejected', { toast: true })}>Reject weak</button>}
-                            </span>
-                          )}
-                        </div>
-                        <AnimatePresence initial={false}>
-                          {g.items.map((f) => (
-                            <Row key={f.id} f={f} tab={tab} subject={{ type: node.type, label: node.label }} isCursor={cur?.id === f.id && !sheet.triage} isOpen={!wide && expanded === f.id} flash={flash === f.id}
-                              onFocus={() => setCursor(flat.findIndex((x) => x.id === f.id))} onToggle={() => { setCursor(flat.findIndex((x) => x.id === f.id)); if (!wide) setExpanded(expanded === f.id ? null : f.id); }}
-                              reg={(el) => { if (el) rowRefs.current.set(f.id, el); else rowRefs.current.delete(f.id); }} inGraph={nodeKeys.has(`${f.type}:${f.key}`)} />
-                          ))}
-                        </AnimatePresence>
-                      </section>
-                    ))}
-                  </div>
-                </div>
-                {wide && (
-                  <aside className="detail-pane" aria-label="Details for the highlighted finding">
-                    {cur ? (
-                      <FindingDetail key={cur.id} f={cur} subject={{ type: node.type, label: node.label }}
-                        onDecide={tab === 'review' ? (st) => act(cur.id, st) : undefined} />
-                    ) : <div className="detail-empty">{run?.status === 'running' ? 'Details appear here as soon as the first result arrives.' : 'Pick a finding on the left to see where it came from and how it connects to ' + node.label + '.'}</div>}
-                  </aside>
                 )}
+                <div className="list-scroll" ref={scroller} role="listbox" aria-label="Findings">
+                  {flat.length === 0 && <EmptyList run={run} tab={tab} hasAny={findings.length > 0} subjectId={subjectId} />}
+                  {groups.map((g) => (
+                    <section key={g.type}>
+                      <div className="ghead">
+                        <EntityGlyph type={g.type} size={13} /> {GROUP_LABEL[g.type]} <span className="cnt num">{g.items.length}</span>
+                      </div>
+                      <AnimatePresence initial={false}>
+                        {g.items.map((f) => (
+                          <Row key={f.id} f={f} tab={tab} subject={subject} isCursor={cur?.id === f.id} flash={flash === f.id}
+                            onFocus={() => setCursor(flat.findIndex((x) => x.id === f.id))} onOpen={() => { setCursor(flat.findIndex((x) => x.id === f.id)); if (!wide) setDetailOpen(true); }}
+                            reg={(el) => { if (el) rowRefs.current.set(f.id, el); else rowRefs.current.delete(f.id); }} inGraph={nodeKeys.has(`${f.type}:${f.key}`)} />
+                        ))}
+                      </AnimatePresence>
+                    </section>
+                  ))}
+                </div>
               </div>
-            </>
+              {wide && (
+                <aside className="detail-pane" aria-label="Details for the highlighted finding">
+                  {cur ? (
+                    <FindingDetail key={cur.id} f={cur} subject={subject} onDecide={tab === 'review' ? (st) => act(cur.id, st) : undefined} />
+                  ) : <div className="detail-empty">{run?.status === 'running' ? 'Details appear here as soon as the first result arrives.' : 'Pick a finding on the left to see where it came from and how it connects to ' + node.label + '.'}</div>}
+                </aside>
+              )}
+              <AnimatePresence>
+                {overlay && cur && (
+                  <motion.aside key="ov" className="detail-over" role="dialog" aria-label="Finding details"
+                    initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', stiffness: 520, damping: 46 }}>
+                    <div className="over-bar">
+                      <button className="btn sm ghost" onClick={() => setDetailOpen(false)}><ArrowLeft size={14} /> Back to list</button>
+                      <div className="grow" />
+                      <span className="faint num">{idx + 1} of {flat.length}</span>
+                      <button className="btn icon sm ghost" aria-label="Previous" disabled={idx <= 0} onClick={() => setCursor(Math.max(0, idx - 1))}><ChevronUp size={15} /></button>
+                      <button className="btn icon sm ghost" aria-label="Next" disabled={idx >= flat.length - 1} onClick={() => setCursor(Math.min(flat.length - 1, idx + 1))}><ChevronDown size={15} /></button>
+                    </div>
+                    <div className="over-body"><FindingDetail key={cur.id} f={cur} subject={subject} onDecide={tab === 'review' ? (st) => act(cur.id, st) : undefined} /></div>
+                  </motion.aside>
+                )}
+              </AnimatePresence>
+            </div>
           )}
         </div>
 
@@ -235,11 +253,10 @@ export function Sheet() {
               <span><Kbd>A</Kbd> accept</span>
               <span><Kbd>R</Kbd> reject</span>
               <span><Kbd>U</Kbd> not sure</span>
-              {!wide && <span><Kbd>Space</Kbd> details</span>}
             </div>
             <div className="grow" />
             {s.undoStack.length > 0 && <button className="btn ghost sm" onClick={() => void s.undo()}><Undo2 size={13} /> Undo <Kbd>{MOD}Z</Kbd></button>}
-            <span className="muted num">{accepted.length} accepted</span>
+            <span className="muted num foot-acc">{accepted.length} accepted</span>
             <button className="btn primary lg" onClick={() => void finish()}>{toAdd > 0 ? `Add ${toAdd} to graph` : 'Done'}</button>
           </div>
         )}
@@ -248,141 +265,31 @@ export function Sheet() {
   );
 }
 
-// ------------------------------------------------------------------------------------------------ Brief
-function BriefMini({ node, run, onExpand }: { node: { label: string; type: EntityType }; run?: RunState; onExpand: () => void }) {
-  const b = run?.brief;
-  return (
-    <div className="brief-mini">
-      <h2 className="truncate selectable">{b?.headline ?? node.label}</h2>
-      {b && <Dots level={b.confidence.level} label />}
-      <div className="grow" />
-      <button className="btn sm ghost" onClick={onExpand}><ChevronDown size={14} /> Show summary</button>
-    </div>
-  );
-}
-
-function Brief({ node, run, findings, onJump, subjectId, onCollapse }: { node: { label: string; type: EntityType }; run?: RunState; findings: Finding[]; onJump: (id: string) => void; subjectId: string; onCollapse: () => void }) {
-  const s = useStore();
-  const brief = run?.brief;
-  const live = findings.filter((f) => f.status !== 'rejected');
-  const photo = live.filter((f) => f.type === 'image').sort((a, b) => b.rank - a.rank)[0];
-  const conf = brief?.confidence;
-  const searching = run?.status === 'running' && !brief;
-  const top = (t: EntityType) => live.filter((f) => f.type === t).sort((a, b) => b.rank - a.rank)[0];
-  const chips = (['person', 'email', 'phone', 'username', 'org', 'location'] as EntityType[]).map(top).filter(Boolean).filter((f) => f.value.toLowerCase() !== node.label.toLowerCase());
-  const R = 34, C = 2 * Math.PI * R;
-
-  const summary = useMemo(() => {
-    if (!brief) return null;
-    const parts = brief.summary.split(/(\[F\d+\])/g);
-    return parts.map((p, i) => {
-      const m = p.match(/^\[(F\d+)\]$/);
-      if (!m) return <span key={i}>{p}</span>;
-      const fid = brief.cites[m[1]];
-      const f = fid ? useStore.getState().findings[fid] : null;
-      if (!f) return null;
-      return <button key={i} className="cite" title={`${f.value}`} onClick={() => onJump(f.id)}>{m[1].slice(1)}</button>;
-    });
-  }, [brief, onJump]);
-
-  return (
-    <div className="brief">
-      <button className="btn sm ghost brief-toggle" onClick={onCollapse} title="Hide the summary to make room for the findings"><ChevronUp size={14} /> Hide summary</button>
-      <div className="photo">
-        <svg className="ringsvg" viewBox="0 0 76 76" width="76" height="76" aria-hidden>
-          <circle cx="38" cy="38" r={R} fill="none" stroke="var(--line)" strokeWidth="2.5" />
-          {conf && <circle cx="38" cy="38" r={R} fill="none" stroke={`var(--lvl${conf.level})`} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - conf.score)} style={{ transition: 'stroke-dashoffset .8s var(--ease)' }} />}
-        </svg>
-        <div className="img">{photo ? <img src={safeImageSrc(photo.value)} alt="" /> : node.type === 'person' || node.type === 'org' ? initials(node.label) : <EntityGlyph type={node.type} size={26} />}</div>
-      </div>
-      <div style={{ minWidth: 0 }}>
-        {searching ? (
-          <><div className="skeleton" style={{ height: 26, width: '62%', margin: '4px 0 12px' }} /><div className="skeleton" style={{ height: 14, width: '92%', marginBottom: 7 }} /><div className="skeleton" style={{ height: 14, width: '70%' }} /></>
-        ) : (
-          <>
-            <h2 className="selectable">{brief?.headline ?? node.label}</h2>
-            <div className="summary selectable">{summary ?? (run?.briefLoading ? 'Summarizing…' : findings.length ? '' : 'No findings yet.')}</div>
-          </>
-        )}
-      </div>
-      <div className="meter">
-        {conf ? (<>
-          <div className="big" style={{ color: `var(--lvl${conf.level})` }}>{conf.label} · {Math.round(conf.score * 100)}%</div>
-          <Dots level={conf.level} />
-          <small>{plural(conf.independentSources, 'independent source')}</small>
-          {brief?.by === 'ai' && <small style={{ marginTop: 4, display: 'inline-flex', gap: 4, alignItems: 'center' }}><Sparkles size={11} /> Written by AI, citations checked</small>}
-        </>) : searching ? <div className="skeleton" style={{ height: 40, width: 110, marginLeft: 'auto' }} /> : null}
-      </div>
-      {brief && brief.caveats.length > 0 && (
-        <div className="caveats">{brief.caveats.map((c, i) => <div className="caveat" key={i}><TriangleAlert size={13} />{c}</div>)}</div>
-      )}
-      {chips.length > 0 && (
-        <div className="chips">
-          {chips.map((f) => (
-            <button key={f.id} className="chipf" onClick={() => onJump(f.id)} title={`${ENTITY_LABEL[f.type]} · ${LEVEL_LABEL[f.level]}`}>
-              <EntityGlyph type={f.type} size={14} /><span className="truncate">{displayValue(f)}</span><Dots level={f.level} />
-            </button>
-          ))}
-        </div>
-      )}
-      {run && run.next.length > 0 && (
-        <div className="nexts">
-          <span className="lab">Dig deeper</span>
-          {run.next.slice(0, 4).map((n, i) => (
-            <button key={i} className="nextchip" title={n.reason} onClick={() => void s.pivot(n, subjectId)}>
-              <EntityGlyph type={n.type} size={13} /><span className="truncate">{n.value}</span><ChevronRight size={13} />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ContextBar({ subjectId, run }: { subjectId: string; run?: RunState }) {
-  const s = useStore();
-  const [v, setV] = useState(run?.context ?? '');
-  const timer = useRef<number>(0);
-  const apply = (val: string) => {
-    setV(val); s.setContext(subjectId, val);
-    clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => { if (useStore.getState().runs[subjectId]?.status !== 'running') void useStore.getState().refreshBrief(subjectId); }, 900);
-  };
-  return (
-    <div className="ctxbar">
-      <Sparkles size={15} className="faint" />
-      <input value={v} onChange={(e) => apply(e.target.value)} placeholder="What are you looking for? e.g. employer, other accounts, where they live…" aria-label="Investigation context" />
-      {!v && <div className="ctx-sugs">{CONTEXT_IDEAS.slice(0, 4).map((c) => <button key={c} className="ctx-sug" onClick={() => apply(c.toLowerCase())}>{c}</button>)}</div>}
-      {v && <button className="btn icon sm ghost" aria-label="Clear" onClick={() => apply('')}><X size={13} /></button>}
-    </div>
-  );
-}
-
 // ------------------------------------------------------------------------------------------------ Rows
-const Row = memo(function Row({ f, tab, subject, isCursor, isOpen, flash, onFocus, onToggle, reg, inGraph }: {
-  f: Finding; tab: string; subject: { type: EntityType; label: string }; isCursor: boolean; isOpen: boolean; flash: boolean; onFocus: () => void; onToggle: () => void; reg: (el: HTMLElement | null) => void; inGraph: boolean;
+const Row = memo(function Row({ f, tab, subject, isCursor, flash, onFocus, onOpen, reg, inGraph }: {
+  f: Finding; tab: string; subject: { type: EntityType; label: string }; isCursor: boolean; flash: boolean; onFocus: () => void; onOpen: () => void; reg: (el: HTMLElement | null) => void; inGraph: boolean;
 }) {
   const review = useStore((st) => st.review);
-  const names = [...new Set(f.evidence.map((e) => e.adapterName))];
+  const sources = new Set(f.evidence.filter((e) => e.polarity !== 'against').map((e) => e.family)).size;
   const sentence = hedge(explainRelation(f.relation, subjectNoun(subject.type), displayValue(f)), f.level, f.evidence.some((e) => e.polarity === 'against'));
   const conflict = f.conflictsWith?.length;
   return (
     <motion.div ref={reg} layout="position" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0 }}
       transition={{ type: 'spring', stiffness: 520, damping: 40, opacity: { duration: .15 } }} style={{ overflow: 'hidden' }}>
-      <div className={`frow ${flash ? 'flash' : ''}`} data-cursor={isCursor} onMouseMove={() => !isCursor && onFocus()} onClick={onToggle} role="option" aria-selected={isCursor}>
-        <Dots level={f.level} />
+      <div className={`frow ${flash ? 'flash' : ''}`} data-cursor={isCursor} onMouseMove={() => !isCursor && onFocus()} onClick={onOpen} role="option" aria-selected={isCursor}>
         <div className="gl">{f.type === 'image' ? <img src={safeImageSrc(f.value)} alt="" /> : <EntityGlyph type={f.type} size={15} />}</div>
-        <div style={{ minWidth: 0 }}>
+        <div className="fr-main">
           <div className="v truncate selectable">
             {displayValue(f)}
-            {conflict ? <span className="tag warn" style={{ marginLeft: 8 }} title="Other sources gave a different answer to the same question"><Zap size={10} />Conflict</span> : null}
-            {f.status === 'unsure' && <span className="tag mute" style={{ marginLeft: 8 }}>Not sure</span>}
-            {inGraph && <span className="tag mute" style={{ marginLeft: 8 }}>On graph</span>}
+            {conflict ? <span className="tag warn" title="Other sources gave a different answer to the same question"><Zap size={10} />Conflict</span> : null}
+            {f.status === 'unsure' && <span className="tag mute">Not sure</span>}
+            {inGraph && <span className="tag mute">On graph</span>}
           </div>
           <div className="sub truncate" title={sentence}>{sentence}</div>
         </div>
-        <div className="srcs" title={names.join(', ')}>
-          <span className="sn num">{names.slice(0, 2).join(' · ')}{names.length > 2 ? ` +${names.length - 2}` : ''}</span>
+        <div className="fr-meta" title={`${Math.round(f.score * 100)}% confidence · ${plural(sources, 'independent source')}`}>
+          <span className="pct num" style={{ color: `var(--lvl${f.level})` }}>{Math.round(f.score * 100)}%</span>
+          <span className="sn num">{plural(sources, 'source')}</span>
         </div>
         <div className="acts" onClick={(e) => e.stopPropagation()}>
           {tab === 'review' ? (<>
@@ -393,7 +300,6 @@ const Row = memo(function Row({ f, tab, subject, isCursor, isOpen, flash, onFocu
           )}
         </div>
       </div>
-      {isOpen && <div className="frow-detail"><FindingDetail f={f} subject={subject} compact /></div>}
     </motion.div>
   );
 });

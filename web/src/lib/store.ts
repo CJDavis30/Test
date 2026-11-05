@@ -8,7 +8,7 @@ import { contextBoost, parseContext } from '@shared/scoring';
 import { api, streamRun } from './api';
 
 export type View = 'graph' | 'table' | 'timeline' | 'report';
-export type SheetTab = 'review' | 'accepted' | 'rejected';
+export type SheetTab = 'overview' | 'review' | 'accepted' | 'rejected';
 export type SettingsTab = 'general' | 'sources' | 'ai' | 'audit';
 
 export interface RunState {
@@ -169,7 +169,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         if (!snap.nodes.some((n) => n.id === node.id)) set({ snap: { ...snap, nodes: [...snap.nodes, node] } });
         if (!run) { get().select([node.id]); continue; }
         get().attachRun(node.id, run.id, opts.context ?? '');
-        if (first && opts.open !== false) { get().openSheet(node.id); set({ selection: [node.id], selectedEdge: null }); }
+        if (first && opts.open !== false) { get().openSheet(node.id, 'overview'); set({ selection: [node.id], selectedEdge: null }); }
         first = false;
       } catch (e: any) {
         get().toast(e?.message ?? 'Could not add that');
@@ -199,7 +199,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     const ctx = context || prevCtx;
     const { run } = await api.post<{ run: { id: string } }>(`/api/cases/${caseId}/lookups`, { nodeId, context: ctx });
     get().attachRun(nodeId, run.id, ctx);
-    if (open) get().openSheet(nodeId);
+    if (open) get().openSheet(nodeId, 'overview');
   },
 
   openSheet(subjectId, tab = 'review', triage = false) { set({ sheet: { subjectId, tab, triage } }); },
