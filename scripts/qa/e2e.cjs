@@ -233,6 +233,17 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     ok(/60%\+/.test(await p.locator('.conf-pill b').innerText()), 'moving it says what is being shown');
     await conf.fill('0'); await settle(200);
     ok(/All/.test(await p.locator('.conf-pill b').innerText()), 'and it goes back to showing everything');
+    // replay: scrub through the order things were found; leaving restores the live graph and changes nothing stored
+    const before = (await S()).nodes.length;
+    await p.getByRole('button', { name: 'Replay', exact: true }).click(); await settle(300);
+    await p.getByRole('button', { name: 'Pause replay' }).click(); await settle(200);
+    const rs = p.locator('.replay-bar input[type=range]');
+    await rs.fill('0'); await settle(300);
+    ok(/^0\//.test(await p.locator('.replay-when').innerText()), 'replay can scrub back to the start');
+    const max = await rs.getAttribute('max'); await rs.fill(String(max)); await settle(300);
+    ok(new RegExp(`^${max}/${max}`).test(await p.locator('.replay-when').innerText()), 'and forward to everything found');
+    await p.getByRole('button', { name: 'Exit replay' }).click(); await settle(300);
+    ok(await p.locator('.replay-bar').count() === 0 && (await S()).nodes.length === before, 'leaving replay restores the live graph and changes nothing');
     const A = await nodePos('Mara Linden'), B = await nodePos('Mara L. Linden');
     if (A && B) {
       const n0 = (await S()).nodes.length;

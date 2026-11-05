@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check, Orbit, Shuffle, Wand2, Rocket, ShieldAlert } from 'lucide-react';
+import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check, Orbit, Shuffle, Wand2, Rocket, ShieldAlert, History, Pause } from 'lucide-react';
 import { startAutopilot } from '../lib/autopilot';
 import { LEVEL_LABEL } from '@shared/types';
 import { ENTITY_LABEL } from '@shared/types';
@@ -37,8 +37,25 @@ export function GraphView() {
   const [mode, setMode] = useState<LayoutMode>(() => { try { return localStorage.getItem('plexus.layout') === 'free' ? 'free' : 'organized'; } catch { return 'organized'; } });
   const modeRef = useRef(mode); modeRef.current = mode;
 
-  const nodes = snap?.nodes ?? [];
-  const edges = snap?.edges ?? [];
+  const allNodes = snap?.nodes ?? [];
+  const allEdges = snap?.edges ?? [];
+  // Replay: watch the investigation grow in the order things were found. Nothing is changed, only what is shown.
+  const [replay, setReplay] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const replayRef = useRef(false); replayRef.current = replay !== null;
+  const order = useMemo(() => [...allNodes].filter((n) => n.state !== 'seed').sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)), [allNodes]);
+  const { nodes, edges } = useMemo(() => {
+    if (replay === null) return { nodes: allNodes, edges: allEdges };
+    const keep = new Set(allNodes.filter((n) => n.state === 'seed').map((n) => n.id));
+    for (const n of order.slice(0, replay)) keep.add(n.id);
+    return { nodes: allNodes.filter((n) => keep.has(n.id)), edges: allEdges.filter((e) => keep.has(e.from) && keep.has(e.to)) };
+  }, [replay, allNodes, allEdges, order]);
+  useEffect(() => {
+    if (!playing) return;
+    const t = setInterval(() => setReplay((r) => { const next = (r ?? 0) + 1; if (next >= order.length) { setPlaying(false); return order.length; } return next; }), Math.max(120, Math.min(600, 6000 / Math.max(1, order.length))));
+    return () => clearInterval(t);
+  }, [playing, order.length]);
+  const replayWhen = replay !== null && replay > 0 ? order[Math.min(replay, order.length) - 1] : null;
   const nodeMap = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
   // --- engine lifecycle ---------------------------------------------------------------------------------------------
@@ -52,7 +69,7 @@ export function GraphView() {
       onHover: setHover,
       onSettle: (items) => {
         const st = useStore.getState();
-        if (!st.caseId || !st.snap) return;
+        if (!st.caseId || !st.snap || replayRef.current) return;
         void api.post(`/api/cases/${st.caseId}/positions`, { items }).catch(() => {});
         // Keep the store's idea of "pinned" in step with what the user did on the canvas, otherwise the next data
         // change would think those nodes are unpinned and let them drift.
@@ -126,9 +143,9 @@ export function GraphView() {
   return (
     <div className="stage" ref={wrap} data-view="graph">
       <canvas ref={canvas} aria-label="Relationship graph" role="img" />
-      {nodes.length === 0 && <Welcome />}
+      {allNodes.length === 0 && <Welcome />}
 
-      {nodes.length > 0 && (
+      {allNodes.length > 0 && (
         <>
           <div className="stage-top">
             <AnimatePresence>
@@ -152,7 +169,18 @@ export function GraphView() {
             {weakIds.length > 0 && (
               <button className="float-pill" aria-pressed={stressMap} onClick={() => setStressMap(!stressMap)} title="Highlight the conclusions that hang on a single source: if that source is wrong, they fall apart"><ShieldAlert size={14} /> {stressMap ? 'Showing' : 'Show'} {weakIds.length} weak {weakIds.length === 1 ? 'point' : 'points'}</button>
             )}
-            {nodes.some((n) => n.score !== undefined) && (
+            {order.length > 1 && replay === null && (
+              <button className="float-pill" onClick={() => { setReplay(0); setPlaying(true); }} title="Watch the investigation grow in the order things were found"><History size={14} /> Replay</button>
+            )}
+            {replay !== null && (
+              <div className="float-pill replay-bar" role="group" aria-label="Replay the investigation">
+                <button className="btn icon sm ghost" aria-label={playing ? 'Pause replay' : 'Play replay'} onClick={() => { if (!playing && replay >= order.length) setReplay(0); setPlaying(!playing); }}>{playing ? <Pause size={13} /> : <Play size={13} />}</button>
+                <input type="range" min={0} max={order.length} step={1} value={replay} onChange={(e) => { setPlaying(false); setReplay(Number(e.target.value)); }} aria-label="Replay position" aria-valuetext={`${replay} of ${order.length} things found`} />
+                <span className="num replay-when">{replayWhen ? `${replay}/${order.length} · ${new Date(replayWhen.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : `0/${order.length}`}</span>
+                <button className="btn icon sm ghost" aria-label="Exit replay" onClick={() => { setPlaying(false); setReplay(null); }}><X size={13} /></button>
+              </div>
+            )}
+            {replay === null && nodes.some((n) => n.score !== undefined) && (
               <label className="float-pill conf-pill" title="Fade everything the evidence supports less than this">
                 <span>Confidence</span>
                 <input type="range" min={0} max={90} step={5} value={Math.round(minScore * 100)} onChange={(e) => setMinScore(Number(e.target.value) / 100)} aria-label="Minimum confidence to show on the graph" aria-valuetext={minScore === 0 ? 'Showing everything' : `Showing ${Math.round(minScore * 100)} percent and above`} />
