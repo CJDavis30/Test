@@ -20,8 +20,8 @@ const ORDER: EntityType[] = ['person', 'org', 'email', 'phone', 'username', 'acc
 export function buildReport(c: CaseInfo, nodes: GraphNode[], edges: GraphEdge[], accepted: Finding[], opts: { redact?: boolean; integrity?: { auditOk: boolean; auditCount: number; evidenceChecked: number; altered: number } } = {}): string {
   const mask = (s: string) => (opts.redact ? s.replace(/[A-Za-z0-9]/g, '•') : s);
   const lines: string[] = [];
-  lines.push(`# ${c.name}`, '');
-  if (c.purpose) lines.push(`**Purpose:** ${c.purpose}`, '');
+  lines.push(`# ${mask(c.name)}`, '');
+  if (c.purpose) lines.push(`**Purpose:** ${mask(c.purpose)}`, '');
   lines.push(`_Generated ${new Date().toISOString().slice(0, 10)} · ${nodes.length} entities · ${edges.length} relationships_`, '');
 
   const confirmed = nodes.filter((n) => n.state === 'confirmed' || n.state === 'seed');
@@ -46,11 +46,11 @@ export function buildReport(c: CaseInfo, nodes: GraphNode[], edges: GraphEdge[],
       const marks: number[] = [];
       for (const f of fs) for (const e of f.evidence) {
         ref++;
-        refs.push(`${ref}. ${e.adapterName}${e.url ? ` — ${e.url}` : ''}${e.snippet ? ` — “${e.snippet}”` : ''} (retrieved ${new Date(e.retrievedAt).toISOString().slice(0, 10)}${e.hash ? ` · fingerprint ${e.hash.slice(0, 12)}` : ''})`);
+        refs.push(`${ref}. ${e.adapterName}${opts.redact ? ' — [details redacted]' : `${e.url ? ` — ${e.url}` : ''}${e.snippet ? ` — “${e.snippet}”` : ''}`} (retrieved ${new Date(e.retrievedAt).toISOString().slice(0, 10)}${e.hash ? ` · fingerprint ${e.hash.slice(0, 12)}` : ''})`);
         marks.push(ref);
       }
       lines.push(`- **${mask(n.label)}**${conf}${marks.length ? ` ${compressRefs(marks)}` : ''}`);
-      if (n.notes) lines.push(`  - Note: ${n.notes.replace(/\n/g, ' ')}`);
+      if (n.notes) lines.push(`  - Note: ${mask(n.notes.replace(/\n/g, ' '))}`);
     }
     lines.push('');
   }

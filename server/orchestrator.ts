@@ -10,6 +10,7 @@ import { getSecret } from './config';
 import { uid, type Store } from './store';
 import { howFor, lookupUrl } from './adapters/how';
 import { fingerprint } from './integrity';
+import { breaker, PausedError } from './breaker';
 
 const MAX_CLAIMS_PER_ADAPTER = 150;
 const CROSS_ID = 'cross-check';
@@ -188,7 +189,9 @@ export class Orchestrator {
       } catch (err: any) {
         const ms = Date.now() - t0;
         const msg = String(err?.message ?? err);
-        if (err instanceof RateLimitedError) {
+        if (err instanceof PausedError) {
+          setProgress(a.id, { state: 'skipped', ms, note: `Paused: it failed ${err.fails} times in a row. Trying again at ${new Date(err.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` });
+        } else if (err instanceof RateLimitedError) {
           store.recordSource(a.id, false, ms, 'Rate limited');
           setProgress(a.id, { state: 'rate_limited', ms, error: 'Rate limited — fell back to the next source' });
         } else if (err instanceof NeedsKeyError) {
@@ -263,9 +266,19 @@ export class Orchestrator {
     const cacheKey = `${a.id}|${type}|${key}`;
     const hit = this.store.cacheGet<Claim[]>(cacheKey);
     if (hit) return { claims: hit, cached: true };
+    const gate = breaker.allow(a.id);
+    if (!gate.ok) throw new PausedError(gate.until, gate.fails);
     await this.throttle.wait(a.id, a.minIntervalMs ?? 0);
     const sig = AbortSignal.any([signal, AbortSignal.timeout(ADAPTER_TIMEOUT_MS)]);
-    const claims = await this.withRetry(() => a.run({ type, value, key }, makeCtx(sig, getSecret(a.id))), sig);
+    let claims: Claim[];
+    try {
+      claims = await this.withRetry(() => a.run({ type, value, key }, makeCtx(sig, getSecret(a.id))), sig);
+    } catch (e: any) {
+      // Only a genuine failure of the source counts against it; a cancelled run, a rate limit or a missing key says nothing about its health.
+      if (e instanceof RateLimitedError || e instanceof NeedsKeyError || signal.aborted) breaker.neutral(a.id); else breaker.failure(a.id);
+      throw e;
+    }
+    breaker.success(a.id);
     this.store.cachePut(cacheKey, a.cacheTtlMs ?? 6 * 3600_000, claims);
     return { claims, cached: false };
   }
@@ -398,14 +411,16 @@ export class Orchestrator {
     return { checked: cands.length, added };
   }
 
-  private async withRetry<T>(fn: () => Promise<T>, signal: AbortSignal): Promise<T> {
-    try {
-      return await fn();
-    } catch (e: any) {
-      const transient = !(e instanceof RateLimitedError) && !signal.aborted && /fetch failed|ECONN|ETIMEDOUT|HTTP 5\d\d|socket/i.test(String(e?.message ?? e) + String(e?.cause?.code ?? '')) && !/ENOTFOUND|EAI_AGAIN/.test(String(e?.cause?.code ?? ''));
-      if (!transient) throw e;
-      await new Promise((r) => setTimeout(r, 600));
-      return fn();
+  private async withRetry<T>(fn: () => Promise<T>, signal: AbortSignal, delays = [500, 1500]): Promise<T> {
+    for (let i = 0; ; i++) {
+      try {
+        return await fn();
+      } catch (e: any) {
+        const text = String(e?.message ?? e) + String(e?.cause?.code ?? '');
+        const transient = !(e instanceof RateLimitedError) && !(e instanceof NeedsKeyError) && !signal.aborted && /fetch failed|ECONN|ETIMEDOUT|EAI_AGAIN|HTTP 5\d\d|socket|network/i.test(text) && !/ENOTFOUND/i.test(text);
+        if (!transient || i >= delays.length) throw e;
+        await new Promise((r) => setTimeout(r, delays[i] * (0.75 + Math.random() * 0.5)));
+      }
     }
   }
 }

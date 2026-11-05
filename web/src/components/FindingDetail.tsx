@@ -156,6 +156,23 @@ function ScoreChips({ f }: { f: Finding }) {
   );
 }
 
+/** Sources that could check this finding further but are switched off or need a key. Tells you what a key would buy you. */
+function MoreChecks({ f }: { f: Finding }) {
+  const sources = useStore((s) => s.sources);
+  const openSettings = useStore((s) => s.openSettings);
+  if (f.level >= 4) return null;
+  const used = new Set(f.evidence.map((e) => e.adapter));
+  const idle = sources.filter((x) => !x.demo && x.accepts.includes(f.type) && !used.has(x.id) && ((x.requiresKey && !x.keyOptional && !x.keySet) || !x.enabled));
+  if (idle.length === 0) return null;
+  return (
+    <div className="morechecks">
+      <b>More ways to check this</b>
+      <span>{idle.slice(0, 4).map((x) => x.name).join(', ')}{idle.length > 4 ? ` and ${idle.length - 4} more` : ''} {idle.length === 1 ? 'is' : 'are'} switched off or need{idle.length === 1 ? 's' : ''} an API key.</span>
+      <button className="linkish" onClick={() => openSettings('sources')}>Open sources</button>
+    </div>
+  );
+}
+
 /** Everything someone needs to approve or reject a finding. The decision bar stays pinned at the bottom while the evidence scrolls. */
 export function FindingDetail({ f, subject, onDecide }: { f: Finding; subject: Subject; onDecide?: (s: 'accepted' | 'rejected' | 'unsure') => void }) {
   const all = useStore((s) => s.findings);
@@ -205,6 +222,7 @@ export function FindingDetail({ f, subject, onDecide }: { f: Finding; subject: S
         <p className="plain selectable">{hedge(explainRelation(f.relation, subject.label, displayValue(f)), f.level, f.evidence.some((e) => e.polarity === 'against'))}</p>
 
         <SourceCards f={f} />
+        <MoreChecks f={f} />
       </div>
 
       {onDecide && (

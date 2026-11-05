@@ -1,4 +1,4 @@
-// End-to-end browser QA (120+ checks). Needs `npm i -D playwright` and a server running in demo mode with fast demo sources:
+// End-to-end browser QA (130+ checks). Needs `npm i -D playwright` and a server running in demo mode with fast demo sources:
 //   PLEXUS_HOME=$(mktemp -d) PLEXUS_PORT=4317 PLEXUS_DEMO_FAST=1 node dist/server/index.mjs &
 //   curl -X PUT localhost:4317/api/settings -H 'x-plexus: 1' -H 'content-type: application/json' -d '{"demoMode":true}'
 //   node scripts/qa/e2e.cjs      (env OUT=<dir> for failure screenshots)
@@ -395,6 +395,41 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     await p.locator('.frow').first().hover({ timeout: 5000 }); await expandAll(p.locator('.detail-pane'));
     ok(await p.locator('.detail-pane .fp').count() >= 1, 'evidence rows show their fingerprint');
     await p.keyboard.press('Escape'); await settle(400);
+  });
+
+  await section('portability: import, search across cases, exports, shortcuts', async () => {
+    const cid = (await S()).caseId;
+    const exp = await api('GET', `/api/cases/${cid}/export`);
+    // import through the palette's file picker
+    await p.keyboard.press('Control+k'); await settle(400);
+    await p.keyboard.type('import a case'); await settle(300);
+    const [chooser] = await Promise.all([p.waitForEvent('filechooser', { timeout: 5000 }), p.locator('.pitem', { hasText: 'from a Plexus export' }).click()]);
+    await chooser.setFiles({ name: 'case.plexus.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(exp)) });
+    await p.waitForFunction((old) => window.__plexusStore.getState().caseId !== old, cid, { timeout: 8000 }).catch(() => {});
+    await settle(600);
+    const s1 = await S();
+    ok(s1.caseId !== cid && /imported/.test(s1.cases.find((c) => c.id === s1.caseId)?.name ?? ''), 'importing a Plexus export opens it as a new case');
+    ok(s1.nodes.length === exp.nodes.length, 'every entity came across');
+    ok((await S()).toasts.some((t) => /evidence verified/.test(t)), 'it says the evidence was verified');
+    // search the other case from the palette
+    const name = exp.nodes.find((n) => n.type === 'person')?.label;
+    await p.keyboard.press('Control+k'); await settle(300); await p.keyboard.type(name.slice(0, 8)); await settle(900);
+    ok(await p.locator('.pitem', { hasText: /in “/ }).count() >= 1, 'the palette finds the same entity in another case');
+    await p.keyboard.press('Escape'); await settle(300);
+    // exports
+    const html = await (await p.request.get(`http://127.0.0.1:4317/api/cases/${cid}/report.html`)).text();
+    ok(/Print or save as PDF/.test(html) && /Method and integrity/.test(html), 'printable HTML report');
+    const gml = await (await p.request.get(`http://127.0.0.1:4317/api/cases/${cid}/graphml`)).text();
+    ok(/<graphml/.test(gml) && (gml.match(/<node /g) ?? []).length === exp.nodes.length, 'GraphML has every node');
+    // shortcuts panel
+    await p.keyboard.press('?'); await settle(400);
+    ok(await p.locator('.shortcuts').count() === 1 && /reviewing findings/i.test(await p.locator('.shortcuts').innerText()), '? opens the shortcuts list');
+    await p.keyboard.press('Escape'); await settle(400);
+    ok(await p.locator('.shortcuts').count() === 0, 'Esc closes it');
+    // switch back to the original case and remove the imported copy so later sections see what they expect
+    const imported = (await S()).caseId;
+    await p.evaluate((id) => window.__plexusStore.getState().loadCase(id), cid); await settle(800);
+    await api('DELETE', `/api/cases/${imported}`); await p.evaluate(() => window.__plexusStore.getState().refreshCases()); await settle(300);
   });
 
   await section('appearance + chrome toggles', async () => {

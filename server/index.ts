@@ -17,6 +17,8 @@ import { makeBriefEnhancer, aiSettings, aiReady, listModels, complete, aiLinkHyp
 import { inferLinks } from './links';
 import { buildReport } from './report';
 import { verifyEvidence } from './integrity';
+import { breaker } from './breaker';
+import { ImportError, importCase, markdownToHtml, toCsv, toGraphML } from './portable';
 import { detect, detectMany, extractEntities } from '../shared/detect';
 import { keyFor } from '../shared/normalize';
 import { makeCtx } from './http';
@@ -88,6 +90,10 @@ export async function createApp(store = new Store()) {
     const id = c.req.param('id');
     if (!store.getCase(id)) return c.json({ error: 'not found' }, 404);
     return c.json({ checkedAt: Date.now(), audit: store.verifyAudit(id), evidence: verifyEvidence(store.listFindings(id)), database: store.integrityCheck() });
+  });
+  app.get('/api/search', (c) => {
+    const q = (c.req.query('q') ?? '').trim();
+    return c.json({ hits: q.length >= 2 ? store.searchAll(q.slice(0, 200)) : [] });
   });
   app.get('/api/backups', (c) => c.json({ backups: store.listBackups() }));
   app.post('/api/backups', (c) => { const b = store.makeBackup(); return c.json({ backup: b, backups: store.listBackups() }); });
@@ -256,6 +262,31 @@ export async function createApp(store = new Store()) {
     return c.json({ plexus: 1, exportedAt: Date.now(), case: cs, nodes: store.listNodes(id), edges: store.listEdges(id), findings, audit: store.listAudit(id), integrity: { audit: store.verifyAudit(id), evidence: verifyEvidence(findings) } });
   });
 
+  const caseOr404 = (c: any) => { const id = c.req.param('id'); const cs = store.getCase(id); return cs ? { id, cs } : null; };
+  app.get('/api/cases/:id/report.html', (c) => {
+    const x = caseOr404(c); if (!x) return c.json({ error: 'not found' }, 404);
+    const redact = c.req.query('redact') === '1';
+    const ev = verifyEvidence(store.listFindings(x.id)), au = store.verifyAudit(x.id);
+    const md = buildReport(x.cs, store.listNodes(x.id), store.listEdges(x.id), store.listFindings(x.id, { status: ['accepted'] }), { redact, integrity: { auditOk: au.ok, auditCount: au.count, evidenceChecked: ev.checked, altered: ev.altered.length } });
+    store.audit(x.id, 'export.html', redact ? 'html report (redacted)' : 'html report');
+    return c.html(markdownToHtml(md, redact ? 'Report (redacted)' : x.cs.name));
+  });
+  app.get('/api/cases/:id/graphml', (c) => {
+    const x = caseOr404(c); if (!x) return c.json({ error: 'not found' }, 404);
+    store.audit(x.id, 'export.graphml', 'graph');
+    return c.body(toGraphML(x.cs, store.listNodes(x.id), store.listEdges(x.id)), 200, { 'content-type': 'application/graphml+xml; charset=utf-8' });
+  });
+  app.get('/api/cases/:id/csv', (c) => {
+    const x = caseOr404(c); if (!x) return c.json({ error: 'not found' }, 404);
+    store.audit(x.id, 'export.csv', 'entities and relationships');
+    return c.json(toCsv(store.listNodes(x.id), store.listEdges(x.id)));
+  });
+  app.post('/api/import', async (c) => {
+    if (Number(c.req.header('content-length') ?? 0) > 80_000_000) return c.json({ error: 'That file is too large.' }, 413);
+    let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'That file is not valid JSON.' }, 400); }
+    try { return c.json(importCase(store, body)); } catch (e: any) { if (e instanceof ImportError) return c.json({ error: e.message }, 400); throw e; }
+  });
+
   // --- sources & settings -------------------------------------------------------------------------------------
   app.get('/api/sources', (c) => c.json({ sources: sourceInfo(store), demo: demoMode(store) }));
   app.patch('/api/sources/:id', async (c) => {
@@ -266,6 +297,7 @@ export async function createApp(store = new Store()) {
     if (typeof b.priority === 'number') store.setSourcePriority(id, Math.round(b.priority));
     return c.json({ ok: true });
   });
+  app.post('/api/sources/:id/resume', (c) => { breaker.reset(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/sources/:id/test', async (c) => {
     const a = getAdapter(c.req.param('id'));
     if (!a) return c.json({ error: 'unknown source' }, 404);
@@ -275,6 +307,7 @@ export async function createApp(store = new Store()) {
       if (a.requiresKey && !a.keyOptional && !key) return c.json({ ok: false, error: 'No API key set', ms: 0 });
       const claims = await a.run({ type: a.selfTest.type, value: a.selfTest.value, key: keyFor(a.selfTest.type, a.selfTest.value) }, makeCtx(AbortSignal.timeout(25_000), key));
       store.recordSource(a.id, true, Date.now() - t0);
+      breaker.success(a.id); // a passing manual test is proof enough to resume
       return c.json({ ok: true, ms: Date.now() - t0, count: claims.length, sample: claims.slice(0, 3).map((x) => `${x.type}: ${x.value}`) });
     } catch (e: any) {
       const msg = String(e?.message ?? e).slice(0, 200);

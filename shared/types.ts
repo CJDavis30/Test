@@ -239,6 +239,8 @@ export interface SourceInfo {
   keySet: boolean;
   priority: number;
   health: { ok: number; fail: number; lastError?: string; lastOkAt?: number; avgMs?: number };
+  /** Set while the circuit breaker has paused this source after repeated failures. */
+  pausedUntil?: number;
   reliability: number;
   /** Trust after learning from the investigator's accept/reject decisions (equals `reliability` until there are any). */
   trust: number;

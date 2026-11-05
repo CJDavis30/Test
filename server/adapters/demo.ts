@@ -287,3 +287,17 @@ export const DEMO_SEEDS = [
   { type: 'domain' as const, value: 'northwind-labs.example', label: 'Domain' },
   { type: 'person' as const, value: 'Mara Linden', label: 'Name' },
 ];
+
+/**
+ * Ground truth for the fictional world, used by the accuracy benchmark (test/calibration.test.ts). `truth` is every entity
+ * that really belongs to this world; `traps` are the deliberate false leads (a namesake, her handle, a holiday location).
+ * Keys are `${type}|${canonical key}` so they compare equal to findings regardless of how the value was written.
+ */
+export function demoGroundTruth(): { truth: Set<string>; traps: Set<string>; ambiguous: Set<string> } {
+  const k = (r: Ref) => `${r.type}|${keyFor(r.type, r.value, r.attrs)}`;
+  const traps = new Set([namesake, uReddit, reddit, lisbon].map(k));
+  const ambiguous = new Set([dallas].map(k)); // an IP's approximate geolocation: neither right nor wrong
+  const truth = new Set<string>();
+  for (const l of LINKS) for (const r of [l.a, l.b]) { const key = k(r); if (!traps.has(key) && !ambiguous.has(key)) truth.add(key); }
+  return { truth, traps, ambiguous };
+}

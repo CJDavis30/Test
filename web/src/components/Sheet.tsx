@@ -96,7 +96,7 @@ export function Sheet() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState();
-      if (!st.sheet || st.palette || st.settingsOpen) return;
+      if (!st.sheet || st.palette || st.settingsOpen || st.shortcuts) return;
       if (e.key === 'Escape') {
         if (srcOpen) return;
         e.preventDefault();

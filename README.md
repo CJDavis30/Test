@@ -24,7 +24,7 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 169 unit/integration tests
+npm test           # 191 unit/integration tests
 npm run typecheck
 ```
 
@@ -89,9 +89,25 @@ A finding is not trusted because one source said so. Each one shows its trail, a
 No fake precision: the UI shows four levels (Weak / Fair / Good / Strong) and *why*.
 
 - Each piece of evidence has a claim strength × the source's **reliability**. `belief = 1 − Π(1 − pᶠ)` over independent **families**: two scrapers of the same dataset count once, two unrelated sources compound.
+- **Contradictions** (a cross-check found a different owner, name or place) cut a finding's score hard but cannot erase support from several strong, independent sources, so a disputed finding stays visible and labelled instead of vanishing.
 - **Conflicts**: two competing single-valued claims (two home cities) are linked; the weaker is demoted and both are flagged.
 - **Context re-ranks, it never inflates truth.** Typing "employer" lifts organizations in the *order* but leaves their confidence untouched.
 - **It learns from you.** Every accept/reject nudges that source's reliability for that entity type (a Bayesian blend of the prior and your decisions, fully undoable). Settings → Sources shows each source's learned trust and how many decisions it rests on.
+
+### Measured accuracy
+
+`test/calibration.test.ts` runs five lookups across the demo world, which has known ground truth and deliberate false leads (a namesake, her handle, a holiday location), and scores the result: **precision 1.00 where Plexus says "likely", recall 1.00 on real findings, AUC 1.000** (every true finding outranks every false lead; the best false lead scores 37%, the weakest true finding 40%). It also checks that no confidence band overclaims and that bands are ordered. Absolute calibration is deliberately *not* asserted: the demo world is about 95% true, so it would only reflect that base rate. Tuning from this benchmark raised the contradiction penalty after it showed a handle owned by a namesake still scoring 43%. Run it with `npx vitest run test/calibration.test.ts`; the table prints in verbose mode.
+
+### Reliability
+
+- **Circuit breaker.** A source that fails three times in a row is paused (30 s, doubling to 15 min); lookups skip it and the next source in its fallback chain answers immediately instead of everyone waiting on a timeout. After the cooldown one trial call decides. Rate limits, missing keys and cancelled runs never count against a source. Settings → Sources shows *Paused until…* with a **Resume** button, and a passing **Test** resumes it too.
+- **Retries** for transient network errors: two retries with exponential backoff and jitter. Cached answers never touch a paused source.
+
+### Portability
+
+- **Import** any Plexus export as a *new* case (nothing is overwritten; ids are re-issued so importing twice is safe). Evidence fingerprints are carried over, so tampering with the file shows up as "altered". Hostile files are validated and capped.
+- **Exports:** Markdown, printable **HTML** (Print → Save as PDF, with the integrity section), **GraphML** (Gephi, yEd, Cytoscape), **CSV** (entities and relationships, spreadsheet-safe) and full JSON. Redacted exports mask names, notes, quotes and links.
+- **Search across every case** from ⌘K, and a **shortcuts list** on `?`.
 
 ### Integrity and safety (chain of custody)
 
@@ -182,9 +198,9 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 169 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging.
+- 191 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
-- The UI in a real browser (Chromium): every view in light and dark; **120+ end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
+- The UI in a real browser (Chromium): every view in light and dark; **128 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
 - The production server bundle runs standalone and serves the app; `npm run dev` works including streaming through the proxy.
 - Behaviour when **every** source fails (this sandbox's reality): honest per-source errors, a "couldn't reach most sources" state, and no fake "nothing found".
@@ -211,6 +227,6 @@ web/       React UI: design system, canvas graph engine, findings sheet, views, 
 desktop/   Electron shell + tested helpers
 scripts/mac/ install / update / uninstall
 assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
-test/      169 tests
+test/      191 tests
 scripts/qa/  browser end-to-end + stress scripts
 ```

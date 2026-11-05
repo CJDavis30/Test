@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, FlaskConical, CornerDownLeft, Eraser, KeyRound, Cpu,
+  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, FlaskConical, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard,
 } from 'lucide-react';
 import { detect, detectMany } from '@shared/detect';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
+import { pickAndImport } from '../lib/portable';
 import { EntityGlyph } from '../lib/icons';
 import { Kbd, MOD, download, useDialog } from './ui';
 
@@ -48,6 +49,15 @@ export function Palette() {
   useEffect(() => { const el = ref.current; if (el) { el.style.height = '24px'; el.style.height = `${Math.min(96, el.scrollHeight)}px`; } }, [q]);
 
   const nodes = s.snap?.nodes ?? [];
+  // Look in the other cases too, so "have I seen this before?" is one keystroke away.
+  const [elsewhere, setElsewhere] = useState<{ caseId: string; caseName: string; nodeId: string; type: EntityType; label: string }[]>([]);
+  useEffect(() => {
+    const t = q.trim();
+    if (t.length < 2 || t.includes('\n')) { setElsewhere([]); return; }
+    let live = true;
+    const h = setTimeout(() => { api.get<{ hits: typeof elsewhere }>(`/api/search?q=${encodeURIComponent(t)}`).then((r) => { if (live) setElsewhere(r.hits.filter((x) => x.caseId !== s.caseId).slice(0, 5)); }).catch(() => {}); }, 160);
+    return () => { live = false; clearTimeout(h); };
+  }, [q, s.caseId]);
   const items: Item[] = useMemo(() => {
     const out: Item[] = [];
     const t = q.trim();
@@ -67,6 +77,7 @@ export function Palette() {
       for (const n of nodes.filter((n) => n.label.toLowerCase().includes(needle) || n.value.toLowerCase().includes(needle)).slice(0, 6))
         out.push({ id: `n-${n.id}`, group: 'In this case', label: n.label, sub: ENTITY_LABEL[n.type], icon: <EntityGlyph type={n.type} size={15} />, run: () => { s.setView('graph'); s.select([n.id]); void s.openNode(n.id); } });
     }
+    for (const h of elsewhere) out.push({ id: `x-${h.nodeId}`, group: 'In other cases', label: h.label, sub: `${ENTITY_LABEL[h.type]} · in “${h.caseName}”`, icon: <EntityGlyph type={h.type} size={15} />, run: async () => { await s.loadCase(h.caseId); s.setView('graph'); s.select([h.nodeId]); window.dispatchEvent(new CustomEvent('plexus:pan', { detail: h.nodeId })); } });
     const cmds: Item[] = [
       { id: 'v-graph', group: 'Go to', label: 'Graph', icon: <Network size={15} />, run: () => s.setView('graph') },
       { id: 'v-table', group: 'Go to', label: 'Table', icon: <Table2 size={15} />, run: () => s.setView('table') },
@@ -76,6 +87,17 @@ export function Palette() {
       { id: 'export', group: 'Case', label: 'Export case as JSON', sub: 'Includes evidence and audit log', icon: <Download size={15} />, keywords: 'download backup', run: async () => {
         if (!s.caseId) return; const j = await api.get<any>(`/api/cases/${s.caseId}/export`); download(`${s.snap?.case.name ?? 'case'}.plexus.json`, JSON.stringify(j, null, 2), 'application/json');
       } },
+      { id: 'export-html', group: 'Case', label: 'Save printable report (HTML, PDF-ready)', sub: 'Open it and choose Print → Save as PDF', icon: <FileText size={15} />, keywords: 'pdf print report', run: async () => {
+        if (!s.caseId) return; const t = await (await fetch(`/api/cases/${s.caseId}/report.html`)).text(); download(`${s.snap?.case.name ?? 'case'}.report.html`, t, 'text/html');
+      } },
+      { id: 'export-graphml', group: 'Case', label: 'Export graph as GraphML', sub: 'Opens in Gephi, yEd and Cytoscape', icon: <Download size={15} />, keywords: 'gephi network', run: async () => {
+        if (!s.caseId) return; const t = await (await fetch(`/api/cases/${s.caseId}/graphml`)).text(); download(`${s.snap?.case.name ?? 'case'}.graphml`, t, 'application/graphml+xml');
+      } },
+      { id: 'export-csv', group: 'Case', label: 'Export entities and relationships as CSV', sub: 'Two files, spreadsheet-safe', icon: <Download size={15} />, keywords: 'spreadsheet excel', run: async () => {
+        if (!s.caseId) return; const c = await api.get<{ entities: string; relationships: string }>(`/api/cases/${s.caseId}/csv`); const n = s.snap?.case.name ?? 'case';
+        download(`${n}.entities.csv`, c.entities, 'text/csv'); setTimeout(() => download(`${n}.relationships.csv`, c.relationships, 'text/csv'), 250);
+      } },
+      { id: 'import-case', group: 'Case', label: 'Import a case from a Plexus export…', sub: 'Creates a new case; nothing is overwritten', icon: <Upload size={15} />, keywords: 'open restore load json', run: () => pickAndImport(s) },
       { id: 'tidy', group: 'Graph', label: 'Tidy up the graph layout', sub: 'Forget manual positions and re-organize', icon: <Wand2 size={15} />, keywords: 'layout organize reset', run: () => { s.setView('graph'); setTimeout(() => window.dispatchEvent(new CustomEvent('plexus:tidy')), 80); } },
       { id: 'fit', group: 'Graph', label: 'Fit graph to window', icon: <Maximize2 size={15} />, run: () => { s.setView('graph'); window.dispatchEvent(new CustomEvent('plexus:fit')); } },
       { id: 'ai-links', group: 'Graph', label: 'Suggest links with AI', sub: s.settings?.aiReady.ok ? undefined : 'Turn on AI in Settings first', icon: <Sparkles size={15} />, run: () => { s.setView('graph'); void s.refreshSuggestions(true); s.toast('Looking for connections…'); } },
@@ -84,6 +106,7 @@ export function Palette() {
       { id: 'th-l', group: 'Appearance', label: 'Light mode', icon: <Sun size={15} />, run: () => s.setTheme('light') },
       { id: 'th-d', group: 'Appearance', label: 'Dark mode', icon: <Moon size={15} />, run: () => s.setTheme('dark') },
       { id: 'th-a', group: 'Appearance', label: 'Match system appearance', icon: <Monitor size={15} />, run: () => s.setTheme('auto') },
+      { id: 'keys', group: 'Help', label: 'Keyboard shortcuts', sub: 'Press ? anywhere', icon: <Keyboard size={15} />, keywords: 'help hotkeys', run: () => s.setShortcuts(true) },
       { id: 's-src', group: 'Settings', label: 'Sources & API keys', icon: <KeyRound size={15} />, run: () => s.openSettings('sources') },
       { id: 's-ai', group: 'Settings', label: 'AI model', icon: <Cpu size={15} />, run: () => s.openSettings('ai') },
       { id: 's-gen', group: 'Settings', label: 'Settings', icon: <Cog size={15} />, run: () => s.openSettings('general') },
@@ -97,7 +120,7 @@ export function Palette() {
       ? cmds.filter((c) => `${c.label} ${c.group} ${c.keywords ?? ''}`.toLowerCase().includes(needle))
       : multi.length > 1 ? [] : cmds.slice(0, 9);
     return [...out, ...filtered];
-  }, [q, one, multi, nodes, s]);
+  }, [q, one, multi, nodes, s, elsewhere]);
 
   const run = async (it: Item, alt = false) => { close(); await it.run(alt); };
 

@@ -6,6 +6,7 @@ import { Sidebar, Toolbar, Toasts } from './components/Shell';
 import { GraphView } from './components/GraphView';
 import { Inspector } from './components/Inspector';
 import { Sheet } from './components/Sheet';
+import { Shortcuts } from './components/Shortcuts';
 import { Palette } from './components/Palette';
 import { Settings } from './components/Settings';
 import { Onboarding, ImportDialog } from './components/Welcome';
@@ -40,24 +41,26 @@ export function App() {
   // --- global shortcuts ---------------------------------------------------------------------------------------------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const st = useStore.getState(); // always the live state: this handler outlives the render that created it
       const mod = e.metaKey || e.ctrlKey;
-      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && s.sidebar && !s.sheet && !s.palette && !s.settingsOpen) { s.toggle('sidebar', false); return; }
-      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); s.toggle('palette'); }
-      else if (mod && e.key === ',') { e.preventDefault(); s.openSettings(s.settingsOpen ? null : 'general'); }
-      else if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); s.toggle('sidebar'); }
-      else if (mod && e.key.toLowerCase() === 'i' && !e.altKey) { e.preventDefault(); s.toggle('inspector'); }
-      else if (mod && e.key.toLowerCase() === 'z' && !s.sheet && !isTyping(e.target)) { e.preventDefault(); void s.undo(); }
-      else if (mod && /^[1-4]$/.test(e.key)) { e.preventDefault(); s.setView((['graph', 'table', 'timeline', 'report'] as const)[Number(e.key) - 1]); }
+      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && st.sidebar && !st.sheet && !st.palette && !st.settingsOpen && !st.shortcuts) { st.toggle('sidebar', false); return; }
+      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); st.toggle('palette'); }
+      else if (mod && e.key === ',') { e.preventDefault(); st.openSettings(st.settingsOpen ? null : 'general'); }
+      else if (e.key === '?' && !mod && !isTyping(e.target)) { e.preventDefault(); st.setShortcuts(!st.shortcuts); }
+      else if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); st.toggle('sidebar'); }
+      else if (mod && e.key.toLowerCase() === 'i' && !e.altKey) { e.preventDefault(); st.toggle('inspector'); }
+      else if (mod && e.key.toLowerCase() === 'z' && !st.sheet && !isTyping(e.target)) { e.preventDefault(); void st.undo(); }
+      else if (mod && /^[1-4]$/.test(e.key)) { e.preventDefault(); st.setView((['graph', 'table', 'timeline', 'report'] as const)[Number(e.key) - 1]); }
     };
     // Pasting anywhere (outside a field) opens the palette with what you pasted.
     const onPaste = (e: ClipboardEvent) => {
       if (isTyping(e.target)) return;
       const t = e.clipboardData?.getData('text');
-      if (t && t.trim()) { e.preventDefault(); s.openPalette(t.trim().slice(0, 20000)); }
+      if (t && t.trim()) { e.preventDefault(); useStore.getState().openPalette(t.trim().slice(0, 20000)); }
     };
     window.addEventListener('keydown', onKey); window.addEventListener('paste', onPaste);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('paste', onPaste); };
-  }, [s.sheet, s.settingsOpen]);
+  }, []);
 
   // --- drop a file to extract entities --------------------------------------------------------------------------------
   useEffect(() => {
@@ -79,7 +82,7 @@ export function App() {
   }, []);
 
   // While a dialog is open, the window's drag area (toolbar, sidebar header) must not sit under it: on macOS a drag region swallows clicks on anything above it, including the dialog's close button.
-  const overlayOpen = !!(s.sheet || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
+  const overlayOpen = !!(s.sheet || s.shortcuts || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
   useEffect(() => { document.body.classList.toggle('overlay-open', overlayOpen); return () => document.body.classList.remove('overlay-open'); }, [overlayOpen]);
 
   if (!s.booted) return <div className="app" style={{ display: 'grid', placeItems: 'center' }}><div className="skeleton" style={{ width: 160, height: 14 }} /></div>;
@@ -108,6 +111,7 @@ export function App() {
       <AnimatePresence>{s.sheet && <Sheet key="sheet" />}</AnimatePresence>
       {s.palette && <Palette />}
       {s.settingsOpen && <Settings />}
+      {s.shortcuts && <Shortcuts />}
       {s.settings && !s.settings.onboarded && <Onboarding />}
       {imported && <ImportDialog items={imported} onClose={() => setImported(null)} />}
       {dropping && <div className="dropzone">Drop to extract emails, domains, phones and IPs</div>}

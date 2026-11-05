@@ -171,3 +171,10 @@ body.overlay-open .toolbar, body.overlay-open .sidebar .brand { -webkit-app-regi
 .crash-actions { display: flex; gap: 8px; }
 .drawer-close { display: none; margin-left: auto; -webkit-app-region: no-drag; }
 @media (max-width: 980px) { .drawer-close { display: grid; } }
+
+.shortcuts { width: min(760px, calc(100vw - 32px)); top: 50%; }
+.shortcuts .close-x { position: absolute; right: 12px; top: 12px; }
+.sc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 28px; margin-top: 12px; }
+.sc-grid h3 { margin: 14px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
+.sc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13px; border-bottom: 1px solid var(--line); }
+.sc-keys { display: inline-flex; gap: 3px; align-items: center; flex: none; color: var(--text-3); }

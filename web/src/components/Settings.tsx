@@ -121,11 +121,13 @@ function SourceRow({ x, first, last, siblings }: { x: SourceInfo; first: boolean
       <Switch on={x.enabled} label={`Enable ${x.name}`} onChange={async (v) => { await api.patch(`/api/sources/${x.id}`, { enabled: v }); await s.refreshSources(); }} />
       <div style={{ minWidth: 0 }}>
         <div className="nm"><span className={`health ${health}`} title={x.health.lastError ?? (x.health.ok ? `${x.health.ok} successful calls` : 'Not used yet')} />{x.name}
+          {x.pausedUntil && <span className="tag warn" style={{ marginLeft: 2 }} title="It failed several times in a row, so lookups skip it for now and use the next source instead.">Paused until {new Date(x.pausedUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>}
           {needs && <span className="tag mute" style={{ marginLeft: 2 }}>Needs key</span>}{x.keyOptional && !x.keySet && <span className="tag mute">Key optional</span>}</div>
         <div className="ds">{x.description}</div>
       </div>
       <div className="row" style={{ gap: 4 }}>
         {siblings.length > 1 && !x.demo && <><button className="btn icon sm ghost" aria-label="Try earlier" disabled={first} onClick={() => void move(-1)}><ArrowUp size={13} /></button><button className="btn icon sm ghost" aria-label="Try later" disabled={last} onClick={() => void move(1)}><ArrowDown size={13} /></button></>}
+        {x.pausedUntil && <button className="btn sm ghost" onClick={async () => { await api.post(`/api/sources/${x.id}/resume`); await s.refreshSources(); s.toast(`${x.name} resumed`); }}>Resume</button>}
         <button className="btn sm" onClick={() => void test()} disabled={busy || needs}>{busy ? <LoaderCircle size={13} className="spin" /> : 'Test'}</button>
       </div>
       <div className="sub">

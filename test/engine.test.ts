@@ -242,3 +242,33 @@ describe('evidence links', () => {
     ctx.store.setSetting('demoMode', true);
   });
 });
+
+describe('reliability: a failing source is paused and the chain falls through', () => {
+  it('skips a source after repeated failures and answers from the next one in its chain', async () => {
+    const { breaker } = await import('../server/breaker');
+    breaker.reset();
+    let calls = 0;
+    const base = { accepts: ['username'] as any, capability: 'flaky-test', requiresKey: false, minIntervalMs: 0, selfTest: { type: 'username' as const, value: 'x' }, anyMode: true, reliability: 0.8, cacheTtlMs: 0 };
+    register({ ...base, id: 'flaky-a', name: 'Flaky A', description: 'always fails', family: 'fa', priority: 1, async run() { calls++; throw new Error('HTTP 503'); } } as any);
+    register({ ...base, id: 'steady-b', name: 'Steady B', description: 'works', family: 'sb', priority: 2, async run() { return [{ type: 'org', value: 'Reliable Co', relation: 'works at', weight: 0.7 }]; } } as any);
+    const { CAPABILITY_MODE } = await import('../server/adapters/types');
+    CAPABILITY_MODE['flaky-test'] = 'first';
+    ctx.store.setSetting('demoMode', false);
+    // keep this test off the network: only the two fake sources may run
+    const others = allAdapters().filter((x) => !['flaky-a', 'steady-b'].includes(x.id));
+    for (const x of others) ctx.store.setSourceEnabled(x.id, false);
+    try {
+      let last: Awaited<ReturnType<typeof runAndWait>> | undefined;
+      for (let i = 0; i < 4; i++) { last = await runAndWait(`flaky_user_${i}`, { type: 'username' }); }
+      const src = (id: string) => (last!.events.filter((e) => e.t === 'source') as any[]).map((e) => e.progress).filter((p) => p.adapter === id).at(-1);
+      expect(src('steady-b')?.state).toBe('done');                 // the fallback answered every time
+      expect(src('flaky-a')?.state).toBe('skipped');               // and the broken one was no longer even tried
+      expect(String(src('flaky-a')?.note)).toMatch(/Paused/);
+      expect(calls).toBeLessThanOrEqual(12);                       // 3 failures x up to 3 attempts each, then nothing
+      const info = (await call('GET', '/api/sources')).json.sources.find((s: any) => s.id === 'flaky-a');
+      expect(info.pausedUntil).toBeGreaterThan(Date.now());
+      await call('POST', '/api/sources/flaky-a/resume');
+      expect((await call('GET', '/api/sources')).json.sources.find((s: any) => s.id === 'flaky-a').pausedUntil).toBeUndefined();
+    } finally { for (const x of others) ctx.store.setSourceEnabled(x.id, true); ctx.store.setSetting('demoMode', true); delete CAPABILITY_MODE['flaky-test']; breaker.reset(); }
+  }, 60_000);
+});

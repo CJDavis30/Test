@@ -251,6 +251,14 @@ export class Store {
     return r ? this.getRun(r.id) : null;
   }
 
+  /** Looks across every case for an entity by name, value or note. */
+  searchAll(q: string, limit = 30): { caseId: string; caseName: string; nodeId: string; type: string; label: string; notes?: string }[] {
+    const needle = `%${q.trim().toLowerCase().replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+    return (this.db.prepare(`SELECT n.id, n.case_id, n.type, n.label, n.notes, c.name AS case_name FROM nodes n JOIN cases c ON c.id=n.case_id
+      WHERE n.hidden=0 AND (LOWER(n.label) LIKE ? ESCAPE '\\' OR LOWER(n.value) LIKE ? ESCAPE '\\' OR LOWER(n.notes) LIKE ? ESCAPE '\\') ORDER BY c.updated_at DESC, n.created_at DESC LIMIT ?`)
+      .all(needle, needle, needle, limit) as any[]).map((r) => ({ caseId: r.case_id, caseName: r.case_name, nodeId: r.id, type: r.type, label: r.label, notes: r.notes || undefined }));
+  }
+
   // ---- audit ------------------------------------------------------------
   audit(caseId: string, action: string, detail: string) {
     const id = uid('a_'), ts = Date.now(), d = detail.slice(0, 2000);

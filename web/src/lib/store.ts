@@ -54,6 +54,7 @@ interface State {
   palette: boolean;
   paletteSeed: string;
   settingsOpen: SettingsTab | null;
+  shortcuts: boolean;
   theme: 'auto' | 'light' | 'dark';
   toasts: Toast[];
   undoStack: { label: string; run: () => Promise<void> | void }[];
@@ -63,6 +64,7 @@ interface State {
 
 interface Actions {
   boot(): Promise<void>;
+  refreshCases(): Promise<void>;
   refreshSettings(): Promise<void>;
   refreshSources(): Promise<void>;
   loadCase(id: string): Promise<void>;
@@ -93,6 +95,7 @@ interface Actions {
   toggle(k: 'sidebar' | 'inspector' | 'palette', v?: boolean): void;
   openPalette(seed?: string): void;
   openSettings(t: SettingsTab | null): void;
+  setShortcuts(v: boolean): void;
   setTheme(t: State['theme']): void;
   toast(text: string, action?: Toast['action']): void;
   dismissToast(id: number): void;
@@ -107,8 +110,10 @@ const closers = new Map<string, () => void>();
 
 export const useStore = create<State & Actions>((set, get) => ({
   booted: false, cases: [], caseId: null, snap: null, findings: {}, runs: {}, suggestions: [], settings: null, sources: [],
-  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null,
+  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false,
   theme: (localStorage.getItem('plexus.theme') as State['theme']) || 'auto', toasts: [], undoStack: [], focusNodeId: null, pathFor: null,
+
+  async refreshCases() { const { cases } = await api.get<{ cases: CaseInfo[] }>('/api/cases'); set({ cases }); },
 
   async boot() {
     await Promise.all([get().refreshSettings(), get().refreshSources()]);
@@ -321,6 +326,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   toggle(k, v) { set({ [k]: v ?? !get()[k] } as any); },
   openPalette(seed = '') { set({ palette: true, paletteSeed: seed }); },
   openSettings(t) { set({ settingsOpen: t }); },
+  setShortcuts(v) { set({ shortcuts: v }); },
   setTheme(theme) {
     set({ theme });
     try { localStorage.setItem('plexus.theme', theme); } catch { /* storage may be unavailable */ }

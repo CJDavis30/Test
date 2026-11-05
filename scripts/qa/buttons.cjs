@@ -84,6 +84,17 @@ const run = async (p, where) => { const probs = await audit(p, where); const n =
     await p.keyboard.press('Control+k'); await p.waitForTimeout(400); await p.keyboard.press('Escape'); await p.waitForTimeout(300); checked++;
     if ((await S()).palette) bad(w('Esc did not close the palette'));
 
+    // keyboard shortcuts panel
+    const sc = () => p.evaluate(() => window.__plexusStore.getState().shortcuts);
+    await p.keyboard.press('?'); await p.waitForTimeout(500); await run(p, w('shortcuts'));
+    if (!(await sc())) bad(w('? did not open the shortcuts list'));
+    await click(p.getByRole('button', { name: 'Close shortcuts' })); checked++;
+    if (await sc()) bad(w('Close shortcuts button did not close the list'));
+    await p.keyboard.press('?'); await p.waitForTimeout(400); await p.keyboard.press('Escape'); await p.waitForTimeout(400); checked++;
+    if (await sc()) bad(w('Esc did not close the shortcuts list'));
+    await p.keyboard.press('?'); await p.waitForTimeout(400); await p.mouse.click(5, 5); await p.waitForTimeout(400); checked++;
+    if (await sc()) bad(w('clicking outside did not close the shortcuts list'));
+
     // findings sheet: every tab, triage, close
     const email = (await S()).nodes.find((n) => n.type === 'email');
     await p.evaluate((id) => window.__plexusStore.getState().openSheet(id, 'overview'), email.id); await p.waitForTimeout(900);

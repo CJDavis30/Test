@@ -55,7 +55,7 @@ export function scoreEvidence(
   for (const { p } of con.values()) missCon *= 1 - p;
   const pFor = 1 - miss, pAgainst = 1 - missCon;
   // Contradictions pull the score down but cannot erase strong, independent support on their own.
-  const score = Math.min(0.99, Math.max(0, pFor * (1 - 0.75 * pAgainst)));
+  const score = Math.min(0.99, Math.max(0, pFor * (1 - 0.9 * pAgainst)));
   const independent = pro.size;
   const directNames = [...pro.values()].filter((f) => f.direct).map((f) => f.name);
   const reasons: string[] = [];

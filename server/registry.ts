@@ -3,6 +3,7 @@ import type { EntityType, SourceInfo } from '../shared/types';
 import { learnedReliability } from '../shared/scoring';
 import type { Store } from './store';
 import { getSecret } from './config';
+import { breaker } from './breaker';
 
 const adapters = new Map<string, Adapter>();
 
@@ -58,7 +59,7 @@ export function sourceInfo(store: Store): SourceInfo[] {
         requiresKey: a.requiresKey, keyOptional: a.keyOptional, keyHelp: a.keyHelp,
         enabled: isEnabled(store, a), keySet: hasKey(a), priority: priorityOf(store, a),
         health: { ok: st?.ok ?? 0, fail: st?.fail ?? 0, lastError: st?.last_error ?? undefined, lastOkAt: st?.last_ok_at ?? undefined, avgMs: st?.avg_ms ?? undefined },
-        reliability: a.reliability, demo: a.demo,
+        pausedUntil: breaker.pausedUntil(a.id), reliability: a.reliability, demo: a.demo,
         trust: learnedReliability(a.reliability, fb.get(a.id)), decisions: (fb.get(a.id)?.accepted ?? 0) + (fb.get(a.id)?.rejected ?? 0),
       } satisfies SourceInfo;
     })
