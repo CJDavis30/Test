@@ -106,3 +106,36 @@ describe('autopilot end to end (demo world)', () => {
     expect((await call('POST', `/api/cases/nope/autopilot`, { value: 'x' })).status).toBe(404);
   });
 });
+
+describe('autopilot: undo and dry run', () => {
+  it('a dry run changes nothing and reports what it would have accepted', async () => {
+    const before = { n: ctx.store.listNodes(caseId).length, accepted: ctx.store.listFindings(caseId, { status: ['accepted'] }).length };
+    const { events } = await runAutopilot({ value: 'northwind-labs.example', type: 'domain', dryRun: true });
+    const done = events.find((e) => e.t === 'ap.done') as Extract<ApEvent, { t: 'ap.done' }>;
+    expect(done.summary.dryRun).toBe(true); expect(done.summary.accepted).toBeGreaterThan(0);
+    expect(ctx.store.listFindings(caseId, { status: ['accepted'] }).length).toBe(before.accepted);
+    expect(ctx.store.listNodes(caseId).length).toBeLessThanOrEqual(before.n + 1); // at most the seed itself
+    expect(ctx.store.listAudit(caseId).some((a) => a.action === 'autopilot.dryrun')).toBe(true);
+  }, 90_000);
+
+  it('undo puts back exactly what the run accepted, leaves a human decision alone, and works once', async () => {
+    const c2 = (await call('POST', '/api/cases', { name: 'AP2', purpose: '' })).json.case.id;
+    const r0 = await call('POST', `/api/cases/${c2}/lookups`, { value: 'maralinden', type: 'username', run: false });
+    // a decision the user made before Autopilot ran
+    const r = await call('POST', `/api/cases/${c2}/autopilot`, { nodeId: r0.json.node.id, depth: 0, subjects: 1 });
+    await new Promise<void>((resolve) => { ctx.autopilot.subscribe(r.json.id, (e: ApEvent) => { if (e.t === 'ap.done' || e.t === 'ap.error') resolve(); }); });
+    const accepted = ctx.store.listFindings(c2, { status: ['accepted'] });
+    const nodesAfter = ctx.store.listNodes(c2).length;
+    expect(accepted.length).toBeGreaterThan(0); expect(nodesAfter).toBeGreaterThan(1);
+    // the user also accepts something by hand after the run
+    const manual = ctx.store.listFindings(c2, { status: ['pending'] })[0];
+    ctx.svc.review([manual.id], 'accepted');
+    const u = await call('POST', `/api/autopilot/${r.json.id}/undo`);
+    expect(u.status).toBe(200); expect(u.json.findings).toBe(accepted.length);
+    expect(ctx.store.listFindings(c2, { status: ['accepted'] }).map((f) => f.id)).toEqual([manual.id]); // only the human's own decision remains
+    expect(ctx.store.listNodes(c2).length).toBeLessThan(nodesAfter);
+    expect((await call('POST', `/api/autopilot/${r.json.id}/undo`)).status).toBe(409);
+    expect(ctx.store.listAudit(c2).some((a) => a.action === 'autopilot.undone')).toBe(true);
+    expect(ctx.store.verifyAudit(c2).ok).toBe(true);
+  }, 90_000);
+});

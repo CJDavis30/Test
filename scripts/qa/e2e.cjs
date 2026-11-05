@@ -1,4 +1,4 @@
-// End-to-end browser QA (150+ checks). Needs `npm i -D playwright` and a server running in demo mode with fast demo sources:
+// End-to-end browser QA (160+ checks). Needs `npm i -D playwright` and a server running in demo mode with fast demo sources:
 //   PLEXUS_HOME=$(mktemp -d) PLEXUS_PORT=4317 PLEXUS_DEMO_FAST=1 node dist/server/index.mjs &
 //   curl -X PUT localhost:4317/api/settings -H 'x-plexus: 1' -H 'content-type: application/json' -d '{"demoMode":true}'
 //   node scripts/qa/e2e.cjs      (env OUT=<dir> for failure screenshots)
@@ -465,9 +465,9 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     const lab = await p.locator('.matchlab').innerText();
     ok(/Created at about the same time/.test(lab) && /Handle/.test(lab) && /Active hours/.test(lab) && /bits/.test(lab), 'the Match Lab shows every signal in bits');
     ok(/99\./.test(lab) || />99\.99%/.test(lab), 'and a probability');
-    const before = await p.locator('.ml-big').innerText();
+    const before = await p.locator('.ml-answer').innerText();
     await p.locator('#prior').fill('6'); await settle(300);
-    ok((await p.locator('.ml-big').innerText()) !== before, 'moving the prior slider changes the answer live');
+    ok((await p.locator('.ml-answer').innerText()) !== before, 'moving the prior slider changes the answer live');
     const closeLab = p.getByRole('button', { name: 'Close Match Lab' }); await closeLab.click(); await settle(400);
     ok(await p.locator('.matchlab').count() === 0, 'Match Lab closes');
 
@@ -489,6 +489,26 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     await p.evaluate(() => window.__plexusStore.getState().toggle('inspector', false));
     await p.evaluate((id) => window.__plexusStore.getState().loadCase(id), cid0); await settle(800);
     await api('DELETE', `/api/cases/${fcase}`); await p.evaluate(() => window.__plexusStore.getState().refreshCases()); await settle(300);
+  });
+
+  await section('signed evidence package verifies itself in a real browser, and notices tampering', async () => {
+    const cid = (await S()).caseId;
+    const html = await (await p.request.get(`http://127.0.0.1:4317/api/cases/${cid}/package`)).text();
+    const file = require('path').join(require('os').tmpdir(), `plexus-package-${Date.now()}.html`); require('fs').writeFileSync(file, html);
+    const page = await ctx.newPage();
+    await page.goto('file://' + file); await page.waitForSelector('#vbtn');
+    ok(/confirmed findings/.test(await page.locator('#doc').innerText()), 'the package shows the evidence from its signed data');
+    await page.click('#vbtn'); await page.waitForTimeout(600);
+    const out = await page.locator('#vout').innerText();
+    ok(/has not been changed/.test(out), 'it checks the evidence is unchanged');
+    ok(/evidence fingerprints match/.test(out), 'it recomputes every evidence fingerprint in the browser');
+    ok(!/✗/.test(out), 'a genuine package shows no failures');
+    ok(/signature is valid|cannot check Ed25519/.test(out), 'the signature is checked (or the page says honestly that this browser cannot)');
+    // tamper: change a quote inside the signed payload, then verify again
+    await page.evaluate(() => { const el = document.getElementById('plexus-payload'); el.textContent = el.textContent.replace(/"snippet":"/, '"snippet":"TAMPERED '); });
+    await page.click('#vbtn'); await page.waitForTimeout(600);
+    ok(/does NOT match what was signed/.test(await page.locator('#vout').innerText()), 'changing the evidence is detected');
+    await page.close();
   });
 
   await section('appearance + chrome toggles', async () => {

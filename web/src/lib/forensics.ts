@@ -7,7 +7,9 @@ export interface MatchResponse { match: Match; a: Profile; b: Profile }
 import type { Burst } from '@shared/forensics/bursts';
 import type { DstResult } from '@shared/forensics/dst';
 export type { Burst, DstResult };
-export type IdentitiesResponse = Resolution & { profiles: number; bursts: Burst[] };
+import type { LookAlike } from '@shared/forensics/linker';
+export type { LookAlike };
+export type IdentitiesResponse = Resolution & { profiles: number; bursts: Burst[]; lookalikes: LookAlike[] };
 import type { HeaderReport } from '@shared/forensics/headers';
 export type { HeaderReport };
 export interface ScanResponse { refs: PlatformRef[]; timestamps: number; circadian: Circadian | null; dst: DstResult | null; headers: HeaderReport | null }

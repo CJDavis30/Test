@@ -8,6 +8,8 @@ import { EntityGlyph } from '../lib/icons';
 import { TYPE_ORDER, displayValue, plural } from '../lib/format';
 import { Dots } from './ui';
 import { startAutopilot } from '../lib/autopilot';
+import { api } from '../lib/api';
+import type { Move } from '@shared/planner';
 
 const CONTEXT_IDEAS = ['Employer', 'Other accounts', 'Location', 'Associates'];
 
@@ -22,6 +24,12 @@ export function Overview({ node, run, findings, subjectId, onOpen, onStart, pend
   const photo = live.filter((f) => f.type === 'image').sort((a, b) => b.rank - a.rank)[0];
   const searching = run?.status === 'running' && !brief;
   const R = 30, C = 2 * Math.PI * R;
+  const [moves, setMoves] = useState<Move[]>([]);
+  useEffect(() => {
+    if (!s.caseId) return; let live = true;
+    api.get<{ moves: Move[] }>(`/api/cases/${s.caseId}/moves`).then((r) => { if (live) setMoves(r.moves.filter((m) => findings.some((f) => f.id === m.findingId))); }).catch(() => {});
+    return () => { live = false; };
+  }, [s.caseId, findings.length, run?.status]);
 
   const summary = useMemo(() => {
     if (!brief) return null;
@@ -83,6 +91,22 @@ export function Overview({ node, run, findings, subjectId, onOpen, onStart, pend
         </div>
         <ConnectionMap subject={node} findings={live} onOpen={onOpen} />
       </section>
+
+      {moves.length > 0 && (
+        <section>
+          <div className="ov-title"><h3>Best next moves</h3><span className="faint">The checks that would teach you the most, and what each would probably show</span></div>
+          <div className="moves">
+            {moves.map((m) => (
+              <div className="move" key={m.findingId}>
+                <div className="mv-main"><b className="truncate">{m.label}</b><span className="faint">{Math.round(m.before * 100)}% now · check with <b>{m.source.name}</b></span>
+                  <span className="mv-pred">If it confirms: <b className="pos num">{Math.round(m.ifConfirms * 100)}%</b> · if it finds nothing: <b className="num">{Math.round(m.ifSilent * 100)}%</b></span></div>
+                {m.action === 'lookup' ? <button className="btn sm" onClick={() => void s.submit([{ type: m.type, value: m.value }])}>Look it up</button>
+                  : <button className="btn sm ghost" onClick={() => s.openSettings('sources')}>{m.action === 'add-key' ? 'Add a key' : 'Turn on'}</button>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {run && run.next.length > 0 && (
         <section>

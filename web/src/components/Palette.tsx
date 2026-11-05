@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, FlaskConical, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard, Users, ScanSearch, Scale, Rocket,
+  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, FlaskConical, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard, Users, ScanSearch, Scale, Rocket, ShieldCheck,
 } from 'lucide-react';
 import { detect, detectMany } from '@shared/detect';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
@@ -76,6 +76,10 @@ export function Palette() {
         id: 'autopilot', group: 'Investigate', label: `Autopilot: ${one.value}`, sub: 'Follow the strongest leads on its own and build the graph live', icon: <Rocket size={15} />, keywords: 'auto build everything',
         run: () => { void startAutopilot({ type: one.type, value: one.value }); },
       });
+      out.push({
+        id: 'autopilot-dry', group: 'Investigate', label: `Autopilot dry run: ${one.value}`, sub: 'See what it would accept, without changing anything', icon: <Rocket size={15} />, keywords: 'preview simulate',
+        run: () => { void startAutopilot({ type: one.type, value: one.value, dryRun: true }); },
+      });
     }
     if (t && multi.length <= 1) {
       const needle = t.toLowerCase();
@@ -95,6 +99,9 @@ export function Palette() {
       } },
       { id: 'export-html', group: 'Case', label: 'Save printable report (HTML, PDF-ready)', sub: 'Open it and choose Print → Save as PDF', icon: <FileText size={15} />, keywords: 'pdf print report', run: async () => {
         if (!s.caseId) return; const t = await (await fetch(`/api/cases/${s.caseId}/report.html`)).text(); download(`${s.snap?.case.name ?? 'case'}.report.html`, t, 'text/html');
+      } },
+      { id: 'export-package', group: 'Case', label: 'Save signed evidence package (HTML)', sub: 'One file that proves it has not been changed, checked in the reader\'s own browser', icon: <ShieldCheck size={15} />, keywords: 'sign verify proof court share tamper', run: async () => {
+        if (!s.caseId) return; const t = await (await fetch(`/api/cases/${s.caseId}/package`)).text(); download(`${s.snap?.case.name ?? 'case'}.evidence.html`, t, 'text/html');
       } },
       { id: 'export-graphml', group: 'Case', label: 'Export graph as GraphML', sub: 'Opens in Gephi, yEd and Cytoscape', icon: <Download size={15} />, keywords: 'gephi network', run: async () => {
         if (!s.caseId) return; const t = await (await fetch(`/api/cases/${s.caseId}/graphml`)).text(); download(`${s.snap?.case.name ?? 'case'}.graphml`, t, 'application/graphml+xml');

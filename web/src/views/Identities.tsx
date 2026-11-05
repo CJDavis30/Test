@@ -53,6 +53,15 @@ export function IdentitiesView() {
           </div>
         </section>
       ))}
+      {data && data.lookalikes.length > 0 && (<>
+        <div className="fsec">Look-alikes <span className="cnt">same name, probably not the same person</span></div>
+        <div className="idn-list">{data.lookalikes.map((l) => (
+          <div className="idn-look" key={`${l.a.id}${l.b.id}`}>
+            <div className="idn-link"><span className="truncate">{l.a.platform} <b>{l.a.handle}</b> vs {l.b.platform} <b>{l.b.handle}</b></span><span className="num">{pctText(l.posterior)} same</span><button className="btn sm" onClick={() => compare(l.a, l.b)}><Scale size={13} /> Why</button></div>
+            <ul>{l.against.map((x, i) => <li key={i}>{x}</li>)}</ul>
+          </div>
+        ))}</div>
+      </>)}
       {data && data.bursts.length > 0 && (<>
         <div className="fsec">Created in a burst <span className="cnt">made in one go, which is how one person makes several accounts</span></div>
         <div className="idn-list">{data.bursts.slice(0, 5).map((b) => (

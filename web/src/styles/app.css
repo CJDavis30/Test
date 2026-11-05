@@ -250,3 +250,8 @@ body.overlay-open .toolbar, body.overlay-open .sidebar .brand { -webkit-app-regi
 .dc-hops { margin: 8px 0; padding-left: 20px; font-size: 12.5px; } .dc-hops li { margin: 3px 0; } .dc-hops small { display: block; color: var(--text-3); }
 .dc-hf { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.45; }
 .dc-hf li { padding: 6px 10px; border-radius: 9px; background: var(--surface-2); } .dc-hf li.warn { background: color-mix(in srgb, var(--lvl2) 12%, transparent); } .dc-hf li.bad { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+
+/* ---------- safeguards ---------- */
+.care { position: absolute; left: 14px; right: 14px; top: 10px; z-index: 7; display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 13px; background: color-mix(in srgb, var(--lvl2) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--lvl2) 45%, var(--line)); font-size: 12.5px; line-height: 1.45; -webkit-app-region: no-drag; }
+.care > svg { color: var(--lvl2); flex: none; margin-top: 1px; } .care-t { flex: 1; min-width: 0; } .care-t ul { margin: 6px 0 0; padding-left: 18px; } .care-t li { margin: 3px 0; }
+.purposes { display: flex; flex-wrap: wrap; gap: 6px; } .purpose { height: 30px; padding: 0 12px; border-radius: 15px; background: var(--surface-2); font-weight: 500; font-size: 13px; } .purpose:hover { background: var(--surface-3); } .purpose.on { background: var(--text); color: var(--bg); }

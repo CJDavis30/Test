@@ -4,10 +4,22 @@ const HEADERS = { 'content-type': 'application/json', 'x-plexus': '1' };
 
 export class ApiError extends Error {}
 
+/** Registered by the app: asks the person for a purpose when a live lookup needs one. Resolves true once it is saved. */
+let purposeHandler: ((caseId: string) => Promise<boolean>) | null = null;
+export const setPurposeHandler = (h: typeof purposeHandler) => { purposeHandler = h; };
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, { method, headers: HEADERS, body: body === undefined ? undefined : JSON.stringify(body) });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError((j as any).error ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    const msg = (j as any).error ?? `HTTP ${res.status}`;
+    if (msg === 'purpose_required') {
+      const m = path.match(/\/api\/cases\/([^/]+)\//);
+      if (m && purposeHandler && (await purposeHandler(m[1]))) return call<T>(method, path, body);
+      throw new ApiError('A reason for the investigation is needed before live lookups.');
+    }
+    throw new ApiError(msg);
+  }
   return j as T;
 }
 

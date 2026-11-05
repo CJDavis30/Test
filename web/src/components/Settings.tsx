@@ -62,6 +62,10 @@ function General() {
         <select value={st.region} onChange={(e) => void set({ region: e.target.value })} aria-label="Region">{REGIONS.map((r) => <option key={r}>{r}</option>)}</select></div>
       <div className="setrow"><div className="grow"><div className="t">Lookup cache</div><div className="d">Source responses are cached for a few hours so repeat lookups are instant and polite to free APIs.</div></div>
         <button className="btn" onClick={async () => { await api.post('/api/cache/clear'); s.toast('Cache cleared'); }}>Clear cache</button></div>
+      <div className="setrow"><div className="grow"><div className="t">Extra care with young people</div><div className="d">If a source shows signs a subject may be a minor (what they say about their own age or school), Plexus holds back from steps that point toward a real name, number, email or place, asks before you accept one, and points to reporting instead. It can be wrong, so you can always override it.</div></div>
+        <Switch on={st.minorCare} label="Extra care with young people" onChange={(v) => void set({ minorCare: v })} /></div>
+      <div className="setrow"><div className="grow"><div className="t">Ask for a purpose before live lookups</div><div className="d">Asked once per case and written into the tamper-evident log. Demo data never asks.</div></div>
+        <Switch on={st.requirePurpose} label="Ask for a purpose" onChange={(v) => void set({ requirePurpose: v })} /></div>
       <Backups />
       <div className="setrow"><div className="grow"><div className="t">Responsible use</div><div className="d">Plexus is for lawful, authorized research. A name match is a lead, not proof. Every lookup is written to the case's audit log, and exports can be redacted.</div></div></div>
     </>

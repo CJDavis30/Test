@@ -22,6 +22,11 @@ import { activityOf, identitiesFor, matchNodes, scan, timestampsIn } from './for
 import { circadian } from '../shared/forensics/circadian';
 import { dependencies, stressTest } from '../shared/stress';
 import { ledger } from '../shared/ledger';
+import { signer } from './signing';
+import { careOf, minorCareOn, purposeOk, setCare } from './safeguards';
+import { buildPackageHtml, buildPayload } from './evidencePackage';
+import { bestMoves } from '../shared/planner';
+import { labelFor } from '../shared/normalize';
 import { dstFingerprint } from '../shared/forensics/dst';
 import { reliabilityFn } from './registry';
 import { ImportError, importCase, markdownToHtml, toCsv, toGraphML } from './portable';
@@ -146,6 +151,13 @@ export async function createApp(store = new Store()) {
     const n = store.getNode(c.req.param('id')); if (!n) return c.json({ error: 'not found' }, 404);
     const t = activityOf(n); return c.json({ count: t.length, circadian: circadian(t), dst: dstFingerprint(t) });
   });
+  /** The checks most worth making next, with what each would probably show. */
+  app.get('/api/cases/:id/moves', (c) => {
+    const id = c.req.param('id'); if (!store.getCase(id)) return c.json({ error: 'not found' }, 404);
+    const sources = sourceInfo(store).filter((s) => !['derive', 'verify'].includes(s.capability)).map((s) => ({ id: s.id, name: s.name, reliability: s.trust, accepts: s.accepts, used: false, needsKey: !!s.requiresKey && !s.keyOptional, keySet: s.keySet, enabled: s.enabled }));
+    const fs = store.listFindings(id, { status: ['pending', 'unsure'] }).map((f) => ({ ...f, label: labelFor(f.type, f.value, f.attrs) }));
+    return c.json({ moves: bestMoves(fs, sources, 4) });
+  });
   app.get('/api/backups', (c) => c.json({ backups: store.listBackups() }));
   app.post('/api/backups', (c) => { const b = store.makeBackup(); return c.json({ backup: b, backups: store.listBackups() }); });
   app.get('/api/cases/:id/findings', (c) => {
@@ -164,6 +176,7 @@ export async function createApp(store = new Store()) {
       if (!node) return c.json({ error: 'could not understand that input' }, 400);
     }
     if (b.run === false) return c.json({ node });
+    if (!purposeOk(store, caseId, demoMode(store))) return c.json({ error: 'purpose_required' }, 428);
     const run = orch.start(node, (b.context ?? '').trim());
     return c.json({ node, run });
   });
@@ -171,16 +184,18 @@ export async function createApp(store = new Store()) {
   app.post('/api/cases/:id/autopilot', async (c) => {
     const caseId = c.req.param('id');
     if (!store.getCase(caseId)) return c.json({ error: 'not found' }, 404);
-    const b = await body<{ type?: string; value?: string; nodeId?: string; depth?: number; subjects?: number }>(c);
+    const b = await body<{ type?: string; value?: string; nodeId?: string; depth?: number; subjects?: number; dryRun?: boolean }>(c);
     let node = b.nodeId ? store.getNode(b.nodeId) : null;
     if (!node) {
       if (!b.value?.trim()) return c.json({ error: 'value required' }, 400);
       node = svc.seed(caseId, { type: isType(b.type) ? b.type : undefined, value: b.value });
       if (!node) return c.json({ error: 'could not understand that input' }, 400);
     }
+    if (!purposeOk(store, caseId, demoMode(store))) return c.json({ error: 'purpose_required' }, 428);
     if (autopilot.active(caseId)) return c.json({ error: 'Autopilot is already running on this case.' }, 409);
-    return c.json({ id: autopilot.start(node, { depth: b.depth, subjects: b.subjects }), node });
+    return c.json({ id: autopilot.start(node, { depth: b.depth, subjects: b.subjects, dryRun: !!b.dryRun }), node });
   });
+  app.post('/api/autopilot/:id/undo', (c) => { const r = autopilot.undo(c.req.param('id')); return r ? c.json(r) : c.json({ error: 'Nothing to undo.' }, 409); });
   app.post('/api/autopilot/:id/stop', (c) => { autopilot.stop(c.req.param('id')); return c.json({ ok: true }); });
   app.get('/api/autopilot/:id/events', (c) => {
     const id = c.req.param('id');
@@ -352,6 +367,22 @@ export async function createApp(store = new Store()) {
     store.audit(x.id, 'export.html', redact ? 'html report (redacted)' : 'html report');
     return c.html(markdownToHtml(md, redact ? 'Report (redacted)' : x.cs.name));
   });
+  /** A signed, self-verifying evidence package: one HTML file that checks its own hashes and signature in the recipient's browser. */
+  app.get('/api/cases/:id/package', (c) => {
+    const x = caseOr404(c); if (!x) return c.json({ error: 'not found' }, 404);
+    const redact = c.req.query('redact') === '1';
+    const all = store.listFindings(x.id), ev = verifyEvidence(all), au = store.verifyAudit(x.id);
+    const head = store.listAudit(x.id)[0]?.hash;
+    const payload = buildPayload(x.cs, store.listNodes(x.id), all.filter((f) => f.status === 'accepted'), { auditOk: au.ok, auditEntries: au.count, evidenceChecked: ev.checked, evidenceAltered: ev.altered.length, auditHead: head }, redact);
+    store.audit(x.id, 'export.package', `${payload.findings.length} findings, signed${redact ? ' (redacted)' : ''}`);
+    return c.html(buildPackageHtml(payload, signer(), redact));
+  });
+  app.put('/api/cases/:id/care', async (c) => {
+    const id = c.req.param('id'); if (!store.getCase(id)) return c.json({ error: 'not found' }, 404);
+    const b = await body<{ youth?: boolean }>(c);
+    return c.json(setCare(store, id, !!b.youth));
+  });
+  app.get('/api/signing-key', (c) => { const s = signer(); return c.json({ publicKey: s.publicKey, fingerprint: s.fingerprint }); });
   app.get('/api/cases/:id/graphml', (c) => {
     const x = caseOr404(c); if (!x) return c.json({ error: 'not found' }, 404);
     store.audit(x.id, 'export.graphml', 'graph');
@@ -406,14 +437,17 @@ export async function createApp(store = new Store()) {
   app.get('/api/settings', (c) => c.json({
     demoMode: demoMode(store), ai: aiSettings(store), aiReady: aiReady(store),
     region: store.getSetting('region', 'US'), onboarded: store.getSetting('onboarded', false), crossCheck: store.getSetting('crossCheck', true),
+    minorCare: minorCareOn(store), requirePurpose: store.getSetting('requirePurpose', true),
   }));
   app.put('/api/settings', async (c) => {
-    const b = await body<{ demoMode?: boolean; ai?: Partial<typeof DEFAULT_AI>; region?: string; onboarded?: boolean; crossCheck?: boolean }>(c);
+    const b = await body<{ demoMode?: boolean; ai?: Partial<typeof DEFAULT_AI>; region?: string; onboarded?: boolean; crossCheck?: boolean; minorCare?: boolean; requirePurpose?: boolean }>(c);
     if (typeof b.demoMode === 'boolean') store.setSetting('demoMode', b.demoMode);
     if (b.ai) store.setSetting('ai', { ...store.getSetting('ai', DEFAULT_AI), ...b.ai, keySet: undefined });
     if (b.region) store.setSetting('region', b.region);
     if (typeof b.onboarded === 'boolean') store.setSetting('onboarded', b.onboarded);
     if (typeof b.crossCheck === 'boolean') store.setSetting('crossCheck', b.crossCheck);
+    if (typeof b.minorCare === 'boolean') store.setSetting('minorCare', b.minorCare);
+    if (typeof b.requirePurpose === 'boolean') store.setSetting('requirePurpose', b.requirePurpose);
     return c.json({ ok: true });
   });
   app.get('/api/ai/models', async (c) => {

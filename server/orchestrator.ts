@@ -11,6 +11,7 @@ import { uid, type Store } from './store';
 import { howFor, lookupUrl } from './adapters/how';
 import { fingerprint } from './integrity';
 import { breaker, PausedError } from './breaker';
+import { noticeYouth } from './safeguards';
 
 const MAX_CLAIMS_PER_ADAPTER = 150;
 const CROSS_ID = 'cross-check';
@@ -181,6 +182,8 @@ export class Orchestrator {
         const { claims, cached } = await this.fetchClaims(a, subject.type, subject.value, ctl.signal);
         const ms = Date.now() - t0;
         store.recordSource(a.id, true, ms);
+        const care = noticeYouth(store, subject.caseId, claims, a.name);
+        if (care) this.hub.push(run.id, { t: 'care', reasons: care.reasons });
         merge(a, claims);
         flush();
         const n = claims.length;

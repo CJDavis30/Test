@@ -70,3 +70,4 @@
 .idn-singles { display: flex; flex-wrap: wrap; gap: 6px; }
 .idn-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); max-width: 260px; font-size: 12.5px; }
 .idn-chip:hover { background: var(--hover); }
+.idn-look { padding: 2px 0 6px; } .idn-look ul { margin: 0 0 0 10px; padding-left: 18px; font-size: 12px; color: var(--text-2); line-height: 1.5; }

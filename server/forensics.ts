@@ -1,6 +1,6 @@
 import { circadian, type Circadian } from '../shared/forensics/circadian';
 import { findPlatformRefs, decodeDiscordSnowflake } from '../shared/forensics/ids';
-import { linkProfiles, resolveIdentities, type Match, type Profile, type Resolution } from '../shared/forensics/linker';
+import { linkProfiles, lookAlikes, resolveIdentities, type LookAlike, type Match, type Profile, type Resolution } from '../shared/forensics/linker';
 import { findBursts, type Burst } from '../shared/forensics/bursts';
 import { dstFingerprint } from '../shared/forensics/dst';
 import { analyzeHeaders } from '../shared/forensics/headers';
@@ -65,13 +65,14 @@ export function matchNodes(store: Store, caseId: string, a: string, b: string, p
   return { match: linkProfiles(pa, pb, { priorOdds }), a: slim(pa), b: slim(pb) };
 }
 
-export function identitiesFor(store: Store, caseId: string, priorOdds?: number): Resolution & { profiles: number; bursts: Burst[] } {
+export function identitiesFor(store: Store, caseId: string, priorOdds?: number): Resolution & { profiles: number; bursts: Burst[]; lookalikes: LookAlike[] } {
   const { profiles } = profilesFor(store, caseId);
   const r = resolveIdentities(profiles, { priorOdds });
   const precise = profiles.filter((p) => p.createdAt !== undefined && p.createdPrecision !== 'day');
   const bursts: Burst[] = findBursts(precise.map((p) => ({ id: p.id, at: p.createdAt! })));
+  const lookalikes = lookAlikes(profiles, { priorOdds }).map((l) => ({ ...l, a: slim(l.a), b: slim(l.b) }));
   return {
-    bursts,
+    bursts, lookalikes,
     identities: r.identities.map((i) => ({ ...i, members: i.members.map(slim) })),
     maybes: r.maybes.map((m) => ({ ...m, a: slim(m.a), b: slim(m.b) })),
     separated: r.separated.map((m) => ({ ...m, a: slim(m.a), b: slim(m.b) })),

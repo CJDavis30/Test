@@ -151,6 +151,8 @@ export interface CaseInfo {
   createdAt: number;
   updatedAt: number;
   nodeCount?: number;
+  /** set when the case may involve a young person (see shared/safeguards.ts) */
+  care?: { youth: boolean; reasons: string[]; manual?: 'on' | 'off' };
 }
 
 export type SourceState = 'queued' | 'running' | 'done' | 'empty' | 'error' | 'rate_limited' | 'skipped' | 'needs_key';
@@ -215,6 +217,7 @@ export type RunEvent =
   | { t: 'findings'; findings: Finding[] }
   | { t: 'brief'; brief: Brief; next: NextStep[] }
   | { t: 'run.done'; run: RunInfo; totals: { findings: number; sources: number; ok: number } }
+  | { t: 'care'; reasons: string[] }
   | { t: 'run.error'; message: string };
 
 export interface CaseSnapshot {
@@ -276,6 +279,8 @@ export interface Detected {
 /** Autopilot: Plexus follows the strongest leads on its own and builds the graph while you watch. */
 export interface AutopilotSummary {
   subjects: number; accepted: number; pending: number; nodes: number; edges: number; seconds: number; stopped?: boolean;
+  /** a dry run changes nothing: `accepted` is what it WOULD have accepted */
+  dryRun?: boolean;
 }
 export type ApEvent =
   | { t: 'ap.start'; id: string; seed: { id: string; label: string; type: EntityType }; limits: { depth: number; subjects: number } }

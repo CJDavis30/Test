@@ -314,3 +314,7 @@
 .st-ledger b { color: var(--text); }
 .ac-dst { margin: 8px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--text-2); } .ac-dst b { color: var(--text); font-weight: 600; }
 .commit-tz { margin: 0 0 10px; padding: 9px 11px; border-radius: 10px; background: var(--accent-soft); font-size: 12.5px; line-height: 1.45; }
+.moves { display: flex; flex-direction: column; gap: 8px; }
+.move { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.mv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.mv-main > b { font-size: 13.5px; } .mv-pred { color: var(--text-2); } .mv-pred .pos { color: var(--lvl4); }

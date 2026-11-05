@@ -4,8 +4,9 @@ import type {
   RunEvent, SourceInfo, SourceProgress, AiSettings, Level,
 } from '@shared/types';
 import { keyFor } from '@shared/normalize';
+import { isRealWorld } from '@shared/safeguards';
 import { contextBoost, parseContext } from '@shared/scoring';
-import { api, streamRun } from './api';
+import { api, streamRun, setPurposeHandler } from './api';
 import type { ApState } from './autopilot';
 import type { Stress } from '@shared/stress';
 
@@ -32,6 +33,8 @@ export interface Settings {
   region: string;
   onboarded: boolean;
   crossCheck: boolean;
+  minorCare: boolean;
+  requirePurpose: boolean;
 }
 
 export interface Toast { id: number; text: string; action?: { label: string; run: () => void } }
@@ -59,6 +62,8 @@ interface State {
   shortcuts: boolean;
   autopilot: ApState | null;
   matchLab: { a: string; b: string } | null;
+  purposeAsk: { caseId: string; resolve: (ok: boolean) => void } | null;
+  confirmAsk: { title: string; body: string; ok: string; resolve: (ok: boolean) => void } | null;
   decode: boolean;
   stress: Record<string, StressView>;
   deps: SourceDependency[];
@@ -124,7 +129,7 @@ const closers = new Map<string, () => void>();
 
 export const useStore = create<State & Actions>((set, get) => ({
   booted: false, cases: [], caseId: null, snap: null, findings: {}, runs: {}, suggestions: [], settings: null, sources: [],
-  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false, autopilot: null, matchLab: null, decode: false, stress: {}, deps: [],
+  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false, autopilot: null, matchLab: null, purposeAsk: null, confirmAsk: null, decode: false, stress: {}, deps: [],
   theme: (localStorage.getItem('plexus.theme') as State['theme']) || 'auto', toasts: [], undoStack: [], focusNodeId: null, pathFor: null,
 
   /** What each conclusion survives if one source is wrong. Debounced: decisions and runs both ask for it. */
@@ -249,6 +254,10 @@ export const useStore = create<State & Actions>((set, get) => ({
     const findings = { ...get().findings };
     for (const id of ids) { const f = findings[id]; if (f && f.status !== status) { prev.set(id, f.status); findings[id] = { ...f, status }; } }
     if (!prev.size) return;
+    if (status === 'accepted' && get().snap?.case.care?.youth) {
+      const risky = [...prev.keys()].map((id) => findings[id]).filter((f) => f && isRealWorld(f.type));
+      if (risky.length && !(await askConfirm('This may involve a young person', `You are about to accept ${risky.length === 1 ? 'a ' + risky[0].type : risky.length + ' findings'} that point from an online account toward a real-world identity. If this is a child, stop and report to the platform or the authorities instead of linking them to a name, number, email or place. Continue?`, 'Accept anyway'))) return;
+    }
     set({ findings });
     await api.post('/api/findings/review', { ids: [...prev.keys()], status });
     get().refreshStress();
@@ -389,6 +398,10 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 }));
 
+/** Ask a yes/no question in the app's own dialog (never the browser's). */
+export const askConfirm = (title: string, body: string, ok = 'Continue') => new Promise<boolean>((resolve) => useStore.setState({ confirmAsk: { title, body, ok, resolve: (v) => { useStore.setState({ confirmAsk: null }); resolve(v); } } }));
+setPurposeHandler((caseId) => new Promise<boolean>((resolve) => useStore.setState({ purposeAsk: { caseId, resolve: (v) => { useStore.setState({ purposeAsk: null }); resolve(v); } } })));
+
 if (typeof location !== 'undefined' && location.search.includes('debug')) (window as any).__plexusStore = useStore;
 
 function applyEvent(subjectId: string, runId: string, e: RunEvent) {
@@ -418,6 +431,7 @@ function applyEvent(subjectId: string, runId: string, e: RunEvent) {
     }
     case 'brief': put({ brief: e.brief, next: e.next }); break;
     case 'run.done': put({ status: 'done' }); void useStore.getState().refreshSources(); useStore.getState().refreshStress(); break;
+    case 'care': { const sn = useStore.getState().snap; if (sn) useStore.setState({ snap: { ...sn, case: { ...sn.case, care: { youth: true, reasons: e.reasons } } } }); break; }
     case 'run.error': put({ status: 'error', error: e.message }); break;
   }
 }

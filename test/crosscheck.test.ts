@@ -72,6 +72,7 @@ async function lookup(caseName: string, opts: { crossCheck: boolean; many?: bool
 beforeAll(async () => {
   ctx = await createApp(new Store(join(process.env.PLEXUS_HOME!, 'xc.db')));
   ctx.store.setSetting('demoMode', false);
+  ctx.store.setSetting('requirePurpose', false); // these tests run live-mode lookups on throwaway cases
   for (const a of allAdapters()) ctx.store.setSourceEnabled(a.id, false); // only our fake world answers
   register(emailSource(), profileSource);
   ctx.store.setSourceEnabled('x-email-src', true); ctx.store.setSourceEnabled('x-profile-src', true);

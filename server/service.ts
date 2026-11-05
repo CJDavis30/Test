@@ -4,6 +4,7 @@ import { detect } from '../shared/detect';
 import { uid, type Store } from './store';
 import { reliabilityFn } from './registry';
 import { rescore } from '../shared/scoring';
+import { careOf } from './safeguards';
 
 export class Service {
   constructor(public store: Store) {}
@@ -12,7 +13,7 @@ export class Service {
     const c = this.store.getCase(caseId);
     if (!c) return null;
     return {
-      case: c,
+      case: { ...c, care: careOf(this.store, caseId) },
       nodes: this.store.listNodes(caseId),
       edges: this.store.listEdges(caseId),
       findings: this.store.listFindings(caseId, { status: ['pending', 'unsure'] }),

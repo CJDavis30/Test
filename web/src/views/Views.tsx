@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Search, Download, Copy, Printer, FileJson, EyeOff, Eye, FileText, Network } from 'lucide-react';
+import { ArrowDown, ArrowUp, Search, Download, Copy, Printer, FileJson, EyeOff, Eye, FileText, Network, ShieldCheck } from 'lucide-react';
 import { ENTITY_LABEL, type EntityType, type Finding } from '@shared/types';
 import { keyFor } from '@shared/normalize';
 import { useStore, keyOfNode } from '../lib/store';
@@ -149,6 +149,7 @@ export function ReportView() {
         <button className="btn sm" onClick={() => download(`${name}.md`, md, 'text/markdown')}><Download size={13} /> Markdown</button>
         <button className="btn sm" onClick={async () => { const j = await api.get<any>(`/api/cases/${s.caseId}/export`); download(`${name}.plexus.json`, JSON.stringify(j, null, 2), 'application/json'); }}><FileJson size={13} /> JSON</button>
         <button className="btn sm" onClick={async () => { const t = await (await fetch(`/api/cases/${s.caseId}/report.html${redact ? '?redact=1' : ''}`)).text(); download(`${name}.report.html`, t, 'text/html'); }} title="A standalone page with the integrity section. Open it and choose Print → Save as PDF."><FileText size={13} /> HTML</button>
+        <button className="btn sm" onClick={async () => { const t = await (await fetch(`/api/cases/${s.caseId}/package${redact ? '?redact=1' : ''}`)).text(); download(`${name}.evidence.html`, t, 'text/html'); }} title="One signed file that checks itself in the reader's browser: proof the evidence has not been changed"><ShieldCheck size={13} /> Signed</button>
         <button className="btn sm" onClick={async () => { const t = await (await fetch(`/api/cases/${s.caseId}/graphml`)).text(); download(`${name}.graphml`, t, 'application/graphml+xml'); }} title="Open the graph in Gephi, yEd or Cytoscape"><Network size={13} /> GraphML</button>
         <button className="btn sm primary" onClick={() => window.print()}><Printer size={13} /> Print / PDF</button>
       </div>

@@ -10,7 +10,7 @@ export interface ApState {
   current?: { label: string; type: EntityType; depth: number; n: number; phase: 'looking' | 'checking' | 'judging'; done?: number; total?: number };
   limits: { depth: number; subjects: number };
   nodes: number; edges: number; accepted: number; kept: number;
-  summary?: AutopilotSummary; error?: string; startedAt: number;
+  summary?: AutopilotSummary; error?: string; startedAt: number; undone?: boolean;
 }
 
 let close: (() => void) | null = null;
@@ -59,7 +59,7 @@ function apply(e: ApEvent) {
 }
 
 /** Start Autopilot from something you typed, or from a node already on the graph. */
-export async function startAutopilot(input: { type?: EntityType; value?: string; nodeId?: string }) {
+export async function startAutopilot(input: { type?: EntityType; value?: string; nodeId?: string; dryRun?: boolean }) {
   const st = useStore.getState();
   let caseId = st.caseId;
   if (!caseId) caseId = await st.newCase(input.value ? undefined : undefined);
@@ -77,5 +77,15 @@ export async function stopAutopilot() {
   const ap = useStore.getState().autopilot; if (!ap || ap.status !== 'running') return;
   line('keep', 'Stopping after the current step…');
   await api.post(`/api/autopilot/${ap.id}/stop`).catch(() => {});
+}
+/** Put back everything this run accepted and take off the graph what it added. */
+export async function undoAutopilot() {
+  const ap = useStore.getState().autopilot; if (!ap || ap.status === 'running' || ap.undone) return;
+  try {
+    const r = await api.post<{ findings: number; nodes: number }>(`/api/autopilot/${ap.id}/undo`);
+    await useStore.getState().loadCase(ap.caseId);
+    useStore.setState({ autopilot: { ...ap, undone: true }, sheet: null });
+    useStore.getState().toast(`Undone: ${r.findings} findings back to review, ${r.nodes} nodes removed`);
+  } catch (e: any) { useStore.getState().toast(e?.message ?? 'Nothing to undo'); }
 }
 export function dismissAutopilot() { close?.(); close = null; useStore.setState({ autopilot: null }); }

@@ -10,6 +10,7 @@ import { Shortcuts } from './components/Shortcuts';
 import { MatchLab } from './components/forensics/MatchLab';
 import { Decode } from './components/forensics/Decode';
 import { AutopilotHud } from './components/AutopilotHud';
+import { CareBanner, ConfirmDialog, PurposeDialog } from './components/Safeguards';
 import { IdentitiesView } from './views/Identities';
 import { Palette } from './components/Palette';
 import { Settings } from './components/Settings';
@@ -47,7 +48,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState(); // always the live state: this handler outlives the render that created it
       const mod = e.metaKey || e.ctrlKey;
-      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && st.sidebar && !st.sheet && !st.palette && !st.settingsOpen && !st.shortcuts && !st.matchLab && !st.decode) { st.toggle('sidebar', false); return; }
+      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && st.sidebar && !st.sheet && !st.palette && !st.settingsOpen && !st.shortcuts && !st.matchLab && !st.decode && !st.purposeAsk && !st.confirmAsk) { st.toggle('sidebar', false); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); st.toggle('palette'); }
       else if (mod && e.key === ',') { e.preventDefault(); st.openSettings(st.settingsOpen ? null : 'general'); }
       else if (e.key === '?' && !mod && !isTyping(e.target)) { e.preventDefault(); st.setShortcuts(!st.shortcuts); }
@@ -86,7 +87,7 @@ export function App() {
   }, []);
 
   // While a dialog is open, the window's drag area (toolbar, sidebar header) must not sit under it: on macOS a drag region swallows clicks on anything above it, including the dialog's close button.
-  const overlayOpen = !!(s.sheet || s.shortcuts || s.matchLab || s.decode || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
+  const overlayOpen = !!(s.sheet || s.shortcuts || s.matchLab || s.decode || s.purposeAsk || s.confirmAsk || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
   useEffect(() => { document.body.classList.toggle('overlay-open', overlayOpen); return () => document.body.classList.remove('overlay-open'); }, [overlayOpen]);
 
   if (!s.booted) return <div className="app" style={{ display: 'grid', placeItems: 'center' }}><div className="skeleton" style={{ width: 160, height: 14 }} /></div>;
@@ -99,6 +100,7 @@ export function App() {
         <div className="drawer-scrim" onClick={() => s.toggle('sidebar', false)} aria-hidden />
         <Toolbar />
         <div className="main">
+          <CareBanner />
           <AutopilotHud />
           {s.view === 'graph' && <GraphView key={s.caseId ?? 'none'} />}
           {s.view === 'table' && <TableView />}
@@ -120,6 +122,8 @@ export function App() {
       {s.shortcuts && <Shortcuts />}
       {s.matchLab && <MatchLab />}
       {s.decode && <Decode />}
+      {s.purposeAsk && <PurposeDialog />}
+      {s.confirmAsk && <ConfirmDialog />}
       {s.settings && !s.settings.onboarded && <Onboarding />}
       {imported && <ImportDialog items={imported} onClose={() => setImported(null)} />}
       {dropping && <div className="dropzone">Drop to extract emails, domains, phones and IPs</div>}

@@ -170,3 +170,30 @@ export function resolveIdentities(profiles: Profile[], o: { priorOdds?: number; 
   const maybes = pairs.filter((x) => x.m.posterior >= 0.3 && x.m.posterior < threshold && group.get(x.a.id) !== group.get(x.b.id)).slice(0, 12).map((x) => ({ a: x.a, b: x.b, posterior: x.m.posterior }));
   return { identities, maybes, separated };
 }
+
+// ---------------------------------------------------------------------------------------------------- look-alikes
+export interface LookAlike { a: Profile; b: Profile; posterior: number; /** why they look alike */ shared: string; /** why they are probably not the same operator */ against: string[] }
+
+/**
+ * Same handle (or a copy of it), probably a different operator: the pattern behind impersonation, handle squatting and namesakes.
+ * Reported only when the name evidence is strong and something concrete argues against a shared operator.
+ */
+export function lookAlikes(profiles: Profile[], o: { priorOdds?: number } = {}): LookAlike[] {
+  const out: LookAlike[] = [];
+  const P = profiles.slice(0, 150);
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+    const a = P[i], b = P[j];
+    if (!a.handle || !b.handle) continue;
+    const h = compareHandles(a.handle, b.handle);
+    if (h.kind !== 'identical' && h.kind !== 'same-core') continue;
+    if (h.bits < 6) continue; // a very common handle is not worth flagging
+    const m = linkProfiles(a, b, o);
+    if (m.posterior >= 0.9) continue; // confidently the same operator: not a look-alike
+    const against = m.signals.filter((s) => s.key !== 'handle' && s.key !== 'name' && s.bits < -1).map((s) => s.key === 'clock' ? `Active at very different hours (${s.bits.toFixed(1)} bits against).` : s.key === 'alternation' ? `Active at the same moments, as two people are (${s.bits.toFixed(1)} bits against).` : `${s.label}: ${s.detail}`);
+    const created = m.signals.find((s) => s.key === 'created');
+    if (created && created.bits < 0 && a.createdAt !== undefined && b.createdAt !== undefined) { const days = Math.round(Math.abs(a.createdAt - b.createdAt) / 86_400_000); if (days >= 30) against.push(`Created ${days >= 365 ? `${(days / 365).toFixed(1)} years` : `${days} days`} apart, not in one go.`); }
+    if (against.length === 0) continue;
+    out.push({ a, b, posterior: m.posterior, shared: h.detail, against });
+  }
+  return out.sort((x, y) => x.posterior - y.posterior).slice(0, 10);
+}

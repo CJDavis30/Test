@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Rocket, Square, X, Check, Eye, Users, LoaderCircle, Search, ShieldCheck, ArrowRightCircle } from 'lucide-react';
+import { Rocket, Square, X, Check, Eye, Users, LoaderCircle, Search, ShieldCheck, ArrowRightCircle, Undo2 } from 'lucide-react';
 import { useStore } from '../lib/store';
-import { dismissAutopilot, stopAutopilot, type ApLine } from '../lib/autopilot';
+import { dismissAutopilot, startAutopilot, stopAutopilot, undoAutopilot, type ApLine } from '../lib/autopilot';
 
 const ICON: Record<ApLine['kind'], React.ReactNode> = {
   look: <Search size={13} />, follow: <ArrowRightCircle size={13} />, check: <ShieldCheck size={13} />, accept: <Check size={13} />, keep: <Eye size={13} />,
@@ -23,7 +23,7 @@ export function AutopilotHud() {
         <motion.section className="aphud" role="status" aria-live="polite" aria-label="Autopilot" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8 }} transition={{ type: 'spring', stiffness: 420, damping: 34 }}>
           <header>
             <span className="aph-ic">{ap.status === 'running' ? <LoaderCircle size={15} className="spin" /> : <Rocket size={15} />}</span>
-            <div className="grow"><b>{ap.status === 'running' ? 'Autopilot is working' : ap.status === 'stopped' ? 'Autopilot stopped' : ap.status === 'error' ? 'Autopilot hit a problem' : 'Autopilot finished'}</b><small className="truncate">from {ap.seed.label}</small></div>
+            <div className="grow"><b>{ap.status === 'running' ? (ap.summary?.dryRun || ap.limits.subjects === 0 ? 'Autopilot dry run' : 'Autopilot is working') : ap.undone ? 'Autopilot undone' : ap.summary?.dryRun ? 'Dry run finished' : ap.status === 'stopped' ? 'Autopilot stopped' : ap.status === 'error' ? 'Autopilot hit a problem' : 'Autopilot finished'}</b><small className="truncate">from {ap.seed.label}</small></div>
             {ap.status === 'running'
               ? <button className="btn sm" onClick={() => void stopAutopilot()}><Square size={11} /> Stop</button>
               : <button className="btn icon sm ghost" aria-label="Dismiss Autopilot" onClick={dismissAutopilot}><X size={14} /></button>}
@@ -41,9 +41,13 @@ export function AutopilotHud() {
           {ap.status === 'error' && <p className="aph-note">{ap.error}</p>}
           {ap.status !== 'running' && ap.status !== 'error' && ap.summary && (
             <>
-              <p className="aph-note">Looked up {ap.summary.subjects} {ap.summary.subjects === 1 ? 'thing' : 'things'} in {ap.summary.seconds}s. It only accepted findings that several independent sources agreed on and nothing disputed. Everything else is waiting for your review.</p>
+              {ap.undone ? <p className="aph-note">Everything Autopilot accepted is back in your review list, and what it added to the graph is gone. Your own decisions were not touched.</p>
+                : ap.summary.dryRun ? <p className="aph-note"><b>Dry run: nothing was changed.</b> Autopilot would have accepted {ap.summary.accepted} {ap.summary.accepted === 1 ? 'finding' : 'findings'} and left {ap.kept} for you. It looked at the starting point only, since it can only follow leads that are on the graph.</p>
+                : <p className="aph-note">Looked up {ap.summary.subjects} {ap.summary.subjects === 1 ? 'thing' : 'things'} in {ap.summary.seconds}s. It only accepted findings that several independent sources agreed on and nothing disputed. Everything else is waiting for your review.</p>}
               <div className="aph-actions">
-                {ap.summary.pending > 0 && <button className="btn primary sm" onClick={reviewLeft}>Review {ap.summary.pending} left</button>}
+                {ap.summary.dryRun && !ap.undone && <button className="btn primary sm" onClick={() => void startAutopilot({ nodeId: ap.seed.id })}><Rocket size={13} /> Run it for real</button>}
+                {!ap.summary.dryRun && !ap.undone && ap.summary.accepted > 0 && <button className="btn sm" onClick={() => void undoAutopilot()}><Undo2 size={13} /> Undo everything</button>}
+                {!ap.summary.dryRun && ap.summary.pending > 0 && <button className="btn primary sm" onClick={reviewLeft}>Review {ap.summary.pending} left</button>}
                 <button className="btn sm" onClick={() => { dismissAutopilot(); s.setView('identities'); }}><Users size={13} /> Who is who</button>
               </div>
             </>

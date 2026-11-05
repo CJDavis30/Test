@@ -145,3 +145,21 @@ describe('identity resolution', () => {
     expect(sig(a)).toBe(sig(b));
   });
 });
+
+import { lookAlikes } from '../shared/forensics/linker';
+describe('look-alike (impostor) detection', () => {
+  const t0 = Date.UTC(2021, 2, 4, 19, 22, 11);
+  const rob: Profile = { id: 'r', label: 'r', platform: 'Roblox', handle: 'maralinden', createdAt: t0, createdPrecision: 'second' };
+  const dis: Profile = { id: 'd', label: 'd', platform: 'Discord', handle: 'maralinden', createdAt: t0 + 41_000, createdPrecision: 'second' };
+  const imp: Profile = { id: 'i', label: 'i', platform: 'Discord', handle: 'maralinden_', createdAt: Date.UTC(2024, 5, 1), createdPrecision: 'second' };
+  it('flags the copy and not the real pair, and says why', () => {
+    const l = lookAlikes([rob, dis, imp]);
+    expect(l.length).toBeGreaterThanOrEqual(1);
+    expect(l.every((x) => x.a.id === 'i' || x.b.id === 'i')).toBe(true);
+    expect(l[0].against.join(' ')).toMatch(/years apart|different hours/);
+  });
+  it('ignores very common handles and pairs with nothing against them', () => {
+    expect(lookAlikes([{ id: 'a', label: 'a', handle: 'gamer', createdAt: 1 }, { id: 'b', label: 'b', handle: 'gamer', createdAt: 2 + 4 * 86400_000 * 365 }])).toEqual([]);
+    expect(lookAlikes([{ id: 'a', label: 'a', handle: 'zzyzxroad' }, { id: 'b', label: 'b', handle: 'zzyzxroad' }])).toEqual([]);
+  });
+});
