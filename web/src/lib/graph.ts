@@ -63,6 +63,7 @@ export class GraphEngine {
   focus: Set<string> | null = null;
   /** stress map: nodes whose conclusion hangs on a single source, shown while everything else recedes */
   weak: Set<string> | null = null;
+  minScore = 0;
   hover: Hover | null = null;
   lasso: { x0: number; y0: number; x1: number; y1: number } | null = null;
   mode: LayoutMode = 'organized';
@@ -225,6 +226,8 @@ export class GraphEngine {
   setHighlight(h: { nodes: string[]; edges: string[] } | null) { this.highlight = h ? { nodes: new Set(h.nodes), edges: new Set(h.edges) } : null; this.dirty = true; }
   setFocus(ids: Set<string> | null) { this.focus = ids; this.dirty = true; }
   setWeak(ids: Set<string> | null) { this.weak = ids; this.dirty = true; }
+  /** Fade everything the evidence supports less than this (0..1). The searched subject and anything unscored stay put. */
+  setMinScore(t: number) { this.minScore = t; this.dirty = true; }
   invalidate() { this.dirty = true; }
 
   toWorld(sx: number, sy: number) { return { x: (sx - this.cam.x) / this.cam.k, y: (sy - this.cam.y) / this.cam.k }; }
@@ -469,6 +472,7 @@ export class GraphEngine {
     if (this.highlight) return this.highlight.nodes.has(id) ? 1 : 0.14;
     if (this.focus) return this.focus.has(id) ? 1 : 0.12;
     if (this.weak) return this.weak.has(id) ? 1 : 0.28;
+    if (this.minScore > 0) { const n = this.byId.get(id); if (n && n.state !== 'seed' && n.score !== undefined && n.score < this.minScore) return 0.1; }
     return 1;
   }
 

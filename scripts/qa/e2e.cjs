@@ -226,6 +226,13 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
 
   await section('graph: merge, manual link, edge label edit, pin survives data changes', async () => {
     await p.keyboard.press('Escape'); await p.keyboard.press('Control+1'); await settle(500);
+    // confidence slider: shows what the evidence supports at or above a level, and resets to everything
+    const conf = p.locator('.conf-pill input[type=range]');
+    ok(await conf.count() === 1, 'graph has a confidence slider');
+    await conf.fill('60'); await settle(200);
+    ok(/60%\+/.test(await p.locator('.conf-pill b').innerText()), 'moving it says what is being shown');
+    await conf.fill('0'); await settle(200);
+    ok(/All/.test(await p.locator('.conf-pill b').innerText()), 'and it goes back to showing everything');
     const A = await nodePos('Mara Linden'), B = await nodePos('Mara L. Linden');
     if (A && B) {
       const n0 = (await S()).nodes.length;

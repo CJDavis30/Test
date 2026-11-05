@@ -23,6 +23,8 @@ export function GraphView() {
   const [menu, setMenu] = useState<{ id: string | null; x: number; y: number } | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const [stressMap, setStressMap] = useState(false);
+  const [minScore, setMinScore] = useState(0);
+  useEffect(() => { eng.current?.setMinScore(minScore); }, [minScore]);
   const stress = useStore((st) => st.stress);
   const allFindings = useStore((st) => st.findings);
   const weakIds = useMemo(() => {
@@ -149,6 +151,13 @@ export function GraphView() {
           <div className="stage-note">
             {weakIds.length > 0 && (
               <button className="float-pill" aria-pressed={stressMap} onClick={() => setStressMap(!stressMap)} title="Highlight the conclusions that hang on a single source: if that source is wrong, they fall apart"><ShieldAlert size={14} /> {stressMap ? 'Showing' : 'Show'} {weakIds.length} weak {weakIds.length === 1 ? 'point' : 'points'}</button>
+            )}
+            {nodes.some((n) => n.score !== undefined) && (
+              <label className="float-pill conf-pill" title="Fade everything the evidence supports less than this">
+                <span>Confidence</span>
+                <input type="range" min={0} max={90} step={5} value={Math.round(minScore * 100)} onChange={(e) => setMinScore(Number(e.target.value) / 100)} aria-label="Minimum confidence to show on the graph" aria-valuetext={minScore === 0 ? 'Showing everything' : `Showing ${Math.round(minScore * 100)} percent and above`} />
+                <b className="num">{minScore === 0 ? 'All' : `${Math.round(minScore * 100)}%+`}</b>
+              </label>
             )}
             {suggestions.length > 0 && (
               <button className="float-pill" onClick={() => setSugOpen(!sugOpen)}><Sparkles size={14} /> {suggestions.length} suggested {suggestions.length === 1 ? 'link' : 'links'}</button>
