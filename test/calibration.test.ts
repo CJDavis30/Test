@@ -10,7 +10,7 @@ process.env.PLEXUS_HOME = mkdtempSync(join(tmpdir(), 'plexus-cal-'));
 process.env.PLEXUS_DEMO_FAST = '1';
 const { createApp } = await import('../server/index');
 const { Store } = await import('../server/store');
-const { demoGroundTruth } = await import('../server/adapters/demo');
+const { demoGroundTruth } = await import('./world/demo');
 import type { Finding, RunEvent } from '../shared/types';
 
 const H = { 'content-type': 'application/json', 'x-plexus': '1', host: 'localhost:4317' };

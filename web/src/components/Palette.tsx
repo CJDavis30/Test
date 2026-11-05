@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, FlaskConical, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard, Users, ScanSearch, Scale, Rocket, ShieldCheck,
+  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard, Users, ScanSearch, Scale, Rocket, ShieldCheck,
 } from 'lucide-react';
 import { detect, detectMany } from '@shared/detect';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
@@ -125,9 +125,6 @@ export function Palette() {
       { id: 's-src', group: 'Settings', label: 'Sources & API keys', icon: <KeyRound size={15} />, run: () => s.openSettings('sources') },
       { id: 's-ai', group: 'Settings', label: 'AI model', icon: <Cpu size={15} />, run: () => s.openSettings('ai') },
       { id: 's-gen', group: 'Settings', label: 'Settings', icon: <Cog size={15} />, run: () => s.openSettings('general') },
-      { id: 'demo', group: 'Settings', label: s.settings?.demoMode ? 'Switch to live sources' : 'Switch to demo data', sub: 'Demo uses fictional people — nothing leaves your Mac', icon: <FlaskConical size={15} />, keywords: 'sample', run: async () => {
-        await api.put('/api/settings', { demoMode: !s.settings?.demoMode }); await Promise.all([s.refreshSettings(), s.refreshSources()]); s.toast(s.settings?.demoMode ? 'Using live sources' : 'Using demo data');
-      } },
       { id: 'cache', group: 'Settings', label: 'Clear lookup cache', icon: <Eraser size={15} />, run: async () => { await api.post('/api/cache/clear'); s.toast('Cache cleared'); } },
     ];
     const needle = q.trim().toLowerCase();

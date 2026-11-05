@@ -1,11 +1,11 @@
 import type { Claim, EntityType, EvidenceRecord } from '../../shared/types';
 import { displayFor, keyFor, labelFor } from '../../shared/normalize';
-import type { Adapter } from './types';
+import type { Adapter } from '../../server/adapters/types';
 import { EPOCH } from '../../shared/forensics/ids';
 import { TEMPLATE } from '../../shared/forensics/circadian';
 
 /**
- * Offline demo world. Everyone here is fictional: .example domains, TEST-NET IPs, 555-01xx numbers.
+ * Offline test world (never shipped in the app; only tests and QA scripts load it). Everyone here is fictional: .example domains, TEST-NET IPs, 555-01xx numbers.
  * It is deliberately noisy (stale data, a namesake, conflicting cities, single-source claims) so the
  * scoring, conflict handling and review flow have something real to chew on.
  */
@@ -323,13 +323,15 @@ function make(src: SrcId): Adapter {
 
 export const demoAdapters: Adapter[] = (Object.keys(SOURCES) as SrcId[]).map(make);
 
-/** Entities worth offering as one-click starting points in the demo. */
-export const DEMO_SEEDS = [
-  { type: 'email' as const, value: 'mara.linden@northwind-labs.example', label: 'Email' },
-  { type: 'username' as const, value: 'maralinden', label: 'Username' },
-  { type: 'domain' as const, value: 'northwind-labs.example', label: 'Domain' },
-  { type: 'person' as const, value: 'Mara Linden', label: 'Name' },
-];
+/** Plain-English "what was asked" lines for the made-up sources; the loader hands them to the app. */
+export const demoHow: Record<string, (t: EntityType, q: string) => string> = {
+  'demo-registry': (_t, q) => `Searched filings & domain records for ${q}`,
+  'demo-social': (_t, q) => `Searched public profiles for ${q}`,
+  'demo-code': (_t, q) => `Searched public commits & profiles for ${q}`,
+  'demo-breach': (_t, q) => `Checked leaked-account records for ${q}`,
+  'demo-archive': (_t, q) => `Searched saved web pages & DNS history for ${q}`,
+  'demo-broker': (_t, q) => `Searched people-data brokers for ${q}`,
+};
 
 /**
  * Ground truth for the fictional world, used by the accuracy benchmark (test/calibration.test.ts). `truth` is every entity

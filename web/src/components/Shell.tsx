@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Network, Table2, Clock, FileText, Plus, Search, Settings as Cog, PanelLeft, PanelRight, Sun, Moon, Monitor, Ellipsis, FlaskConical,
+  Network, Table2, Clock, FileText, Plus, Search, Settings as Cog, PanelLeft, PanelRight, Sun, Moon, Monitor, Ellipsis,
   LoaderCircle, Inbox, Check, Pencil, Trash2, ChevronDown, X, Users,
 } from 'lucide-react';
 import { useStore, type View } from '../lib/store';
@@ -63,7 +63,6 @@ export function Sidebar() {
         ))}
       </div>
       <div className="foot">
-        {settings?.demoMode && <button className="demo-chip" onClick={() => openSettings('general')}><FlaskConical size={14} /> Demo data · fictional</button>}
         <button className="side-item" onClick={() => openSettings('general')}><Cog size={16} strokeWidth={1.75} /> Settings <Kbd>{MOD},</Kbd></button>
       </div>
     </aside>

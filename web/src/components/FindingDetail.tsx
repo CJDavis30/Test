@@ -57,7 +57,7 @@ export function ConnectionPath({ subject, f, subjectId }: { subject: Subject; f:
 const Hop = ({ label }: { label: string }) => <span className="hop"><span className="hop-l">{label}</span><span className="hop-line" /></span>;
 
 const OFFLINE = new Set(['derive', 'phone-offline']);
-type SourceInfo = { description: string; trust: number; decisions: number; homepage?: string; demo?: boolean };
+type SourceInfo = { description: string; trust: number; decisions: number; homepage?: string };
 
 /** Evidence in two groups, each source a compact row that opens to show exactly what was asked and what came back. */
 export function SourceCards({ f, defaultOpen = 'first' }: { f: Finding; defaultOpen?: 'first' | 'none' | 'all' }) {
@@ -119,7 +119,7 @@ function SourceRow({ e, info, open, onToggle }: { e: Evidence; info?: SourceInfo
             {!e.snippet && facts.length === 0 && <><dt>Found</dt><dd className="quote">A match, with no extra detail.</dd></>}
             {url
               ? <><dt>Check</dt><dd><a href={url} target="_blank" rel="noreferrer noopener" title={url}>{e.urlKind === 'record' ? 'Open the record' : 'Repeat this lookup'} · {hostOf(url)} <ExternalLink size={11} style={{ verticalAlign: -1 }} /></a></dd></>
-              : <><dt>Check</dt><dd className="faint">{info?.demo ? 'Simulated source: there is no real page to open.' : OFFLINE.has(e.adapter) ? 'Worked out on this Mac. Nothing to open.' : 'This source gave no page to link to.'}</dd></>}
+              : <><dt>Check</dt><dd className="faint">{OFFLINE.has(e.adapter) ? 'Worked out on this Mac. Nothing to open.' : 'This source gave no page to link to.'}</dd></>}
           </dl>
           {facts.length > 0 && (
             <div className="srecord">
@@ -191,7 +191,7 @@ function MoreChecks({ f }: { f: Finding }) {
   const openSettings = useStore((s) => s.openSettings);
   if (f.level >= 4) return null;
   const used = new Set(f.evidence.map((e) => e.adapter));
-  const idle = sources.filter((x) => !x.demo && x.accepts.includes(f.type) && !used.has(x.id) && ((x.requiresKey && !x.keyOptional && !x.keySet) || !x.enabled));
+  const idle = sources.filter((x) => x.accepts.includes(f.type) && !used.has(x.id) && ((x.requiresKey && !x.keyOptional && !x.keySet) || !x.enabled));
   if (idle.length === 0) return null;
   return (
     <div className="morechecks">

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, FlaskConical, Upload } from 'lucide-react';
+import { ArrowRight, KeyRound, Upload } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { startAutopilot } from '../lib/autopilot';
@@ -17,11 +17,7 @@ export function Welcome() {
   const { one, cycle } = useDetected(v, override);
   useEffect(() => { ref.current?.focus(); }, []);
   useEffect(() => setOverride(null), [v]);
-  const demo = s.settings?.demoMode;
   const go = () => { if (one) { void s.submit([{ type: one.type, value: one.value }]); setV(''); } };
-  const examples = demo
-    ? [{ t: 'email' as const, v: 'mara.linden@northwind-labs.example' }, { t: 'username' as const, v: 'maralinden' }, { t: 'domain' as const, v: 'northwind-labs.example' }, { t: 'person' as const, v: 'Mara Linden' }]
-    : [{ t: 'domain' as const, v: 'example.com' }, { t: 'username' as const, v: 'torvalds' }, { t: 'ip' as const, v: '1.1.1.1' }];
   return (
     <div className="welcome">
       <motion.div className="welcome-inner" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 260, damping: 28 }}>
@@ -39,16 +35,11 @@ export function Welcome() {
           <button className="btn primary icon" style={{ width: 38, height: 38, borderRadius: 11 }} onClick={go} disabled={!one} aria-label="Look up"><ArrowRight size={18} /></button>
         </div>
         {one && v.trim() && <div className="hero-hint"><b>↵</b> look it up · <b>⇧↵</b> Autopilot: follow the strongest leads on its own and build the graph while you watch</div>}
-        <div className="examples">
-          {examples.map((e) => (
-            <button key={e.v} className="example" onClick={() => void s.submit([{ type: e.t, value: e.v }])}><EntityGlyph type={e.t} size={13} /> {e.v}</button>
-          ))}
-        </div>
         <div className="welcome-links">
           <span>Drop a file to extract entities</span>
           <span>·</span>
           <span>Paste a list, one per line, in <Kbd>{MOD}K</Kbd></span>
-          {!demo && <><span>·</span><button onClick={async () => { await api.put('/api/settings', { demoMode: true }); await Promise.all([s.refreshSettings(), s.refreshSources()]); }}><FlaskConical size={13} /> Try demo data</button></>}
+          <span>·</span><button onClick={() => s.openSettings('sources')}><KeyRound size={13} /> Sources &amp; API keys</button>
         </div>
       </motion.div>
     </div>
@@ -59,10 +50,13 @@ export function Onboarding() {
   const s = useStore();
   const boxRef = useRef<HTMLDivElement>(null);
   useDialog(boxRef);
-  const finish = async (demo: boolean) => {
-    await api.put('/api/settings', { onboarded: true, ...(demo ? { demoMode: true } : {}) });
+  const keyed = s.sources.filter((x) => x.requiresKey && !x.keyOptional);
+  const better = s.sources.filter((x) => x.requiresKey && x.keyOptional);
+  const ready = s.sources.filter((x) => x.enabled && !(x.requiresKey && !x.keyOptional && !x.keySet)).length;
+  const finish = async (setup: boolean) => {
+    await api.put('/api/settings', { onboarded: true });
     await Promise.all([s.refreshSettings(), s.refreshSources()]);
-    if (demo) { const id = await s.newCase('Northwind — demo', 'Exploring Plexus with fictional data'); void id; setTimeout(() => void s.submit([{ type: 'email', value: 'mara.linden@northwind-labs.example' }]), 250); }
+    if (setup) s.openSettings('sources');
   };
   return (
     <>
@@ -74,9 +68,12 @@ export function Onboarding() {
         <p style={{ fontSize: 12.5, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10 }}>
           Use Plexus for lawful, authorized work: security research, journalism, fraud and due-diligence checks. Findings are leads, not proof, and a matching name can describe a different person. Every lookup is written to a per-case audit log.
         </p>
+        <p style={{ fontSize: 12.5 }}>
+          {ready} of {s.sources.length} sources work right now without any setup. {keyed.length > 0 ? `API keys unlock ${keyed.length} more${better.length ? ` and lift rate limits on ${better.length} others` : ''}. Add them in Settings whenever you like; Plexus uses them automatically.` : ''}
+        </p>
         <div className="actions">
-          <button className="btn lg" onClick={() => void finish(false)}>Start fresh</button>
-          <button className="btn primary lg" onClick={() => void finish(true)}><FlaskConical size={15} /> Try it with demo data</button>
+          <button className="btn lg" onClick={() => void finish(false)}>Start investigating</button>
+          <button className="btn primary lg" onClick={() => void finish(true)}><KeyRound size={15} /> Add API keys</button>
         </div>
       </motion.div>
     </>

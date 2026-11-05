@@ -248,7 +248,6 @@ export interface SourceInfo {
   /** Trust after learning from the investigator's accept/reject decisions (equals `reliability` until there are any). */
   trust: number;
   decisions: number;
-  demo?: boolean;
 }
 
 export interface AiSettings {

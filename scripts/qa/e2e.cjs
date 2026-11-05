@@ -1,5 +1,6 @@
-// End-to-end browser QA (160+ checks). Needs `npm i -D playwright` and a server running in demo mode with fast demo sources:
-//   PLEXUS_HOME=$(mktemp -d) PLEXUS_PORT=4317 PLEXUS_DEMO_FAST=1 node dist/server/index.mjs &
+// End-to-end browser QA (160+ checks). Needs `npm i -D playwright` and a server running against the fictional test world
+// (the app itself ships no demo data; `npm run build:world` makes the test-only bundle):
+//   PLEXUS_HOME=$(mktemp -d) PLEXUS_PORT=4317 PLEXUS_DEMO_FAST=1 PLEXUS_TEST_WORLD=$PWD/dist-test/world.mjs node dist/server/index.mjs &
 //   curl -X PUT localhost:4317/api/settings -H 'x-plexus: 1' -H 'content-type: application/json' -d '{"demoMode":true}'
 //   node scripts/qa/e2e.cjs      (env OUT=<dir> for failure screenshots)
 const { chromium } = require('playwright');
@@ -23,8 +24,8 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
 
   await p.goto('http://127.0.0.1:4317/?debug'); await settle(900);
 
-  await section('onboarding → start fresh → hero lookup creates a named case', async () => {
-    await p.getByRole('button', { name: 'Start fresh' }).click(); await settle(400);
+  await section('onboarding → start → hero lookup creates a named case', async () => {
+    await p.getByRole('button', { name: 'Start investigating' }).click(); await settle(400);
     await p.fill('input[aria-label="Start an investigation"]', 'mara.linden@northwind-labs.example'); await p.keyboard.press('Enter'); await p.waitForSelector('.nextchip', { timeout: 20000 }); await settle(300);
     let s = await S();
     ok(s.cases.length === 1, 'a case was created on first lookup');

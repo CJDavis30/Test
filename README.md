@@ -4,6 +4,8 @@ A local-first investigation workbench. Enter one fact (an email, username, domai
 
 ![Graph](docs/screenshots/dark-graph.png)
 
+*(Screenshots show the fictional test world, which is not part of the app.)*
+
 |  |  |
 |---|---|
 | ![Overview](docs/screenshots/overview.png) | ![Review](docs/screenshots/sheet.png) |
@@ -24,11 +26,15 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 353 unit/integration tests
+npm test           # 358 unit/integration tests (they use a fictional test world that is not part of the app)
 npm run typecheck
 ```
 
-First launch offers **demo data**: a fictional cast on reserved `.example` domains with deliberately noisy records (conflicting cities, a namesake, stale numbers). It runs fully offline, so you can learn the whole workflow without touching a real source.
+**There is no demo mode and no sample data.** The app starts empty and uses real sources. 35 of them need no setup. Add API keys any time in **Settings → Sources** (the welcome screen has an *Add API keys* button): a key unlocks the sources that need one and lifts rate limits on the rest, and Plexus starts using it immediately. Put an AI provider in **Settings → AI** if you want one (optional).
+
+Upgrading from an earlier build that had demo data: on first start the old demo case, the saved demo switch and anything learned from the fictional sources are removed. A case is only removed if the demo flow made it or it holds nothing but demo evidence; real work is never touched.
+
+**For developers:** the fictional world used by the tests and browser QA lives in `test/world/` and is never part of the app bundle. The app only loads it when `PLEXUS_TEST_WORLD` points at a bundle built with `npm run build:world`. `npm run qa:serve` does both.
 
 ### Install as a Mac app
 
@@ -96,7 +102,7 @@ No fake precision: the UI shows four levels (Weak / Fair / Good / Strong) and *w
 
 ### Measured accuracy
 
-`test/calibration.test.ts` runs five lookups across the demo world, which has known ground truth and deliberate false leads (a namesake, her handle, a holiday location), and scores the result: **precision 1.00 where Plexus says "likely", recall 1.00 on real findings, AUC 1.000** (every true finding outranks every false lead; the best false lead scores 37%, the weakest true finding 40%). It also checks that no confidence band overclaims and that bands are ordered. Absolute calibration is deliberately *not* asserted: the demo world is about 95% true, so it would only reflect that base rate. Tuning from this benchmark raised the contradiction penalty after it showed a handle owned by a namesake still scoring 43%. Run it with `npx vitest run test/calibration.test.ts`; the table prints in verbose mode.
+`test/calibration.test.ts` runs five lookups across the fictional test world, which has known ground truth and deliberate false leads (a namesake, her handle, a holiday location), and scores the result: **precision 1.00 where Plexus says "likely", recall 1.00 on real findings, AUC 1.000** (every true finding outranks every false lead; the best false lead scores 37%, the weakest true finding 40%). It also checks that no confidence band overclaims and that bands are ordered. Absolute calibration is deliberately *not* asserted: the demo world is about 95% true, so it would only reflect that base rate. Tuning from this benchmark raised the contradiction penalty after it showed a handle owned by a namesake still scoring 43%. Run it with `npx vitest run test/calibration.test.ts`; the table prints in verbose mode.
 
 ### Reliability
 
@@ -229,7 +235,7 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 353 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
+- 358 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the fictional test world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
 - The UI in a real browser (Chromium): every view in light and dark; **158 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
@@ -258,6 +264,6 @@ web/       React UI: design system, canvas graph engine, findings sheet, views, 
 desktop/   Electron shell + tested helpers
 scripts/mac/ install / update / uninstall
 assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
-test/      353 tests
+test/      358 tests (test/world/ holds the fictional world, test-only)
 scripts/qa/  browser end-to-end + stress scripts
 ```

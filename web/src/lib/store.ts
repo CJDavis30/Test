@@ -27,7 +27,6 @@ export interface RunState {
 }
 
 export interface Settings {
-  demoMode: boolean;
   ai: AiSettings;
   aiReady: { ok: boolean; why?: string; model?: string };
   region: string;

@@ -6,3 +6,4 @@ dist
 coverage
 release
 config.json
+dist-test

@@ -34,12 +34,12 @@ import { detect, detectMany, extractEntities } from '../shared/detect';
 import { keyFor } from '../shared/normalize';
 import { makeCtx } from './http';
 import { getSecret } from './config';
-import { DEMO_SEEDS } from './adapters/demo';
 import { ENTITY_TYPES, type EntityType, type FindingStatus, type RunEvent, type ApEvent } from '../shared/types';
 
 export async function createApp(store = new Store()) {
   const ic = store.integrityCheck();
   if (ic !== 'ok') console.warn(`WARNING: the database integrity check reported: ${ic}. A backup copy may be in ${store.backupDir()}`);
+  if (!process.env.PLEXUS_TEST_WORLD) { try { const r = store.removeDemoLeftovers(); if (r.cases) console.log(`Removed ${r.cases} leftover demo case${r.cases === 1 ? '' : 's'}`); } catch (e: any) { console.warn('Demo cleanup skipped:', e?.message ?? e); } }
   const retention = () => { try { const d = Number(store.getSetting('retentionDays', 0)); if (d >= 1) { const gone = store.purgeExpired(d); if (gone.length) console.log(`Retention: removed ${gone.length} case${gone.length === 1 ? '' : 's'} idle for more than ${d} days`); } } catch (e: any) { console.warn('Retention check skipped:', e?.message ?? e); } };
   retention();
   setInterval(retention, 3600_000).unref?.();
@@ -70,7 +70,7 @@ export async function createApp(store = new Store()) {
   const isType = (t: unknown): t is EntityType => typeof t === 'string' && (ENTITY_TYPES as readonly string[]).includes(t);
 
   // --- meta ---------------------------------------------------------------------------------------------------
-  app.get('/api/health', (c) => c.json({ ok: true, app: APP_NAME, demo: demoMode(store), home: HOME }));
+  app.get('/api/health', (c) => c.json({ ok: true, app: APP_NAME, home: HOME }));
   app.post('/api/detect', async (c) => {
     const { text } = await body<{ text: string }>(c);
     return c.json({ items: detectMany(text ?? '') });
@@ -79,7 +79,6 @@ export async function createApp(store = new Store()) {
     const { text } = await body<{ text: string }>(c);
     return c.json({ items: extractEntities((text ?? '').slice(0, 2_000_000)) });
   });
-  app.get('/api/demo/seeds', (c) => c.json({ seeds: DEMO_SEEDS }));
 
   // --- cases --------------------------------------------------------------------------------------------------
   app.get('/api/cases', (c) => c.json({ cases: store.listCases() }));
@@ -414,7 +413,7 @@ export async function createApp(store = new Store()) {
   });
 
   // --- sources & settings -------------------------------------------------------------------------------------
-  app.get('/api/sources', (c) => c.json({ sources: sourceInfo(store), demo: demoMode(store) }));
+  app.get('/api/sources', (c) => c.json({ sources: sourceInfo(store) }));
   app.patch('/api/sources/:id', async (c) => {
     const b = await body<{ enabled?: boolean; priority?: number }>(c);
     const id = c.req.param('id');
@@ -449,14 +448,14 @@ export async function createApp(store = new Store()) {
     return c.json({ ok: true });
   });
   app.get('/api/settings', (c) => c.json({
-    demoMode: demoMode(store), ai: aiSettings(store), aiReady: aiReady(store),
+    ai: aiSettings(store), aiReady: aiReady(store),
     region: store.getSetting('region', 'US'), onboarded: store.getSetting('onboarded', false), crossCheck: store.getSetting('crossCheck', true),
     minorCare: minorCareOn(store), requirePurpose: store.getSetting('requirePurpose', true), retentionDays: Number(store.getSetting('retentionDays', 0)) || 0,
   }));
   app.get('/api/retention/log', (c) => c.json({ log: store.getSetting('purgeLog', []) }));
   app.put('/api/settings', async (c) => {
     const b = await body<{ demoMode?: boolean; ai?: Partial<typeof DEFAULT_AI>; region?: string; onboarded?: boolean; crossCheck?: boolean; minorCare?: boolean; requirePurpose?: boolean; retentionDays?: number }>(c);
-    if (typeof b.demoMode === 'boolean') store.setSetting('demoMode', b.demoMode);
+    if (process.env.PLEXUS_TEST_WORLD && typeof b.demoMode === 'boolean') store.setSetting('demoMode', b.demoMode); // QA harness only
     if (b.ai) store.setSetting('ai', { ...store.getSetting('ai', DEFAULT_AI), ...b.ai, keySet: undefined });
     if (b.region) store.setSetting('region', b.region);
     if (typeof b.onboarded === 'boolean') store.setSetting('onboarded', b.onboarded);

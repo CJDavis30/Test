@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { howFor, knownHowIds } from '../server/adapters/how';
+import { howFor, knownHowIds, extendHow } from '../server/adapters/how';
 import { liveAdapters } from '../server/adapters/live/index';
-import { demoAdapters } from '../server/adapters/demo';
+import { demoAdapters, demoHow } from './world/demo';
 import { derive } from '../server/adapters/derive';
+
+extendHow(demoHow);
 
 describe('every source says what it asked', () => {
   const all = [derive, ...demoAdapters, ...liveAdapters];

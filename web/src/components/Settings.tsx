@@ -54,8 +54,6 @@ function General() {
       <h2>General</h2><p className="lead">Plexus keeps everything on this Mac: cases, findings and your API keys.</p>
       <div className="setrow"><div className="grow"><div className="t">Appearance</div></div>
         <div className="seg">{(['auto', 'light', 'dark'] as const).map((t) => <button key={t} aria-pressed={s.theme === t} onClick={() => s.setTheme(t)}>{t === 'auto' ? 'System' : t[0].toUpperCase() + t.slice(1)}</button>)}</div></div>
-      <div className="setrow"><div className="grow"><div className="t">Demo data</div><div className="d">Use simulated sources and fictional people (all on reserved .example domains). Nothing is sent over the network. Great for learning the app.</div></div>
-        <Switch on={st.demoMode} label="Demo data" onChange={(v) => void set({ demoMode: v }).then(() => s.toast(v ? 'Using demo data' : 'Using live sources'))} /></div>
       <div className="setrow"><div className="grow"><div className="t">Cross-check findings</div><div className="d">After a lookup, ask other sources about what was found and compare. Links back, shared details and contradictions are added as evidence. Uses a few extra requests per lookup.</div></div>
         <Switch on={st.crossCheck} label="Cross-check findings" onChange={(v) => void set({ crossCheck: v })} /></div>
       <div className="setrow"><div className="grow"><div className="t">Phone number region</div><div className="d">Used to interpret numbers typed without a country code.</div></div>
@@ -64,7 +62,7 @@ function General() {
         <button className="btn" onClick={async () => { await api.post('/api/cache/clear'); s.toast('Cache cleared'); }}>Clear cache</button></div>
       <div className="setrow"><div className="grow"><div className="t">Extra care with young people</div><div className="d">If a source shows signs a subject may be a minor (what they say about their own age or school), Plexus holds back from steps that point toward a real name, number, email or place, asks before you accept one, and points to reporting instead. It can be wrong, so you can always override it.</div></div>
         <Switch on={st.minorCare} label="Extra care with young people" onChange={(v) => void set({ minorCare: v })} /></div>
-      <div className="setrow"><div className="grow"><div className="t">Ask for a purpose before live lookups</div><div className="d">Asked once per case and written into the tamper-evident log. Demo data never asks.</div></div>
+      <div className="setrow"><div className="grow"><div className="t">Ask for a purpose before live lookups</div><div className="d">Asked once per case and written into the tamper-evident log.</div></div>
         <Switch on={st.requirePurpose} label="Ask for a purpose" onChange={(v) => void set({ requirePurpose: v })} /></div>
       <div className="setrow"><div className="grow"><div className="t">Keep cases for</div><div className="d">Cases nobody has opened for this long are deleted automatically, along with their backups, and one fresh backup of what remains is taken. Only the case name and date go in a purge log. Off by default.</div></div>
         <select value={st.retentionDays} onChange={async (e) => { const v = Number(e.target.value); if (v && !(await askConfirm('Delete old cases automatically?', `Any case that has been idle for more than ${v} days will be deleted now and from here on, with its backups. This cannot be undone.`, 'Turn on'))) return; void set({ retentionDays: v }).then(() => s.toast(v ? `Cases idle for ${v}+ days will be deleted` : 'Cases are kept until you delete them')); }} aria-label="Keep cases for">
@@ -85,7 +83,7 @@ function Sources() {
   return (
     <>
       <h2>Sources</h2>
-      <p className="lead">{s.settings?.demoMode ? 'Demo mode is on, so only simulated sources run. Turn it off in General to use real ones.' : `${ready} of ${s.sources.length} sources ready. Where several sources answer the same question, Plexus tries them in order and falls back to the next if one fails, is empty or rate-limited.`}</p>
+      <p className="lead">{`${ready} of ${s.sources.length} sources ready. Where several sources answer the same question, Plexus tries them in order and falls back to the next if one fails, is empty or rate-limited.`}</p>
       <div className="filters">
         {([['all', 'All'], ['ready', 'Ready'], ['key', 'Needs key']] as const).map(([id, l]) => <button key={id} className="fchip" aria-pressed={only === id} onClick={() => setOnly(id)}>{l}</button>)}
         <label className="search"><Search size={14} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter sources" aria-label="Filter sources" /></label>
@@ -133,7 +131,7 @@ function SourceRow({ x, first, last, siblings }: { x: SourceInfo; first: boolean
         <div className="ds">{x.description}</div>
       </div>
       <div className="row" style={{ gap: 4 }}>
-        {siblings.length > 1 && !x.demo && <><button className="btn icon sm ghost" aria-label="Try earlier" disabled={first} onClick={() => void move(-1)}><ArrowUp size={13} /></button><button className="btn icon sm ghost" aria-label="Try later" disabled={last} onClick={() => void move(1)}><ArrowDown size={13} /></button></>}
+        {siblings.length > 1 && <><button className="btn icon sm ghost" aria-label="Try earlier" disabled={first} onClick={() => void move(-1)}><ArrowUp size={13} /></button><button className="btn icon sm ghost" aria-label="Try later" disabled={last} onClick={() => void move(1)}><ArrowDown size={13} /></button></>}
         {x.pausedUntil && <button className="btn sm ghost" onClick={async () => { await api.post(`/api/sources/${x.id}/resume`); await s.refreshSources(); s.toast(`${x.name} resumed`); }}>Resume</button>}
         <button className="btn sm" onClick={() => void test()} disabled={busy || needs}>{busy ? <LoaderCircle size={13} className="spin" /> : 'Test'}</button>
       </div>

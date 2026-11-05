@@ -13,8 +13,9 @@ export function register(...list: Adapter[]) {
 export const allAdapters = () => [...adapters.values()];
 export const getAdapter = (id: string) => adapters.get(id);
 
+/** The app has no demo mode. Only the QA harness (which sets PLEXUS_TEST_WORLD) can switch to the fictional world. */
 export function demoMode(store: Store): boolean {
-  return store.getSetting<boolean>('demoMode', false);
+  return !!process.env.PLEXUS_TEST_WORLD && store.getSetting<boolean>('demoMode', false);
 }
 
 export function isEnabled(store: Store, a: Adapter): boolean {
@@ -59,7 +60,7 @@ export function sourceInfo(store: Store): SourceInfo[] {
         requiresKey: a.requiresKey, keyOptional: a.keyOptional, keyHelp: a.keyHelp,
         enabled: isEnabled(store, a), keySet: hasKey(a), priority: priorityOf(store, a),
         health: { ok: st?.ok ?? 0, fail: st?.fail ?? 0, lastError: st?.last_error ?? undefined, lastOkAt: st?.last_ok_at ?? undefined, avgMs: st?.avg_ms ?? undefined },
-        pausedUntil: breaker.pausedUntil(a.id), reliability: a.reliability, demo: a.demo,
+        pausedUntil: breaker.pausedUntil(a.id), reliability: a.reliability,
         trust: learnedReliability(a.reliability, fb.get(a.id)), decisions: (fb.get(a.id)?.accepted ?? 0) + (fb.get(a.id)?.rejected ?? 0),
       } satisfies SourceInfo;
     })

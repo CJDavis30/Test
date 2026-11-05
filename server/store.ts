@@ -77,6 +77,30 @@ export class Store {
   path: string;
   close() { this.db.close(); }
 
+  /**
+   * Earlier builds shipped a demo mode with a fictional "Northwind" case. The app no longer has one, so on first start of this version
+   * anything it left behind is removed: the saved switch, demo-only cases, and what the app learned from the fictional sources.
+   * A case is only removed when it was made by the demo flow or holds nothing but demo evidence; anything with real evidence stays.
+   */
+  removeDemoLeftovers(): { cases: number } {
+    if (this.getSetting('demoRemoved', false)) return { cases: 0 };
+    const rows = this.db.prepare('SELECT id, name, purpose FROM cases').all() as { id: string; name: string; purpose: string }[];
+    const stat = this.db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN evidence LIKE '%"adapter":"demo-%' THEN 1 ELSE 0 END) AS demo FROM findings WHERE case_id=?`);
+    let removed = 0;
+    for (const c of rows) {
+      const st = stat.get(c.id) as { total: number; demo: number | null };
+      const madeByDemo = c.purpose === 'Exploring Plexus with fictional data' || /^Northwind — demo/.test(c.name);
+      const onlyDemo = st.total > 0 && (st.demo ?? 0) === st.total;
+      if (madeByDemo || onlyDemo) { this.deleteCase(c.id); removed++; }
+    }
+    this.db.prepare("DELETE FROM feedback WHERE adapter LIKE 'demo-%'").run();
+    this.db.prepare("DELETE FROM source_state WHERE adapter LIKE 'demo-%'").run();
+    this.db.prepare("DELETE FROM settings WHERE key='demoMode'").run();
+    this.cacheClear();
+    this.setSetting('demoRemoved', true);
+    return { cases: removed };
+  }
+
   tx<T>(fn: () => T): T {
     this.db.exec('BEGIN');
     try { const r = fn(); this.db.exec('COMMIT'); return r; } catch (e) { this.db.exec('ROLLBACK'); throw e; }

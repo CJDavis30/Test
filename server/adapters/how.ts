@@ -43,12 +43,6 @@ const HOW: Record<string, string | ((type: EntityType, q: string) => string)> = 
   wikidata: (_t, q) => `Searched Wikidata for a notable person or company named ${q}`,
   blockstream: (_t, q) => `Read the public Bitcoin blockchain for ${q}`,
   hunter: (_t, q) => `Asked Hunter for email addresses seen at ${q}`,
-  'demo-registry': (_t, q) => `Searched filings & domain records for ${q}`,
-  'demo-social': (_t, q) => `Searched public profiles for ${q}`,
-  'demo-code': (_t, q) => `Searched public commits & profiles for ${q}`,
-  'demo-breach': (_t, q) => `Checked leaked-account records for ${q}`,
-  'demo-archive': (_t, q) => `Searched saved web pages & DNS history for ${q}`,
-  'demo-broker': (_t, q) => `Searched people-data brokers for ${q}`,
 };
 
 export function howFor(adapterId: string, type: EntityType, query: string): string | undefined {
@@ -56,6 +50,8 @@ export function howFor(adapterId: string, type: EntityType, query: string): stri
   if (!h) return undefined;
   return typeof h === 'function' ? h(type, query) : h.replace('{q}', query);
 }
+/** Lets the test world describe its own made-up sources without the product knowing about them. */
+export const extendHow = (more: Record<string, (typeof HOW)[string]>) => { Object.assign(HOW, more); };
 export const knownHowIds = () => Object.keys(HOW);
 
 const q = encodeURIComponent;
