@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check, Orbit, Shuffle, Wand2, Rocket, ShieldAlert, History, Pause } from 'lucide-react';
+import { Plus, Minus, Maximize2, Route, Focus, X, Sparkles, Pin, PinOff, Play, Copy, Trash2, FolderOpen, Link2, Merge, Check, Orbit, Shuffle, Wand2, Rocket, ShieldAlert, ShieldCheck, History, Pause } from 'lucide-react';
 import { startAutopilot } from '../lib/autopilot';
 import { LEVEL_LABEL } from '@shared/types';
 import { ENTITY_LABEL } from '@shared/types';
@@ -260,6 +260,7 @@ function NodeMenu({ menu, onClose, eng }: { menu: { id: string | null; x: number
       <button className="item" onClick={run(() => void s.openNode(n.id))}><FolderOpen size={14} /> Open findings</button>
       <button className="item" onClick={run(() => void s.runNode(n.id))}><Play size={14} /> Run checks again</button>
       <button className="item" onClick={run(() => void startAutopilot({ nodeId: n.id }))}><Rocket size={14} /> Autopilot from here</button>
+      <button className="item" onClick={run(() => void s.setKnown(n.id, n.attrs.known !== true))}><ShieldCheck size={14} /> {n.attrs.known ? 'No longer known' : 'I know this belongs to them'}</button>
       <div className="sep" />
       {others.length === 1 && <>
         <button className="item" onClick={run(() => s.setPath([menu.id!, others[0]]))}><Route size={14} /> Trace path to selected</button>

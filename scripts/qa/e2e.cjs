@@ -73,7 +73,7 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
   });
 
 
-  const expandAll = async (scope) => { const b = scope.getByRole('button', { name: 'Expand all' }); if (await b.count()) { await b.click(); await settle(150); } };
+  const expandAll = async (scope) => { const m = scope.locator('.fmore-btn'); if (await m.count() && (await m.first().getAttribute('aria-expanded')) === 'false') { await m.first().click(); await settle(150); } const b = scope.getByRole('button', { name: 'Expand all' }); if (await b.count()) { await b.click(); await settle(150); } };
 
   await section('review clarity: every finding explains itself', async () => {
     const subj = (await S()).nodes.find((n) => n.type === 'email');
@@ -113,7 +113,7 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
       if (asked !== cards) jargon.push(`row ${i}: ${cards} source cards but ${asked} "Asked" lines`);
       if (clean.length !== cards) jargon.push(`row ${i}: ${cards} source cards but ${clean.length} "Found" records`);
       if (new Set(clean.map((c) => c.trim())).size < clean.length) dupNotes++;
-      const sentence = await pane.locator('p.plain').innerText();
+      const sentence = await pane.locator('.verdict').innerText();
       if (sentence.length < 20 || /belongs to\.$/.test(sentence)) jargon.push(`row ${i} weak sentence: ${sentence}`);
     }
     ok(jargon.length === 0, `every finding shows the path, and for every source what was asked and what was found ${jargon.join(' | ')}`);
@@ -128,7 +128,7 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     // the row itself reads as a sentence too, with its confidence and source count
     const firstSub = await p.locator('.frow .sub').first().innerText();
     ok(/ (is|are|appears|works|was|used|looks|points|also|might|shows|has)\b/.test(firstSub), `row text is a sentence: "${firstSub}"`);
-    ok(/\d+%/.test(await p.locator('.frow .fr-meta').first().innerText()) && /source/.test(await p.locator('.frow .fr-meta').first().innerText()), 'each row shows its confidence and how many sources agree');
+    ok(/\d+%/.test(await p.locator('.frow .fr-meta').first().innerText()) && /independent source/.test(await p.locator('.frow .fr-meta').first().getAttribute('title')), 'each row shows its confidence, and its tooltip says how many sources agree');
     // decision bar is pinned and acts on the highlighted finding
     const bar = await pane.locator('.fdecide').boundingBox(), paneBox = await pane.boundingBox();
     ok(bar && paneBox && Math.abs(bar.y + bar.height - (paneBox.y + paneBox.height)) < 2, 'Accept / Reject bar is pinned to the bottom of the panel');
@@ -144,7 +144,7 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     await p.setViewportSize({ width: 700, height: 760 }); await settle(600);
     ok(await p.locator('.detail-pane').count() === 0, 'narrow window has no side panel');
     await p.locator('.frow').nth(1).click(); await settle(600);
-    ok(await p.locator('.detail-over .scard').count() >= 1, 'narrow window opens the details over the list when you click a row');
+    ok(await p.locator('.detail-over .verdict').count() >= 1, 'narrow window opens the details over the list when you click a row');
     ok(await p.locator('.detail-over .fdecide').count() === 1, '…with Accept / Reject still one tap away');
     const sb = await p.locator('.sheet').boundingBox();
     ok(sb.width <= 700 && sb.x >= 0, 'the dialog fits a narrow window');
@@ -184,6 +184,7 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     const stored = (value) => p.evaluate((v) => { const st = window.__plexusStore.getState(); const f = Object.values(st.findings).find((x) => x.value === v && x.subjectId === st.sheet.subjectId); return f && { score: f.score, ev: f.evidence.length, against: f.evidence.filter((e) => e.polarity === 'against').length, cross: f.evidence.filter((e) => e.kind === 'cross' && e.polarity !== 'against').length }; }, value);
 
     await rowOf('maralinden').hover(); await settle(300);
+    await expandAll(pane);
     const good = await stored('maralinden');
     ok(good.cross >= 1, `the real username gains cross-check confirmations (${good.cross})`);
     ok(await pane.locator('.scard.ok').count() >= 1, 'confirming cross-checks are shown with a green edge');
@@ -634,6 +635,175 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     s = await S();
     ok(dialogs >= 1 && !s.cases.some((c) => c.id === cur.caseId), 'delete removes the case after confirmation');
     ok(!!s.caseId, 'another case is loaded afterwards');
+  });
+
+
+  await section('known facts: two facts are confirmed, cross-checked, and accepting one connects the dots', async () => {
+    const c = await api('POST', '/api/cases', { name: 'Known e2e', purpose: 'qa' });
+    await p.evaluate((id) => window.__plexusStore.getState().loadCase(id), c.case.id); await settle(900);
+    await p.evaluate(() => window.__plexusStore.getState().setKnownDialog(true)); await settle(400);
+    ok(await p.getByRole('dialog', { name: 'What you already know' }).count() === 1, 'the known-facts dialog opens');
+    await p.locator('input[aria-label="Known fact 1"]').fill('mara.linden@northwind-labs.example');
+    await p.locator('input[aria-label="Known fact 2"]').fill('maralinden'); await settle(250);
+    ok(await p.locator('.kn-warn').count() === 0, 'both facts are recognised without asking what they are');
+    await p.screenshot({ path: SP + '/shots-known.png' });
+    await p.getByRole('button', { name: /Add 2 and look them all up/ }).click();
+    await p.waitForFunction(() => { const r = Object.values(window.__plexusStore.getState().runs); return r.length >= 2 && r.every((x) => x.status === 'done'); }, null, { timeout: 40000 }).catch(() => {}); await settle(1500);
+    let s = await S();
+    const known = s.nodes.filter((n) => n.attrs && n.attrs.known === true);
+    ok(known.length === 2, `both known facts are on the graph (${known.length})`);
+    ok(known.every((n) => n.state === 'confirmed' && n.level === 4), 'known facts are confirmed at the top level');
+    ok(s.edges.some((e) => /known to be the same subject/.test(e.label || '')), 'the two known facts are linked to each other');
+    const anchored = s.findings.filter((f) => f.type === 'account' && f.evidence.some((e) => e.adapter === 'anchor'));
+    ok(anchored.length >= 1, `accounts that match what you know carry anchor evidence (${anchored.length})`);
+    ok(anchored.every((f) => f.evidence.some((e) => e.adapter === 'anchor' && /you (told|know)|known/i.test((e.how || '') + (e.snippet || '')))), 'anchor evidence says it comes from what you told Plexus');
+    // accepting an anchored account adds it to the graph and connects it to the known facts
+    const target = anchored.sort((a, b) => b.score - a.score)[0];
+    const conn = await api('GET', `/api/findings/${target.id}/connections`);
+    ok(Array.isArray(conn.connections) && conn.connections.length >= 1, `the server lists what accepting it will connect (${(conn.connections || []).length})`);
+    const edgesBefore = s.edges.length, nodesBefore = s.nodes.length;
+    await p.evaluate((id) => window.__plexusStore.getState().openSheet(id, 'review'), target.subjectId); await settle(900);
+    let sawCard = false, sawWc = false;
+    const nrows = await p.locator('.frow').count();
+    for (let i = 0; i < Math.min(nrows, 25) && !(sawCard && sawWc); i++) {
+      await p.locator('.frow').nth(i).hover(); await settle(250);
+      if (await p.locator('.detail-pane .pcard').count()) sawCard = true;
+      if (await p.locator('.detail-pane .wc').count()) sawWc = true;
+    }
+    ok(sawCard, 'an account finding shows a profile card (bio, created date, avatar) without opening any link');
+    ok(sawWc, 'the detail panel shows “what accepting will connect”');
+    await p.screenshot({ path: SP + '/shots-detail.png' });
+    await p.evaluate((id) => window.__plexusStore.getState().review([id], 'accepted'), target.id); await settle(1200);
+    s = await S();
+    ok(s.nodes.length > nodesBefore || s.nodes.some((n) => n.value === target.value), 'accepting adds the account to the graph straight away');
+    ok(s.edges.length >= edgesBefore + 1, `accepting connected it (${edgesBefore}→${s.edges.length} edges)`);
+    const node = s.nodes.find((n) => n.value === target.value);
+    const touching = node ? s.edges.filter((e) => e.from === node.id || e.to === node.id) : [];
+    ok(touching.length >= 2, `the accepted account is tied to more than the subject (${touching.length} edges)`);
+    ok(touching.some((e) => known.some((k) => e.from === k.id || e.to === k.id)), 'one of those ties reaches a node you marked as known');
+    // undo takes it back off
+    await p.evaluate(() => window.__plexusStore.getState().undo()); await settle(1000);
+    s = await S();
+    ok(!s.nodes.some((n) => n.value === target.value) || s.nodes.length <= nodesBefore, 'undo removes the accepted node again');
+    await p.evaluate(() => window.__plexusStore.getState().review([], 'accepted')).catch(() => {});
+    await p.evaluate((id) => window.__plexusStore.getState().review([id], 'accepted'), target.id); await settle(900);
+    await p.keyboard.press('Escape'); await settle(300);
+  });
+
+  await section('review window: bands, type filters, bulk accept, footer', async () => {
+    const s0 = await S();
+    const subj = s0.nodes.find((n) => n.attrs && n.attrs.known && n.type === 'email') || s0.nodes[0];
+    await p.evaluate((id) => window.__plexusStore.getState().openSheet(id, 'review'), subj.id); await settle(900);
+    const tabs = await p.locator('.sheet-tabs [role="tab"]').allInnerTexts();
+    ok(tabs.some((t) => /On your graph/.test(t)), 'the accepted tab is called “On your graph”');
+    ok(!(await p.getByRole('button', { name: /^Add \d+ to graph/ }).count()), 'there is no separate “Add to graph” step any more');
+    const chips = await p.locator('.tfilter').count();
+    if (chips >= 2) { await p.locator('.tfilter').nth(1).click(); await settle(300); const shown = await p.locator('.frow').count(); await p.locator('.tfilter').first().click(); await settle(300); ok(await p.locator('.frow').count() >= shown, 'type filters narrow the list and “All” brings everything back'); }
+    ok(await p.locator('.sheet-foot').count() === 1 && /accepted|Nothing accepted/.test(await p.locator('.sheet-foot').innerText()), 'the footer says how many are accepted and already on the graph');
+    await p.screenshot({ path: SP + '/shots-review.png' });
+    await p.keyboard.press('Escape'); await settle(300);
+  });
+
+  await section('AI settings: automatic model, provider hints, plain-English test result', async () => {
+    await p.evaluate(() => window.__plexusStore.getState().openSettings('ai')); await settle(500);
+    const provider = p.locator('select[aria-label="Provider"]');
+    ok(await provider.count() === 1, 'the AI tab has a provider picker');
+    await provider.selectOption('openrouter'); await settle(400);
+    const txt = await p.locator('.settings .pane').innerText();
+    ok(/automatic/i.test(txt), 'OpenRouter defaults to Automatic model choice');
+    ok(/free/i.test(txt), 'it explains that free models are used first');
+    ok(await p.locator('.settings .pane').getByRole('button', { name: /Save and test/ }).count() === 1, 'there is one “Save and test” button');
+    await provider.selectOption('google'); await settle(400);
+    ok(/Google AI Studio|aistudio/i.test(await p.locator('.settings .pane').innerText()), 'Google AI Studio shows where to get a key');
+    await provider.selectOption('none'); await settle(300);
+    await p.keyboard.press('Escape'); await settle(300);
+  });
+
+  await section('graph: no stray nodes far from the cluster', async () => {
+    await p.evaluate(() => window.__plexusStore.getState().setView('graph')); await settle(1500);
+    const m = await p.evaluate(() => { const e = window.__plexusEngine; const ns = [...e.byId.values()].map((n) => ({ x: n.tx ?? n.x, y: n.ty ?? n.y })); if (ns.length < 3) return null; const cx = ns.reduce((a, n) => a + n.x, 0) / ns.length, cy = ns.reduce((a, n) => a + n.y, 0) / ns.length; const d = ns.map((n) => Math.hypot(n.x - cx, n.y - cy)).sort((a, b) => a - b); return { n: ns.length, med: d[Math.floor(d.length / 2)], max: d[d.length - 1] }; });
+    ok(!m || m.max <= Math.max(420, m.med * 3.2), `the farthest node is not far from the rest (max ${m && Math.round(m.max)}, median ${m && Math.round(m.med)})`);
+  });
+
+  await section('tools tab: list, search, and every tool opens and answers', async () => {
+    await p.getByRole('button', { name: 'Tools', exact: true }).first().click(); await settle(500);
+    const cards = await p.locator('.tool-card').count();
+    ok(cards >= 25, `the Tools tab lists at least 25 tools (${cards})`);
+    await p.locator('input[aria-label="Search tools"]').fill('shadow'); await settle(300);
+    ok(await p.locator('.tool-card').count() >= 2 && await p.locator('.tool-card').count() < cards, 'searching narrows the list');
+    await p.locator('input[aria-label="Search tools"]').fill(''); await settle(200);
+    const open = async (name) => { const back = p.getByRole('button', { name: /All tools/ }); if (await back.count()) { await back.click(); await settle(150); } await p.locator('.tool-card', { has: p.locator('.tool-name', { hasText: new RegExp('^' + name) }) }).first().click(); await settle(350); };
+    const type = async (sel, v, i = 0) => { await p.locator('.tools ' + sel).nth(i).fill(v); await settle(350); };
+    const text = () => p.locator('.tools').innerText();
+
+    await open('Identify anything'); await type('textarea', '1700000000\n175928847299117063\n0x52908400098527886E0F7030069857D2E4169EE7');
+    let t = await text(); ok(/Nov 14, 2023/.test(t) && /Discord ID/.test(t) && /Ethereum/.test(t), 'Identify anything reads a timestamp, a Discord ID and a wallet');
+    await open('Timestamp decoder'); await type('input.field', '1700000000');
+    t = await text(); ok(/Nov 14, 2023/.test(t) && /Tokyo/.test(t), 'Timestamp decoder shows the time in other zones');
+    await open('Coordinate toolkit'); await type('textarea', '37°46\'29.6"N 122°25\'09.8"W');
+    t = await text(); ok(/849V[0-9A-Z]{4}\+[0-9A-Z]{2}/.test(t) && /Geohash/.test(t) && /10S /.test(t), 'Coordinate toolkit converts to Plus Code, geohash and UTM');
+    await open('Shadow geolocator'); await type('input[type="datetime-local"]', '2025-06-21T08:30');
+    t = await text(); ok(/above the horizon/.test(t) && /circle|spot|place/.test(t), 'Shadow geolocator turns a shadow into a sun height and a ring of places');
+    await open('Shadow clock'); await type('input[placeholder="48.8584, 2.2945"]', '40.7128, -74.0060'); await type('input[type="date"]', '2025-06-21');
+    t = await text(); ok(/Morning|never happens/.test(t), 'Shadow clock answers for a known place');
+    await open('Does the time fit'); await type('input[placeholder="48.8584, 2.2945"]', '48.8584, 2.2945'); await type('input[type="datetime-local"]', '2025-06-21T03:00');
+    t = await text(); ok(/Night|Twilight|Sunrise/.test(t), 'Daylight check says it is dark at 3 am in Paris in June');
+    await open('Travel plausibility'); await type('input[placeholder="48.8584, 2.2945"]', '37.7749, -122.4194', 0); await type('input[placeholder="48.8584, 2.2945"]', '40.7128, -74.0060', 1);
+    await type('input[type="datetime-local"]', '2025-06-01T12:00', 0); await type('input[type="datetime-local"]', '2025-06-01T14:00', 1);
+    t = await text(); ok(/Not possible for one person/.test(t), 'Travel plausibility rejects San Francisco to New York in two hours');
+    await open('Username variants'); await type('input.field', 'xX_maralinden99_Xx');
+    t = await text(); ok(/Core name/.test(t) && /maralinden/.test(t) && /Likely variations/.test(t), 'Username variants explains the handle and lists variations');
+    await open('Compare two usernames'); await type('input.field', 'maralinden', 0); await type('input.field', 'm4ralinden_2009', 1);
+    t = await text(); ok(/Same name, written differently|Share a distinctive word/.test(t) && /bits/.test(t), 'Compare two usernames reports evidence in bits');
+    await open('Look-alike'); await type('input.field', 'pаypal.com');
+    t = await text(); ok(/Mixes alphabets/.test(t) && /Reads as/.test(t) && /paypal\.com/.test(t), 'Look-alike detector finds a Cyrillic а inside paypal');
+    await open('Writing-style'); await type('textarea', 'lol i dont even know what ur talking about tbh '.repeat(14), 0); await type('textarea', 'The committee has reviewed the proposal, and it will be presented on Thursday. '.repeat(10), 1);
+    t = await text(); ok(/Different|Inconclusive|similar/i.test(t) && /habits compared/i.test(t), 'Writing-style matcher compares two samples');
+    await open('Phone number reader'); await type('input.field', '+1 415 555 0132', 0);
+    t = await text(); ok(/fiction/.test(t) && /\+14155550132/.test(t), 'Phone reader flags the fictional 555 range');
+    await open('Pull entities'); await type('textarea', 'Write to mara@linden.example or visit https://linden.example/about, call +1 415 555 0132, server 203.0.113.9');
+    t = await text(); ok(/email/.test(t) && /url/.test(t) && /ip/.test(t), 'Pull entities finds emails, links and IPs in pasted text');
+    await open('Email header tracer'); await type('textarea', 'Received: from mail.example.com (mail.example.com [203.0.113.9]) by mx.test.example with ESMTPS; Mon, 03 Jun 2024 14:22:05 +0200\nFrom: Sam <sam@example.com>\nTo: you@test.example\nSubject: Hello\nDate: Mon, 03 Jun 2024 14:21:58 +0200\nMessage-ID: <abc@example.com>\n\nbody');
+    t = await text(); ok(/Hello/.test(t) && /UTC\+02:00/.test(t), 'Header tracer reads the sender timezone');
+    await open('Link inspector'); await type('input.field', 'https://www.instagram.com/p/CzXyZ12abCd/?igsh=MWRsdzNxMA%3D%3D&utm_source=ig_web_copy_link');
+    t = await text(); ok(/Cleaned link/.test(t) && /instagram\.com\/p\/CzXyZ12abCd/.test(t), 'Link inspector cleans tracking tags');
+    await open('Reverse image search'); await type('input.field', 'https://x.example/photo.jpg');
+    t = await text(); ok(/Google Lens/.test(t) && /TinEye/.test(t) && await p.locator('.tools a[href*="tineye.com/search?url=https%3A%2F%2Fx.example"]').count() === 1, 'Reverse image search builds engine links from an address');
+    await open('Email guesser'); await type('input.field', 'Mara', 0); await type('input.field', 'Linden', 2); await type('input.field', 'northwind-labs.example', 3);
+    t = await text(); ok(/mara\.linden@northwind-labs\.example/.test(t) && /Check which exist/.test(t), 'Email guesser lists likely addresses');
+    await open('Gravatar checker'); await type('textarea', 'nobody-here@plexus-test.invalid');
+    await p.getByRole('button', { name: /Check 1 address/ }).click(); await settle(2500);
+    t = await text(); ok(/Gravatar|could not be checked/.test(t), 'Gravatar checker answers (no network in QA is reported, not hidden)');
+    await open('Domain history'); await type('input.field', 'not a domain'); await p.getByRole('button', { name: /Build the history/ }).click(); await settle(1500);
+    ok(/domain name|not a domain|Could not reach/i.test(await text()), 'Domain history rejects a non-domain clearly');
+    await open('Link unshortener'); await type('input.field', 'http://127.0.0.1/admin'); await p.getByRole('button', { name: /Follow the link/ }).click(); await settle(1500);
+    ok(/not a public/.test(await text()), 'the unshortener refuses a private-network address');
+    await open('Weather at that time'); await type('input[placeholder="48.8584, 2.2945"]', '51.5074, -0.1278');
+    ok(await p.getByRole('button', { name: /Look up the weather/ }).isEnabled(), 'Weather tool is ready once a place is given');
+
+    // picture tools with a real generated picture
+    const png = await p.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 240; const g = c.getContext('2d'); const gr = g.createLinearGradient(0, 0, 320, 240); gr.addColorStop(0, '#2a6'); gr.addColorStop(1, '#a42'); g.fillStyle = gr; g.fillRect(0, 0, 320, 240); g.fillStyle = '#fff'; g.font = '40px sans-serif'; g.fillText('PLEXUS', 60, 130); return c.toDataURL('image/jpeg', 0.9).split(',')[1]; });
+    const buf = Buffer.from(png, 'base64');
+    const give = async (name, files) => { await p.locator('.tools input[type="file"]').setInputFiles(files.map((f, i) => ({ name: `${name}${i}.jpg`, mimeType: 'image/jpeg', buffer: buf }))); await settle(1800); };
+    await open('Edit detector'); await give('ela', [0]);
+    ok(/Even throughout|Some regions|Inconclusive/.test(await text()) && await p.locator('.tools canvas').count() >= 1, 'Edit detector draws an error-level map for a picture');
+    await open('Image twin finder'); await give('twin', [0, 1]);
+    t = await text(); ok(/Identical|The same picture/.test(t), 'Image twin finder says two copies of one picture are the same');
+    await open('Metadata remover'); await give('strip', [0]);
+    ok(await p.locator('.tools a[download$="-clean.jpg"]').count() === 1, 'Metadata remover offers a clean copy to save');
+    await open('Screenshot reader'); ok(await p.locator('.tools .tl-drop').count() === 1, 'Screenshot reader asks for a picture');
+    // tools that open existing windows
+    await p.locator('.tools').getByRole('button', { name: /All tools/ }).click(); await settle(200);
+    await p.locator('.tool-card', { has: p.locator('.tool-name', { hasText: /^Decode IDs/ }) }).click(); await settle(500);
+    ok(await p.getByRole('dialog', { name: /Decode/ }).count() === 1, 'Decode card opens the decoder window'); await p.keyboard.press('Escape'); await settle(300);
+    await p.locator('.tool-card', { has: p.locator('.tool-name', { hasText: /^Photo & file forensics/ }) }).click(); await settle(500);
+    ok(await p.locator('.modal, [role="dialog"]').count() >= 1, 'Photo & file forensics card opens the file lab'); await p.keyboard.press('Escape'); await settle(300);
+    await p.screenshot({ path: SP + '/shots-tools.png' });
+    // palette lists tools too
+    await p.keyboard.press('Control+k'); await settle(300); await p.keyboard.type('shadow'); await settle(400);
+    ok(await p.locator('.pitem', { hasText: 'Shadow geolocator' }).count() >= 1, 'the command palette finds tools');
+    await p.keyboard.press('Escape'); await settle(300);
+    await p.evaluate(() => window.__plexusStore.getState().setTool(null)); await p.evaluate(() => window.__plexusStore.getState().setView('graph')); await settle(400);
   });
 
   await section('persistence across reload', async () => {

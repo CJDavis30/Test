@@ -10,7 +10,7 @@ import { api, streamRun, setPurposeHandler } from './api';
 import type { ApState } from './autopilot';
 import type { Stress } from '@shared/stress';
 
-export type View = 'graph' | 'table' | 'timeline' | 'identities' | 'report';
+export type View = 'graph' | 'table' | 'timeline' | 'identities' | 'report' | 'tools';
 export type SheetTab = 'overview' | 'review' | 'accepted' | 'rejected';
 export type SettingsTab = 'general' | 'sources' | 'ai' | 'audit';
 
@@ -51,6 +51,8 @@ interface State {
   sources: SourceInfo[];
 
   view: View;
+  /** which tool is open in the Tools tab (null = the list) */
+  tool: string | null;
   sheet: { subjectId: string; tab: SheetTab; triage: boolean } | null;
   selection: string[];
   selectedEdge: string | null;
@@ -66,6 +68,7 @@ interface State {
   confirmAsk: { title: string; body: string; ok: string; resolve: (ok: boolean) => void } | null;
   decode: boolean;
   fileLab: { files: File[] } | null;
+  knownDialog: boolean;
   stress: Record<string, StressView>;
   deps: SourceDependency[];
   theme: 'auto' | 'light' | 'dark';
@@ -94,6 +97,11 @@ interface Actions {
   setContext(subjectId: string, context: string): void;
   review(ids: string[], status: FindingStatus, opts?: { toast?: boolean }): Promise<void>;
   commit(subjectId?: string): Promise<{ added: number }>;
+  applyGraphDelta(r: { nodes?: GraphNode[]; edges?: GraphEdge[]; removedNodeIds?: string[]; removedEdgeIds?: string[] }): void;
+  addKnown(items: { type?: EntityType; value: string }[], run?: boolean): Promise<{ added: number; skipped: string[] }>;
+  setKnown(nodeId: string, known: boolean): Promise<void>;
+  refreshCaseData(): Promise<void>;
+  setKnownDialog(v: boolean): void;
   undo(): Promise<void>;
   select(ids: string[], additive?: boolean): void;
   selectEdge(id: string | null): void;
@@ -106,6 +114,8 @@ interface Actions {
   dismissSuggestion(id: string): void;
   addEdge(from: string, to: string, label?: string): Promise<void>;
   setView(v: View): void;
+  setTool(id: string | null): void;
+  openTool(id: string): void;
   toggle(k: 'sidebar' | 'inspector' | 'palette', v?: boolean): void;
   openPalette(seed?: string): void;
   openSettings(t: SettingsTab | null): void;
@@ -132,7 +142,7 @@ const closers = new Map<string, () => void>();
 
 export const useStore = create<State & Actions>((set, get) => ({
   booted: false, cases: [], caseId: null, snap: null, findings: {}, runs: {}, suggestions: [], settings: null, sources: [],
-  view: 'graph', sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false, autopilot: null, matchLab: null, purposeAsk: null, confirmAsk: null, decode: false, fileLab: null, stress: {}, deps: [],
+  view: 'graph', tool: null, sheet: null, selection: [], selectedEdge: null, sidebar: true, inspector: false, palette: false, paletteSeed: '', settingsOpen: null, shortcuts: false, autopilot: null, matchLab: null, purposeAsk: null, confirmAsk: null, decode: false, fileLab: null, knownDialog: false, stress: {}, deps: [],
   theme: (localStorage.getItem('plexus.theme') as State['theme']) || 'auto', toasts: [], undoStack: [], focusNodeId: null, pathFor: null,
 
   /** What each conclusion survives if one source is wrong. Debounced: decisions and runs both ask for it. */
@@ -262,7 +272,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       if (risky.length && !(await askConfirm('This may involve a young person', `You are about to accept ${risky.length === 1 ? 'a ' + risky[0].type : risky.length + ' findings'} that point from an online account toward a real-world identity. If this is a child, stop and report to the platform or the authorities instead of linking them to a name, number, email or place. Continue?`, 'Accept anyway'))) return;
     }
     set({ findings });
-    await api.post('/api/findings/review', { ids: [...prev.keys()], status });
+    const res = await api.post<{ nodes: GraphNode[]; edges: GraphEdge[]; removedNodeIds: string[]; removedEdgeIds: string[] }>('/api/findings/review', { ids: [...prev.keys()], status });
+    get().applyGraphDelta(res);            // accepted means correct: it is on the graph already, joined to everything it touches
     get().refreshStress();
     const groups = new Map<FindingStatus, string[]>();
     for (const [id, p] of prev) (groups.get(p) ?? groups.set(p, []).get(p)!).push(id);
@@ -270,7 +281,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       const cur = { ...get().findings };
       for (const [p, list] of groups) {
         for (const id of list) if (cur[id]) cur[id] = { ...cur[id], status: p };
-        await api.post('/api/findings/review', { ids: list, status: p });
+        const r2 = await api.post<{ nodes: GraphNode[]; edges: GraphEdge[]; removedNodeIds: string[]; removedEdgeIds: string[] }>('/api/findings/review', { ids: list, status: p });
+        get().applyGraphDelta(r2);
       }
       set({ findings: cur });
     };
@@ -280,6 +292,45 @@ export const useStore = create<State & Actions>((set, get) => ({
       get().toast(`${status === 'accepted' ? 'Accepted' : status === 'rejected' ? 'Rejected' : 'Marked unsure'} ${prev.size}`, { label: 'Undo', run: () => void get().undo() });
     }
   },
+
+  applyGraphDelta(r) {
+    const snap = get().snap; if (!snap) return;
+    const rn = new Set(r.removedNodeIds ?? []), re = new Set(r.removedEdgeIds ?? []);
+    const nodes = new Map(snap.nodes.filter((n) => !rn.has(n.id)).map((n) => [n.id, n]));
+    for (const n of r.nodes ?? []) nodes.set(n.id, { ...nodes.get(n.id), ...n });
+    const edges = new Map(snap.edges.filter((e) => !re.has(e.id) && !rn.has(e.from) && !rn.has(e.to)).map((e) => [e.id, e]));
+    for (const e of r.edges ?? []) edges.set(e.id, e);
+    for (const e of r.edges ?? []) { const p = nodes.get(e.from); if (p && p.state === 'seed') nodes.set(p.id, { ...p, state: 'confirmed' }); }
+    set({ snap: { ...snap, nodes: [...nodes.values()], edges: [...edges.values()] }, selection: get().selection.filter((id) => !rn.has(id)) });
+    if ((r.nodes?.length ?? 0) || rn.size) void get().refreshSuggestions();
+  },
+
+  async refreshCaseData() {
+    const id = get().caseId; if (!id) return;
+    const [snap, f] = await Promise.all([api.get<CaseSnapshot>(`/api/cases/${id}`), api.get<{ findings: Finding[] }>(`/api/cases/${id}/findings`)]);
+    if (get().caseId !== id) return;
+    set({ snap: { case: snap.case, nodes: snap.nodes, edges: snap.edges }, findings: Object.fromEntries(f.findings.map((x) => [x.id, x])) });
+    get().refreshStress();
+  },
+
+  async addKnown(items, run = true) {
+    let caseId = get().caseId;
+    if (!caseId) caseId = await get().newCase(items[0].value.trim().slice(0, 48) || undefined);
+    const r = await api.post<{ nodes: GraphNode[]; edges: GraphEdge[]; runs: { nodeId: string; runId: string }[]; skipped: string[]; findings?: Finding[] }>(`/api/cases/${caseId}/known`, { items, run });
+    get().applyGraphDelta({ nodes: r.nodes, edges: r.edges });
+    if (r.findings?.length) set({ findings: { ...get().findings, ...Object.fromEntries(r.findings.map((x) => [x.id, x])) } });
+    for (const x of r.runs ?? []) get().attachRun(x.nodeId, x.runId, '');
+    if (r.runs?.length) { get().select([r.nodes[0].id]); get().openSheet(r.nodes[0].id, 'overview'); }
+    else void get().refreshCaseData();
+    return { added: r.nodes.length, skipped: r.skipped };
+  },
+
+  async setKnown(nodeId, known) {
+    await api.patch(`/api/nodes/${nodeId}`, { known });
+    await get().refreshCaseData();
+    get().toast(known ? 'Marked as known. Everything found so far was re-checked against it.' : 'No longer marked as known.');
+  },
+  setKnownDialog(v) { set({ knownDialog: v }); },
 
   async commit(subjectId) {
     const caseId = get().caseId!;
@@ -360,6 +411,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   setView(view) { set({ view }); },
+  setTool(tool) { set({ tool }); },
+  openTool(id) { set({ view: 'tools', tool: id }); },
   toggle(k, v) { set({ [k]: v ?? !get()[k] } as any); },
   openPalette(seed = '') { set({ palette: true, paletteSeed: seed }); },
   openSettings(t) { set({ settingsOpen: t }); },

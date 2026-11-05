@@ -43,6 +43,7 @@ export function adaptersFor(store: Store, type: EntityType): Adapter[] {
 export function reliabilityFn(store: Store) {
   const fb = store.allFeedback();
   return (adapter: string, type: EntityType) => {
+    if (adapter === 'anchor') return 0.97;                // what the investigator told us is not a source whose trust is learned
     const a = adapters.get(adapter);
     return learnedReliability(a?.reliability ?? 0.5, fb.get(`${adapter}|${type}`));
   };

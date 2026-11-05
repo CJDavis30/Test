@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, FileSearch, KeyRound, Upload } from 'lucide-react';
+import { ArrowRight, FileSearch, KeyRound, ShieldCheck, Upload } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
 import { startAutopilot } from '../lib/autopilot';
@@ -35,6 +35,7 @@ export function Welcome() {
           <button className="btn primary icon" style={{ width: 38, height: 38, borderRadius: 11 }} onClick={go} disabled={!one} aria-label="Look up"><ArrowRight size={18} /></button>
         </div>
         {one && v.trim() && <div className="hero-hint"><b>↵</b> look it up · <b>⇧↵</b> Autopilot: follow the strongest leads on its own and build the graph while you watch</div>}
+        <button className="btn known-cta" onClick={() => s.setKnownDialog(true)}><ShieldCheck size={15} /> I already know a few things about them</button>
         <div className="welcome-links">
           <span>Drop a file to extract entities</span>
           <span>·</span>

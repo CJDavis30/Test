@@ -5,7 +5,8 @@ import type { EntityType } from '@shared/types';
  *
  *  - The strongest-evidence spanning tree of each connected component becomes the skeleton (maximum spanning tree).
  *  - The best-connected node is the centre; its children sit on a ring, grouped by entity type so similar things are neighbours.
- *  - Deeper levels fan out from their parent. Crowded rings are staggered onto two radii.
+ *  - Deeper levels fan out from their parent. Crowded rings are split into 2-3 lanes so they stay compact.
+ *  - Separate clusters are packed snugly around the biggest one (never in a far-away row), and lone nodes share one tidy cluster.
  *  - A relaxation pass guarantees a minimum gap between neighbours on every ring (so nothing overlaps).
  *  - Edges that are NOT in the tree ("cross links") are returned separately so the renderer can draw them quietly.
  *
@@ -29,8 +30,13 @@ export interface Layout {
 const TYPE_RANK: Record<string, number> = { person: 0, email: 1, phone: 2, username: 3, account: 4, org: 5, location: 6, domain: 7, ip: 8, url: 9, wallet: 10, breach: 11, image: 12 };
 
 export const FOOTPRINT = 100; // minimum centre-to-centre room each node needs on a ring
-const GAP = 168;               // radial distance between rings
-const STAGGER = 70;            // radial offset between the two radii of a staggered ring
+const GAP = 150;               // radial distance between rings
+const STAGGER = 66;            // radial offset between neighbouring lanes of a crowded ring
+/** Crowded rings are split into lanes (alternating radii) so they stay small: 1 lane, or 2 / 3 when there are many nodes. */
+const lanesFor = (n: number) => (n >= 34 ? 3 : n >= 9 ? 2 : 1);
+/** How much closer together neighbours along the ring may sit when the ring has that many lanes. */
+const LANE_PACK = [1, 1, 1.7, 2.3];
+const PACK_GAP = 36;               // clear space between separate clusters
 const TAU = Math.PI * 2;
 
 class Heap<T> {
@@ -43,6 +49,13 @@ class Heap<T> {
     return top;
   }
   get size() { return this.a.length; }
+}
+
+/** Which lane the i-th node (in angle order) of a ring of n sits in: round-robin, but the last node must also differ from the first, which it neighbours around the seam. */
+function laneOf(i: number, n: number, L: number): number {
+  if (L < 3 || i < n - 1 || n % L === 0) return i % L;
+  for (let l = 0; l < L; l++) if (l !== (n - 2) % L && l !== 0) return l;
+  return i % L;
 }
 
 const norm = (a: number) => ((a % TAU) + TAU) % TAU;
@@ -86,7 +99,7 @@ export function organize(nodes: LNode[], edges: LEdge[]): Layout {
     while (q.length) { const u = q.pop()!; c.push(u); for (const a of adj.get(u)!) if (!compOf.has(a.to)) { compOf.set(a.to, comps.length); q.push(a.to); } }
     comps.push(c);
   }
-  const order = comps.map((c, i) => i).sort((a, b) => comps[b].length - comps[a].length || Math.min(...comps[a].map((id) => byId.get(id)!.createdAt ?? 0)) - Math.min(...comps[b].map((id) => byId.get(id)!.createdAt ?? 0)));
+  const order = comps.map((c, i) => i).sort((a, b) => comps[b].length - comps[a].length || Math.min(...comps[a].map((id) => byId.get(id)!.createdAt ?? 0)) - Math.min(...comps[b].map((id) => byId.get(id)!.createdAt ?? 0)) || comps[a].reduce((m, id) => (id < m ? id : m)).localeCompare(comps[b].reduce((m, id) => (id < m ? id : m))));
 
   const pos = new Map<string, Placed>();
   const parent = new Map<string, string | null>();
@@ -128,16 +141,14 @@ export function organize(nodes: LNode[], edges: LEdge[]): Layout {
       if (next.length) levels.push(next); else break;
     }
 
-    // ring radii: wide enough for every node on the ring, staggered onto two radii when the ring is crowded
-    const R: number[] = [0], stag: boolean[] = [false];
+    // ring radii: wide enough for every node on the ring; crowded rings are split into lanes
+    const R: number[] = [0], lanes: number[] = [1];
+    const spread = (L: number) => (STAGGER * (L - 1)) / 2;
     for (let d = 1; d < levels.length; d++) {
-      const n = levels[d].length;
-      const need = (n * FOOTPRINT) / TAU;
-      const crowded = n >= 9;
-      const needed = crowded ? need / 1.7 : need;
-      const base = R[d - 1] + (d === 1 ? GAP : GAP * 0.92) + (stag[d - 1] ? STAGGER / 2 : 0);
-      R[d] = Math.max(base, needed + (crowded ? STAGGER / 2 : 0));
-      stag[d] = crowded;
+      const n = levels[d].length, L = lanesFor(n);
+      const base = R[d - 1] + (d === 1 ? GAP : GAP * 0.92) + spread(lanes[d - 1]);
+      R[d] = Math.max(base + spread(L), (n * FOOTPRINT) / TAU / LANE_PACK[L] + spread(L));
+      lanes[d] = L;
     }
 
     const ang = new Map<string, number>();
@@ -145,16 +156,16 @@ export function organize(nodes: LNode[], edges: LEdge[]): Layout {
     rootKids.forEach((k, i) => ang.set(k, norm(-Math.PI / 2 + (TAU * (i + 0.5)) / rootKids.length)));
     for (let d = 1; d < levels.length; d++) {
       if (d >= 2) {
-        const step = FOOTPRINT / R[d] / (stag[d] ? 1.7 : 1);
+        const step = FOOTPRINT / R[d] / LANE_PACK[lanes[d]];
         for (const u of levels[d - 1]) {
           const ks = children.get(u) ?? [];
           ks.forEach((k, i) => ang.set(k, norm(ang.get(u)! + (i - (ks.length - 1) / 2) * step)));
         }
       }
       const ids = [...levels[d]].sort((a, b) => ang.get(a)! - ang.get(b)! || a.localeCompare(b));
-      relax(ids, ang, FOOTPRINT / R[d] / (stag[d] ? 1.7 : 1));
+      relax(ids, ang, FOOTPRINT / R[d] / LANE_PACK[lanes[d]]);
       ids.forEach((id, i) => {
-        const r = R[d] + (stag[d] ? (i % 2 ? STAGGER / 2 : -STAGGER / 2) : 0);
+        const L = lanes[d], r = R[d] + (L > 1 ? (laneOf(i, ids.length, L) - (L - 1) / 2) * STAGGER : 0);
         const a = ang.get(id)!;
         pos.set(id, { x: Math.cos(a) * r, y: Math.sin(a) * r, angle: norm(a), depth: d, comp: slot });
       });
@@ -167,20 +178,61 @@ export function organize(nodes: LNode[], edges: LEdge[]): Layout {
     roots[slot] = root;
   });
 
-  // Shelf-pack components left to right (wrapping), then shift so the biggest one is centred on the origin.
-  const maxW = Math.max(1600, (local[0]?.rad ?? 0) * 2 * 2.2);
-  let cx = 0, cy = 0, rowH = 0;
-  const origin: { x: number; y: number }[] = [];
-  local.forEach((c, i) => {
-    if (i > 0 && cx + c.rad * 2 > maxW) { cx = 0; cy += rowH + 60; rowH = 0; }
-    origin[i] = { x: cx + c.rad, y: cy + c.rad };
-    cx += c.rad * 2 + 60; rowH = Math.max(rowH, c.rad * 2);
+  // Lone nodes (no connections) would each be a far-flung stray, so they share ONE tidy cluster of concentric rings.
+  const lone = local.map((c, i) => (c.members.length === 1 ? i : -1)).filter((i) => i >= 0);
+  const loneOffset = new Map<number, { x: number; y: number }>();
+  let loneRad = 0;
+  if (lone.length) {
+    const sorted = [...lone].sort((a, b) => {
+      const A = byId.get(local[a].members[0])!, B = byId.get(local[b].members[0])!;
+      return (TYPE_RANK[A.type] ?? 99) - (TYPE_RANK[B.type] ?? 99) || A.label.toLowerCase().localeCompare(B.label.toLowerCase()) || A.id.localeCompare(B.id);
+    });
+    const F = FOOTPRINT * 1.04;
+    let i = 0, ring = 0;
+    while (i < sorted.length) {
+      if (ring === 0) { loneOffset.set(sorted[i++], { x: 0, y: 0 }); ring = 1; continue; }
+      const r = ring * F;
+      const cap = Math.max(1, Math.floor(Math.PI / Math.asin(Math.min(1, F / (2 * r)))));
+      const take = Math.min(cap, sorted.length - i);
+      for (let k = 0; k < take; k++) { const a = -Math.PI / 2 + (TAU * k) / take; loneOffset.set(sorted[i++], { x: Math.cos(a) * r, y: Math.sin(a) * r }); }
+      loneRad = r; ring++;
+    }
+    loneRad += 60;
+  }
+
+  // Pack every cluster as a circle: the biggest sits on the origin, each next one goes as close to it as it can without touching another.
+  const items: { slots: number[]; rad: number }[] = [];
+  local.forEach((c, i) => { if (c.members.length > 1) items.push({ slots: [i], rad: c.rad }); });
+  if (lone.length) items.push({ slots: lone, rad: loneRad || 60 });
+  const placed: { x: number; y: number; r: number }[] = [];
+  const itemPos: { x: number; y: number }[] = [];
+  const STEPS = 48;
+  items.forEach((it, k) => {
+    if (k === 0) { itemPos[k] = { x: 0, y: 0 }; placed.push({ x: 0, y: 0, r: it.rad }); return; }
+    let best = { d: Infinity, a: 0 };
+    for (let s = 0; s < STEPS; s++) {
+      const a = (TAU * s) / STEPS, ux = Math.cos(a), uy = Math.sin(a);
+      // along the ray, the circle overlaps placed[j] for d in (d1, d2): find the nearest d outside every such interval
+      const ban: [number, number][] = [];
+      for (const p of placed) {
+        const R2 = p.r + it.rad + PACK_GAP, b = p.x * ux + p.y * uy, disc = b * b - (p.x * p.x + p.y * p.y - R2 * R2);
+        if (disc > 0) ban.push([b - Math.sqrt(disc), b + Math.sqrt(disc)]);
+      }
+      ban.sort((x, y) => x[0] - y[0]);
+      let d = 0;
+      for (const [lo, hi] of ban) { if (hi <= d) continue; if (lo >= d) break; d = hi; }
+      if (d < best.d - 1e-6) best = { d, a };
+    }
+    const x = Math.cos(best.a) * best.d, y = Math.sin(best.a) * best.d;
+    itemPos[k] = { x, y }; placed.push({ x, y, r: it.rad });
   });
-  const sx = origin[0]?.x ?? 0, sy = origin[0]?.y ?? 0;
-  local.forEach((c, i) => {
-    const ox = origin[i].x - sx, oy = origin[i].y - sy;
-    for (const id of c.members) { const p = pos.get(id)!; p.x += ox; p.y += oy; }
-    centers[i] = { x: ox, y: oy };
+  items.forEach((it, k) => {
+    for (const slot of it.slots) {
+      const o = loneOffset.get(slot) ?? { x: 0, y: 0 };
+      const ox = itemPos[k].x + o.x, oy = itemPos[k].y + o.y;
+      for (const id of local[slot].members) { const p = pos.get(id)!; p.x += ox; p.y += oy; }
+      centers[slot] = { x: ox, y: oy };
+    }
   });
 
   return { pos, parent, children, treeEdges, centers, roots };

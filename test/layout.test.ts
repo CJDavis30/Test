@@ -73,4 +73,34 @@ describe('organized layout', () => {
     expect(descendants(L, 'c')).toEqual(['d']);
     expect(descendants(L, 'b')).toEqual([]);
   });
+
+  it('keeps strays close: small clusters and lone nodes pack next to the main cluster, not in a far row', () => {
+    const main = graph(40, 0.4, 1, 9);
+    const nodes: LNode[] = [...main.nodes];
+    const edges: LEdge[] = [...main.edges];
+    for (let c = 0; c < 6; c++) { // six little pairs
+      nodes.push({ id: `p${c}a`, type: 'email', label: `pa${c}`, createdAt: 100 + c }, { id: `p${c}b`, type: 'username', label: `pb${c}`, createdAt: 100 + c });
+      edges.push({ id: `pe${c}`, from: `p${c}a`, to: `p${c}b`, strength: 0.6 });
+    }
+    for (let i = 0; i < 12; i++) nodes.push({ id: `lone${i}`, type: 'domain', label: `lone${i}`, createdAt: 200 + i });
+    const L = organize(nodes, edges);
+    const mainR = Math.max(...main.nodes.map((n) => Math.hypot(L.pos.get(n.id)!.x, L.pos.get(n.id)!.y)));
+    const farthest = Math.max(...nodes.map((n) => Math.hypot(L.pos.get(n.id)!.x, L.pos.get(n.id)!.y)));
+    expect(farthest).toBeLessThan(mainR * 2.4 + 300);
+    expect(minDist(L.pos)).toBeGreaterThanOrEqual(FOOTPRINT * 0.5);
+    // lone nodes share one cluster: none is farther from the others than a couple of rings
+    const lone = nodes.filter((n) => n.id.startsWith('lone')).map((n) => L.pos.get(n.id)!);
+    const lc = { x: lone.reduce((a, p) => a + p.x, 0) / lone.length, y: lone.reduce((a, p) => a + p.y, 0) / lone.length };
+    expect(Math.max(...lone.map((p) => Math.hypot(p.x - lc.x, p.y - lc.y)))).toBeLessThan(FOOTPRINT * 3);
+  });
+
+  it('many nodes on one ring stay compact (lanes) instead of growing a huge circle', () => {
+    const nodes: LNode[] = [{ id: 'hub', type: 'person', label: 'hub', seed: true }];
+    const edges: LEdge[] = [];
+    for (let i = 0; i < 60; i++) { nodes.push({ id: `k${i}`, type: 'account', label: `k${i}` }); edges.push({ id: `e${i}`, from: 'hub', to: `k${i}`, strength: 0.5 }); }
+    const L = organize(nodes, edges);
+    const maxR = Math.max(...[...L.pos.values()].map((p) => Math.hypot(p.x, p.y)));
+    expect(maxR).toBeLessThan((60 * FOOTPRINT) / (Math.PI * 2) + 100); // a single plain ring would need ~955; lanes keep it well under
+    expect(minDist(L.pos)).toBeGreaterThanOrEqual(FOOTPRINT * 0.5);
+  });
 });

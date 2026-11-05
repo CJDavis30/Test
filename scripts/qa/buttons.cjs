@@ -53,7 +53,7 @@ const run = async (p, where) => { const probs = await audit(p, where); const n =
     // --- main window
     await run(p, w('graph'));
     if (wname === 'narrow') { await click(p.getByRole('button', { name: 'Toggle sidebar' })); await run(p, w('sidebar drawer')); await click(p.getByRole('button', { name: 'Close sidebar' })); checked++; if (await p.evaluate(() => document.querySelector('.sidebar').getBoundingClientRect().right > 10)) bad(w('Close sidebar button did not close the drawer')); await click(p.getByRole('button', { name: 'Toggle sidebar' })); await p.keyboard.press('Escape'); await p.waitForTimeout(400); checked++; if (await p.evaluate(() => document.querySelector('.sidebar').getBoundingClientRect().right > 10)) bad(w('Esc did not close the sidebar drawer')); }
-    for (const v of ['table', 'timeline', 'identities', 'report']) { await p.evaluate((v) => window.__plexusStore.getState().setView(v), v); await p.waitForTimeout(500); await run(p, w(v)); }
+    for (const v of ['table', 'timeline', 'identities', 'report', 'tools']) { await p.evaluate((v) => window.__plexusStore.getState().setView(v), v); await p.waitForTimeout(500); await run(p, w(v)); }
     await p.evaluate(() => window.__plexusStore.getState().setView('graph')); await p.waitForTimeout(300);
     await p.evaluate(() => window.__plexusStore.getState().toggle('inspector', true)); await p.waitForTimeout(500);
     const first = (await S()).nodes[0]; await p.evaluate((id) => window.__plexusStore.getState().select([id]), first.id); await p.waitForTimeout(400);
@@ -95,6 +95,29 @@ const run = async (p, where) => { const probs = await audit(p, where); const n =
     await p.keyboard.press('?'); await p.waitForTimeout(400); await p.mouse.click(5, 5); await p.waitForTimeout(400); checked++;
     if (await sc()) bad(w('clicking outside did not close the shortcuts list'));
 
+    // tools tab: every tool opens in place, and every panel's controls are reachable
+    await p.evaluate(() => { const s = window.__plexusStore.getState(); s.setTool(null); s.setView('tools'); }); await p.waitForTimeout(500);
+    const nTools = await p.locator('.tool-card').count();
+    if (nTools < 25) bad(w(`only ${nTools} tools listed`));
+    for (let i = 0; i < nTools; i++) {
+      await p.evaluate(() => { const s = window.__plexusStore.getState(); s.setTool(null); s.setView('tools'); }); await p.waitForTimeout(150);
+      const name = (await p.locator('.tool-card .tool-name').nth(i).innerText()).replace(/\s*New$/, '').trim();
+      await click(p.locator('.tool-card').nth(i)); await p.waitForTimeout(350);
+      if (await p.locator('.tool-back').count()) {
+        await run(p, w('tool ' + name));
+        await click(p.getByRole('button', { name: /All tools/ })); checked++;
+        if (await p.locator('.tool-back').count()) bad(w('"All tools" did not return to the list from ' + name));
+      } else {
+        // a card that opens an existing window, or goes to another view: it must close with Esc / return
+        await p.keyboard.press('Escape'); await p.waitForTimeout(250);
+      }
+    }
+    await p.evaluate(() => { const s = window.__plexusStore.getState(); s.setTool(null); s.setView('graph'); }); await p.waitForTimeout(300);
+    // known-facts dialog: every close path
+    await p.evaluate(() => window.__plexusStore.getState().setKnownDialog(true)); await p.waitForTimeout(500); await run(p, w('known facts'));
+    await click(p.getByRole('button', { name: 'Close', exact: true })); checked++; if (await p.getByRole('dialog', { name: 'What you already know' }).count()) bad(w('Close did not close the known-facts dialog'));
+    await p.evaluate(() => window.__plexusStore.getState().setKnownDialog(true)); await p.waitForTimeout(400); await p.keyboard.press('Escape'); await p.waitForTimeout(400); checked++; if (await p.getByRole('dialog', { name: 'What you already know' }).count()) bad(w('Esc did not close the known-facts dialog'));
+    await p.evaluate(() => window.__plexusStore.getState().setKnownDialog(true)); await p.waitForTimeout(400); await p.mouse.click(5, 5); await p.waitForTimeout(400); checked++; if (await p.getByRole('dialog', { name: 'What you already know' }).count()) bad(w('clicking outside did not close the known-facts dialog'));
     // forensics surfaces
     await p.evaluate(() => window.__plexusStore.getState().setView('identities')); await p.waitForTimeout(1000); await run(p, w('identities'));
     const accts = (await S()).nodes.filter((n) => n.type === 'account' && n.attrs && n.attrs.platform && n.attrs.createdAt);
@@ -113,7 +136,7 @@ const run = async (p, where) => { const probs = await audit(p, where); const n =
     const email = (await S()).nodes.find((n) => n.type === 'email');
     await p.evaluate((id) => window.__plexusStore.getState().openSheet(id, 'overview'), email.id); await p.waitForTimeout(900);
     await run(p, w('sheet overview'));
-    for (const t of ['To review', 'Accepted', 'Rejected', 'Overview']) {
+    for (const t of ['To review', 'On your graph', 'Rejected', 'Overview']) {
       await click(p.locator('.sheet-tabs').getByRole('tab', { name: new RegExp(t) })); await run(p, w('sheet ' + t));
       if (t === 'To review' && await p.locator('.frow').count()) {
         if (wname === 'narrow') { await click(p.locator('.frow').first()); await run(p, w('sheet details overlay')); await click(p.getByRole('button', { name: /Back to list/ })); await p.waitForSelector('.detail-over', { state: 'detached', timeout: 3000 }).catch(() => {}); checked++; if (await p.locator('.detail-over').count()) bad(w('Back to list did not close the details overlay')); }

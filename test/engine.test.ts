@@ -76,9 +76,9 @@ describe('lookup pipeline (demo world)', () => {
   });
 
   it('flags competing locations and keeps the weak namesake weak', async () => {
-    const { events } = await runAndWait('Mara Linden');
+    const { events, node } = await runAndWait('Mara Linden');
     const fs = new Map<string, Finding>();
-    for (const e of events) if (e.t === 'findings') for (const f of e.findings) fs.set(f.id, f);
+    for (const e of events) if (e.t === 'findings') for (const f of e.findings) if (f.subjectId === node.id) fs.set(f.id, f);     // (other lookups' findings can arrive too, with updated scores)
     const locs = [...fs.values()].filter((f) => f.type === 'location').sort((a, b) => b.score - a.score);
     expect(locs[0].value).toBe('Austin, TX');
     expect(locs[1].conflictsWith?.length).toBeGreaterThan(0);
@@ -201,7 +201,7 @@ describe('evidence trail', () => {
     const { node } = await runAndWait('mara.linden@northwind-labs.example', { type: 'email' });
     const fs = ctx.store.listFindings(caseId, { subjectId: node.id });
     expect(fs.length).toBeGreaterThan(5);
-    for (const f of fs) for (const ev of f.evidence) {
+    for (const f of fs) for (const ev of f.evidence.filter((x) => x.adapter !== 'anchor')) {      // (what-you-told-Plexus evidence is checked in known-facts.test)
       expect(ev.how, `${f.value} / ${ev.adapterName}`).toMatch(/mara\.linden@northwind-labs\.example/);
       expect(ev.snippet && ev.snippet.length > 8, `${f.value} / ${ev.adapterName} has no excerpt`).toBe(true);
     }

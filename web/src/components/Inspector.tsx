@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, FolderOpen, Pin, PinOff, Copy, Trash2, Route, Link2, Merge, ExternalLink, X, Globe2 } from 'lucide-react';
+import { Play, FolderOpen, Pin, PinOff, Copy, Trash2, Route, Link2, Merge, ExternalLink, X, Globe2, ShieldCheck } from 'lucide-react';
 import { ENTITY_LABEL, LEVEL_LABEL, type EntityType, type Finding, type GraphNode } from '@shared/types';
 import { keyFor, initials, safeHttpUrl, safeImageSrc } from '@shared/normalize';
 import { useStore } from '../lib/store';
@@ -12,6 +12,7 @@ import { ConnectionPath, SourceCards } from './FindingDetail';
 import { explainRelation } from '@shared/explain';
 import { displayValue } from '../lib/format';
 import { ActivityClock } from './forensics/ActivityClock';
+import { ProfileCard } from './ProfileCard';
 import type { Circadian, DstResult } from '../lib/forensics';
 
 type Tab = 'overview' | 'evidence' | 'activity' | 'notes';
@@ -89,6 +90,7 @@ function NodePanel({ node }: { node: GraphNode }) {
       <div className="insp-actions">
         <button className="btn sm primary" onClick={() => void s.openNode(node.id)}><FolderOpen size={13} /> {pendingCount > 0 ? `Review ${pendingCount}` : 'Findings'}</button>
         <button className="btn sm" disabled={running} onClick={() => void s.runNode(node.id)}><Play size={13} /> Run checks</button>
+        <button className={`btn sm ${node.attrs.known ? 'known-on' : ''}`} aria-pressed={node.attrs.known === true} title={node.attrs.known ? 'You told Plexus you know this belongs to them. Click to undo.' : 'Tell Plexus you are sure this belongs to them, so it checks everything against it'} onClick={() => void s.setKnown(node.id, node.attrs.known !== true)}><ShieldCheck size={13} /> {node.attrs.known ? 'Known' : 'I know this'}</button>
         <CheckElsewhere type={node.type} value={node.value} />
         <button className="btn sm ghost icon" aria-label={node.pinned ? 'Unpin' : 'Pin'} title={node.pinned ? 'Unpin' : 'Pin in place'} onClick={() => void s.patchNode(node.id, { pinned: !node.pinned })}>{node.pinned ? <PinOff size={14} /> : <Pin size={14} />}</button>
         <button className="btn sm ghost icon" aria-label="Copy value" title="Copy value" onClick={() => { void navigator.clipboard?.writeText(node.value); s.toast('Copied'); }}><Copy size={14} /></button>
@@ -99,6 +101,7 @@ function NodePanel({ node }: { node: GraphNode }) {
       </div>
       <div className="insp-body selectable">
         {tab === 'overview' && (<>
+          {fs[0] && ['account', 'person', 'username', 'image'].includes(node.type) && <div style={{ marginBottom: 12 }}><ProfileCard f={fs[0]} compact /></div>}
           <dl style={{ margin: 0 }}>
             <div className="kv"><dt>Value</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{node.type === 'image' ? 'Image' : node.value}</dd></div>
             {attrs.map(([k, v]) => <div className="kv" key={k}><dt>{k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase())}</dt><dd>{typeof v === 'number' ? v.toLocaleString() : String(v)}</dd></div>)}
@@ -113,7 +116,7 @@ function NodePanel({ node }: { node: GraphNode }) {
             return (
               <button key={e.id} className="conn" onClick={() => { s.select([other.id]); window.dispatchEvent(new CustomEvent('plexus:pan', { detail: other.id })); }}>
                 <span className="gl"><EntityGlyph type={other.type} size={13} /></span>
-                <span className="grow" style={{ minWidth: 0 }}><span className="truncate" style={{ display: 'block' }}>{other.label}</span><small className="truncate" style={{ display: 'block' }} title={e.from === node.id ? explainRelation(e.label, node.label, other.label) : explainRelation(e.label, other.label, node.label)}>{e.from === node.id ? explainRelation(e.label, node.label, other.label) : explainRelation(e.label, other.label, node.label)}{e.kind === 'inferred' ? ' (inferred)' : e.kind === 'manual' ? ' (added by you)' : ''}</small></span>
+                <span className="grow" style={{ minWidth: 0 }}><span className="truncate" style={{ display: 'block' }}>{other.label}</span><small className="truncate" style={{ display: 'block' }} title={e.why ?? (e.from === node.id ? explainRelation(e.label, node.label, other.label) : explainRelation(e.label, other.label, node.label))}>{e.why ?? (e.from === node.id ? explainRelation(e.label, node.label, other.label) : explainRelation(e.label, other.label, node.label))}{e.kind === 'inferred' ? ' (inferred)' : e.kind === 'manual' && !e.why ? ' (added by you)' : ''}</small></span>
                 <Dots level={e.strength >= 0.85 ? 4 : e.strength >= 0.65 ? 3 : e.strength >= 0.4 ? 2 : 1} />
               </button>
             );

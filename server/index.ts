@@ -12,7 +12,7 @@ import { Orchestrator, RunHub, citationIds } from './orchestrator';
 import { rescore, ruleBrief, suggestNext } from '../shared/scoring';
 import { loadAdapters } from './adapters/index';
 import { allAdapters, getAdapter, sourceInfo, demoMode } from './registry';
-import { makeBriefEnhancer, aiSettings, aiReady, listModels, complete, aiLinkHypotheses, DEFAULT_AI } from './ai';
+import { makeBriefEnhancer, aiSettings, aiReady, listModels, complete, aiLinkHypotheses, autoCandidates, AiError, DEFAULT_AI } from './ai';
 import { inferLinks } from './links';
 import { buildReport } from './report';
 import { verifyEvidence } from './integrity';
@@ -37,6 +37,7 @@ import { ImportError, importCase, markdownToHtml, toCsv, toGraphML } from './por
 import { detect, detectMany, extractEntities } from '../shared/detect';
 import { keyFor } from '../shared/normalize';
 import { makeCtx } from './http';
+import { weatherFor, gravatarCheck, domainHistory, traceRedirects, readScreenshot } from './tools';
 import { getSecret } from './config';
 import { ENTITY_TYPES, type EntityType, type FindingStatus, type RunEvent, type ApEvent } from '../shared/types';
 
@@ -202,6 +203,33 @@ export async function createApp(store = new Store()) {
       return c.json({ result, truthErrKm, calibration: calibration(store.getSetting<GeoRecord[]>('geoCalibration', [])) });
     } catch (e: any) { return c.json({ error: String(e?.message ?? e) }, 502); }
   });
+  // --- Tools tab: small network helpers (everything else in the Tools tab runs in the browser) ---------------------
+  const toolErr = (c: any, e: any, code = 502) => c.json({ error: String(e?.message ?? e) }, code);
+  app.post('/api/tools/weather', async (c) => {
+    const b = await body<{ lat?: number; lon?: number; iso?: string }>(c);
+    if (!Number.isFinite(b.lat) || !Number.isFinite(b.lon) || !b.iso || Number.isNaN(Date.parse(b.iso))) return c.json({ error: 'Give a place (latitude and longitude) and a date and time' }, 400);
+    try { return c.json({ weather: await weatherFor(fetch, b.lat!, b.lon!, b.iso) }); } catch (e) { return toolErr(c, e); }
+  });
+  app.post('/api/tools/gravatar', async (c) => {
+    const b = await body<{ emails?: string[] }>(c);
+    if (!Array.isArray(b.emails) || !b.emails.length) return c.json({ error: 'Give at least one email address' }, 400);
+    try { return c.json({ hits: await gravatarCheck(fetch, b.emails.map(String)) }); } catch (e) { return toolErr(c, e); }
+  });
+  app.post('/api/tools/domain', async (c) => {
+    const b = await body<{ domain?: string }>(c);
+    try { return c.json({ report: await domainHistory(fetch, String(b.domain ?? '')) }); } catch (e) { return toolErr(c, e, 400); }
+  });
+  app.post('/api/tools/redirects', async (c) => {
+    const b = await body<{ url?: string }>(c);
+    try { return c.json(await traceRedirects(fetch, String(b.url ?? ''))); } catch (e) { return toolErr(c, e, 400); }
+  });
+  app.post('/api/tools/read-image', async (c) => {
+    const b = await body<{ image?: string; confirmed?: boolean }>(c);
+    const vs = visionStatus(store);
+    if (!vs.ok) return c.json({ error: vs.why ?? 'AI is not set up' }, 400);
+    if (!vs.local && !b.confirmed) return c.json({ error: 'confirm_required', provider: vs.provider }, 428);
+    try { return c.json({ reading: await readScreenshot(store, String(b.image ?? '')) }); } catch (e) { return toolErr(c, e); }
+  });
   app.get('/api/geo/calibration', (c) => c.json(calibration(store.getSetting<GeoRecord[]>('geoCalibration', []))));
   app.post('/api/forensics/chat', async (c) => {
     if (Number(c.req.header('content-length') ?? 0) > 40_000_000) return c.json({ error: 'That export is too large (40 MB maximum).' }, 413);
@@ -344,7 +372,23 @@ export async function createApp(store = new Store()) {
   app.post('/api/findings/review', async (c) => {
     const b = await body<{ ids: string[]; status: FindingStatus }>(c);
     if (!Array.isArray(b.ids) || !['pending', 'accepted', 'rejected', 'unsure'].includes(b.status)) return c.json({ error: 'bad request' }, 400);
-    return c.json({ findings: svc.review(b.ids.slice(0, 5000), b.status) });
+    return c.json(svc.reviewAndSync(b.ids.slice(0, 5000), b.status));
+  });
+  app.get('/api/findings/:id/connections', (c) => c.json({ connections: svc.connectionsFor(c.req.param('id')) }));
+  /** Tell Plexus what you already know (an email, a username, a phone…): they are linked, trusted, and every finding is checked against them. */
+  app.post('/api/cases/:id/known', async (c) => {
+    const caseId = c.req.param('id');
+    if (!store.getCase(caseId)) return c.json({ error: 'case not found' }, 404);
+    const b = await body<{ items?: { type?: string; value?: string }[]; run?: boolean }>(c);
+    const items = (b.items ?? []).filter((i) => i.value?.trim()).map((i) => ({ type: isType(i.type) ? i.type : undefined, value: String(i.value) }));
+    if (!items.length) return c.json({ error: 'nothing to add' }, 400);
+    const r = svc.addKnown(caseId, items);
+    const runs: { nodeId: string; runId: string }[] = [];
+    if (b.run !== false && r.nodes.length) {
+      if (!purposeOk(store, caseId, demoMode(store))) return c.json({ ...r, runs, error: 'purpose_required' }, 428);
+      for (const n of r.nodes) runs.push({ nodeId: n.id, runId: orch.start(n, '').id });
+    }
+    return c.json({ ...r, runs, findings: store.listFindings(caseId, { status: ['pending', 'unsure'] }) });
   });
   app.post('/api/cases/:id/commit', async (c) => {
     const b = await body<{ subjectId?: string }>(c);
@@ -356,6 +400,7 @@ export async function createApp(store = new Store()) {
     if (typeof b.label === 'string') patch.label = b.label.slice(0, 200);
     if (typeof b.notes === 'string') patch.notes = b.notes.slice(0, 20000);
     for (const k of ['pinned', 'hidden'] as const) if (typeof b[k] === 'boolean') patch[k] = b[k];
+    if (typeof b.known === 'boolean') { const n = svc.setKnown(c.req.param('id'), b.known); if (!n) return c.json({ error: 'not found' }, 404); }
     for (const k of ['x', 'y'] as const) if (typeof b[k] === 'number' && Number.isFinite(b[k] as number)) patch[k] = b[k];
     return c.json({ node: store.patchNode(c.req.param('id'), patch) });
   });
@@ -532,13 +577,21 @@ export async function createApp(store = new Store()) {
     return c.json({ ok: true });
   });
   app.get('/api/ai/models', async (c) => {
-    try { return c.json({ models: await listModels(store) }); } catch (e: any) { return c.json({ models: [], error: String(e?.message ?? e) }); }
+    try { return c.json({ models: await listModels(store) }); } catch (e: any) { return c.json({ models: [], error: e instanceof AiError ? e.userMessage : String(e?.message ?? e) }); }
+  });
+  app.get('/api/ai/auto', async (c) => {
+    try { return c.json({ chain: aiReady(store).ok ? await autoCandidates(store, { vision: c.req.query('vision') === '1' }) : [] }); } catch { return c.json({ chain: [] }); }
   });
   app.post('/api/ai/test', async (c) => {
+    const b = await body<{ vision?: boolean }>(c);
     try {
-      const r = await complete(store, [{ role: 'user', content: 'Reply with the single word: ok' }], { timeoutMs: 30_000 });
-      return c.json({ ok: true, model: r.model });
-    } catch (e: any) { return c.json({ ok: false, error: String(e?.message ?? e) }); }
+      const r = await complete(store, [{ role: 'user', content: 'Reply with the single word: ok' }], { timeoutMs: 60_000, vision: !!b.vision });
+      const st = aiSettings(store);
+      return c.json({ ok: true, model: r.model, free: st.provider === 'openrouter' && r.model.endsWith(':free'), automatic: !st.model });
+    } catch (e: any) {
+      if (e instanceof AiError) return c.json({ ok: false, error: e.userMessage, kind: e.kind, attempts: e.attempts });
+      return c.json({ ok: false, error: String(e?.message ?? e) });
+    }
   });
   app.post('/api/cache/clear', (c) => { store.cacheClear(); return c.json({ ok: true }); });
 

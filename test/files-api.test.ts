@@ -98,6 +98,6 @@ describe('visual location over the API', () => {
     ctx.store.setSetting('ai', { provider: 'ollama', model: 'llava', allowCloud: false });
     globalThis.fetch = (async () => new Response('model does not support images', { status: 400 })) as any;
     const r = await json('POST', '/api/geolocate', { image: img });
-    expect(r.status).toBe(502); expect(r.json.error).toMatch(/400/);
+    expect(r.status).toBe(502); expect(r.json.error).toMatch(/does not support images|answered with an error/);
   });
 });

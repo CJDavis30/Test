@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard, Users, ScanSearch, FileSearch, Scale, Rocket, ShieldCheck,
+  Wrench, Search, Network, Table2, Clock, FileText, Plus, Settings as Cog, Download, Sun, Moon, Monitor, PanelLeft, PanelRight, Maximize2, Wand2, Sparkles, CornerDownLeft, Eraser, KeyRound, Cpu, Upload, Keyboard, Users, ScanSearch, FileSearch, Scale, Rocket, ShieldCheck,
 } from 'lucide-react';
 import { detect, detectMany } from '@shared/detect';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
@@ -11,6 +11,7 @@ import { pickAndImport } from '../lib/portable';
 import { startAutopilot } from '../lib/autopilot';
 import { EntityGlyph } from '../lib/icons';
 import { Kbd, MOD, download, useDialog } from './ui';
+import { TOOLS } from '../tools/registry';
 
 interface Item {
   id: string; label: string; sub?: string; icon: React.ReactNode; group: string; run: (alt: boolean) => void | Promise<void>; keywords?: string;
@@ -93,6 +94,8 @@ export function Palette() {
       { id: 'v-timeline', group: 'Go to', label: 'Timeline', icon: <Clock size={15} />, run: () => s.setView('timeline') },
       { id: 'v-identities', group: 'Go to', label: 'Identities', sub: 'Who is who in this case', icon: <Users size={15} />, run: () => s.setView('identities') },
       { id: 'v-report', group: 'Go to', label: 'Report', icon: <FileText size={15} />, run: () => s.setView('report') },
+      { id: 'v-tools', group: 'Go to', label: 'Tools', sub: `${TOOLS.length} tools: photos, places, times, names, links`, icon: <Wrench size={15} />, run: () => { s.setTool(null); s.setView('tools'); } },
+      ...TOOLS.map((t): Item => ({ id: `tool-${t.id}`, group: 'Tools', label: t.name, sub: t.blurb.length > 70 ? t.blurb.slice(0, 68) + '…' : t.blurb, icon: t.icon, keywords: t.keywords, run: () => (t.open ? t.open() : s.openTool(t.id)) })),
       { id: 'new', group: 'Case', label: 'New case', icon: <Plus size={15} />, run: () => void s.newCase() },
       { id: 'export', group: 'Case', label: 'Export case as JSON', sub: 'Includes evidence and audit log', icon: <Download size={15} />, keywords: 'download backup', run: async () => {
         if (!s.caseId) return; const j = await api.get<any>(`/api/cases/${s.caseId}/export`); download(`${s.snap?.case.name ?? 'case'}.plexus.json`, JSON.stringify(j, null, 2), 'application/json');
@@ -119,6 +122,7 @@ export function Palette() {
       { id: 'th-l', group: 'Appearance', label: 'Light mode', icon: <Sun size={15} />, run: () => s.setTheme('light') },
       { id: 'th-d', group: 'Appearance', label: 'Dark mode', icon: <Moon size={15} />, run: () => s.setTheme('dark') },
       { id: 'th-a', group: 'Appearance', label: 'Match system appearance', icon: <Monitor size={15} />, run: () => s.setTheme('auto') },
+      { id: 'known', group: 'Investigate', label: 'Add things I already know…', sub: 'An email, a username, a phone: Plexus checks everything against all of them', icon: <ShieldCheck size={15} />, keywords: 'known facts anchor confirmed sure belongs same person cross check', run: () => s.setKnownDialog(true) },
       { id: 'filelab', group: 'Forensics', label: 'Analyze a photo, video or file…', sub: 'Location, time, device, edits and hidden text inside it', icon: <FileSearch size={15} />, keywords: 'exif metadata photo image video pdf docx gps location camera hidden geolocate picture', run: () => s.openFileLab() },
       { id: 'decode', group: 'Forensics', label: 'Decode IDs, links and timestamps…', sub: 'Paste a chat log or a pile of links', icon: <ScanSearch size={15} />, keywords: 'discord roblox snowflake timezone activity paste forensics', run: () => s.setDecode(true) },
       ...(s.selection.length === 2 && s.selection.every((id) => ['account', 'username'].includes(nodes.find((n) => n.id === id)?.type ?? '')) ? [{ id: 'compare', group: 'Forensics', label: 'Compare the two selected accounts', sub: 'Match Lab: same operator?', icon: <Scale size={15} />, run: () => s.setMatchLab({ a: s.selection[0], b: s.selection[1] }) } as Item] : []),

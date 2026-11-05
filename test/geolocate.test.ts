@@ -96,7 +96,7 @@ describe('asking the model', () => {
     const flaky = (async () => (++n === 2 ? new Response('boom', { status: 500 }) : new Response(JSON.stringify({ choices: [{ message: { content: reply(38.72, -9.14) } }] })))) as any;
     const c = await geolocate(fakeStore(), img, { fetchImpl: flaky });
     expect(c.failedRuns).toBe(1); expect(c.level).toBe('city');
-    await expect(geolocate(fakeStore(), img, { fetchImpl: (async () => new Response('nope', { status: 401 })) as any })).rejects.toThrow(/401/);
+    await expect(geolocate(fakeStore(), img, { fetchImpl: (async () => new Response('nope', { status: 401 })) as any })).rejects.toThrow(/rejected the API key/);
   });
   it('refuses anything that is not a small image data URL', async () => {
     await expect(geolocate(fakeStore(), 'https://evil.example/x.jpg')).rejects.toThrow(/JPEG, PNG or WebP/);

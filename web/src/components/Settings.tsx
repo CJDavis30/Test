@@ -187,8 +187,8 @@ function SourceRow({ x, first, last, siblings, diag }: { x: SourceInfo; first: b
 
 const PROVIDERS = [
   ['none', 'Off — rules only', 'Everything still works. Briefs are written by deterministic rules.'],
-  ['openrouter', 'OpenRouter', 'One key, hundreds of models. Auto picks a strong model for each request.'],
-  ['google', 'Google AI Studio', 'Gemini models through Google’s OpenAI-compatible endpoint.'],
+  ['openrouter', 'OpenRouter', 'One key, hundreds of models. On Automatic, Plexus uses free models, so it works even with no credits.'],
+  ['google', 'Google AI Studio', 'Gemini models. On Automatic, Plexus uses the Flash models that Google’s free plan includes.'],
   ['openai', 'OpenAI', ''],
   ['ollama', 'Ollama (local)', 'Runs on this Mac. Nothing leaves your machine.'],
   ['custom', 'Custom (OpenAI-compatible)', 'Any server that speaks the chat completions API.'],
@@ -198,12 +198,23 @@ function AI() {
   const s = useStore();
   const ai = s.settings!.ai;
   const [key, setKey] = useState('');
-  const [models, setModels] = useState<{ id: string; name: string; context?: number; promptPrice?: number }[]>([]);
+  const [models, setModels] = useState<{ id: string; name: string; context?: number; promptPrice?: number; free?: boolean; vision?: boolean }[]>([]);
+  const [freeOnly, setFreeOnly] = useState(false);
+  const [auto, setAuto] = useState<string[]>([]);
+  const [why, setWhy] = useState(false);
   const [mq, setMq] = useState('');
   const [loading, setLoading] = useState(false);
-  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const [test, setTest] = useState<{ ok: boolean; text: string; attempts?: { model: string; status?: number; message: string }[]; busy?: boolean } | null>(null);
   const set = async (patch: object) => { await api.put('/api/settings', { ai: patch }); await s.refreshSettings(); };
-  const filtered = models.filter((m) => !mq || m.id.toLowerCase().includes(mq.toLowerCase())).slice(0, 200);
+  const filtered = models.filter((m) => (!mq || m.id.toLowerCase().includes(mq.toLowerCase())) && (!freeOnly || m.free)).slice(0, 200);
+  const runTest = async (vision = false) => {
+    setTest({ ok: false, text: 'Testing…', busy: true }); setWhy(false);
+    try {
+      const r = await api.post<{ ok: boolean; model?: string; free?: boolean; automatic?: boolean; error?: string; attempts?: { model: string; status?: number; message: string }[] }>('/api/ai/test', { vision });
+      setTest({ ok: r.ok, text: r.ok ? `Working${vision ? ' with pictures' : ''} · using ${r.model}${r.free ? ' (free)' : ''}${r.automatic ? ' · chosen automatically' : ''}` : r.error ?? 'It did not work', attempts: r.attempts });
+    } catch (e: any) { setTest({ ok: false, text: e?.message ?? 'It did not work' }); }
+  };
+  useEffect(() => { if (ai.provider !== 'none' && (ai.keySet || ai.provider === 'ollama') && !ai.model) api.get<{ chain: string[] }>('/api/ai/auto').then((r) => setAuto(r.chain)).catch(() => setAuto([])); else setAuto([]); }, [ai.provider, ai.keySet, ai.model]);  // eslint-disable-line
   const loadModels = async () => { setLoading(true); const r = await api.get<{ models: typeof models; error?: string }>('/api/ai/models'); setLoading(false); setModels(r.models); if (r.error) s.toast(`Couldn't load models: ${r.error}`); };
   const p = PROVIDERS.find((x) => x[0] === ai.provider)!;
   return (
@@ -216,26 +227,32 @@ function AI() {
         {ai.provider === 'custom' && <div className="setrow"><div className="grow"><div className="t">Base URL</div><div className="d">e.g. http://127.0.0.1:1234/v1</div></div><input className="field" style={{ width: 260 }} defaultValue={ai.baseUrl ?? ''} onBlur={(e) => void set({ baseUrl: e.target.value.trim() })} aria-label="Base URL" /></div>}
         {ai.provider !== 'ollama' && <div className="setrow"><div className="grow"><div className="t">API key</div><div className="d">Stored in a private file on this Mac, never in your case data or exports.</div></div>
           {ai.keySet ? <span className="row"><span className="tag mute"><Check size={10} /> Saved</span><button className="btn sm ghost" onClick={async () => { await api.put('/api/secrets/ai', { value: null }); await s.refreshSettings(); }}>Remove</button></span>
-            : <span className="keyrow"><input className="field" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste key" autoComplete="off" aria-label="AI API key" /><button className="btn sm" disabled={!key} onClick={async () => { await api.put('/api/secrets/ai', { value: key }); setKey(''); await s.refreshSettings(); }}>Save</button></span>}</div>}
+            : <span className="keyrow"><input className="field" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste key" autoComplete="off" aria-label="AI API key" /><button className="btn sm" disabled={!key} onClick={async () => { await api.put('/api/secrets/ai', { value: key.trim() }); setKey(''); await s.refreshSettings(); void runTest(false); }}>Save and test</button></span>}</div>}
         <div className="setrow" style={{ alignItems: 'flex-start' }}>
-          <div className="grow"><div className="t">Model</div><div className="d">{ai.model ? <>Using <span className="mono">{ai.model}</span></> : 'Automatic — the provider default for this key. Override any time.'}</div>
+          <div className="grow"><div className="t">Model</div>
+            <div className="d">{ai.model ? <>Using <span className="mono">{ai.model}</span>. If it fails, Plexus will say why but will not quietly switch.</> : ai.provider === 'openrouter' ? 'Automatic: Plexus tries free models in order until one answers, so it works with no credits. It remembers the one that worked.' : ai.provider === 'google' ? 'Automatic: Plexus tries the Flash models, which are included in Google’s free plan.' : 'Automatic: Plexus picks a model that works for this account.'}</div>
+            {!ai.model && auto.length > 0 && <div className="d faint" style={{ marginTop: 4 }}>Will try: <span className="mono">{auto.slice(0, 3).join(' → ')}{auto.length > 3 ? ` → +${auto.length - 3} more` : ''}</span></div>}
             <div className="row" style={{ marginTop: 8 }}>
-              <button className="btn sm" aria-pressed={!ai.model} onClick={() => void set({ model: '' })}>{!ai.model && <Check size={12} />} Auto</button>
+              <button className="btn sm" aria-pressed={!ai.model} onClick={() => void set({ model: '' })}>{!ai.model && <Check size={12} />} Automatic (recommended)</button>
               <button className="btn sm" onClick={() => void loadModels()} disabled={loading}>{loading ? <LoaderCircle size={12} className="spin" /> : null} {models.length ? 'Reload models' : 'Choose a model…'}</button>
+              {ai.provider === 'openrouter' && models.length > 0 && <label className="faint" style={{ fontSize: 12, display: 'inline-flex', gap: 5, alignItems: 'center' }}><input type="checkbox" checked={freeOnly} onChange={(e) => setFreeOnly(e.target.checked)} /> Free models only</label>}
             </div>
             {models.length > 0 && (<>
               <input className="field" style={{ marginTop: 8 }} value={mq} onChange={(e) => setMq(e.target.value)} placeholder={`Search ${models.length} models`} aria-label="Search models" />
               <div className="modelist" role="listbox">{filtered.map((m) => (
                 <button key={m.id} role="option" aria-selected={ai.model === m.id} className="model" onClick={() => void set({ model: m.id })}>
-                  <span className="mono truncate grow">{m.id}</span>{m.context && <span className="faint num">{Math.round(m.context / 1000)}k</span>}{m.promptPrice !== undefined && <span className="faint num">${m.promptPrice.toFixed(2)}/M</span>}{ai.model === m.id && <Check size={13} />}
+                  <span className="mono truncate grow">{m.id}</span>{m.free && <span className="tag mute">Free</span>}{m.vision && <span className="tag mute" title="Can read pictures">Sees</span>}{m.context && <span className="faint num">{Math.round(m.context / 1000)}k</span>}{!m.free && m.promptPrice !== undefined && m.promptPrice > 0 && <span className="faint num">${m.promptPrice.toFixed(2)}/M</span>}{ai.model === m.id && <Check size={13} />}
                 </button>))}</div></>)}
           </div>
         </div>
         <div className="setrow"><div className="grow"><div className="t">Model for reading pictures</div><div className="d">Used by <i>Photos &amp; files → work out the location from the picture</i>. It must accept images (for example gpt-4.1, gemini-2.5-pro, claude, or llava / llama3.2-vision on Ollama). Leave empty to use the model above.</div></div>
           <input className="field" style={{ width: 240 }} defaultValue={ai.visionModel ?? ''} placeholder="Same as above" onBlur={(e) => void set({ visionModel: e.target.value.trim() })} aria-label="Model for reading pictures" /></div>
         {ai.provider !== 'ollama' && ai.provider !== 'custom' && <div className="setrow"><div className="grow"><div className="t">Allow cloud models</div><div className="d">Turn off to keep every lookup entirely local. AI features then pause unless you use Ollama.</div></div><Switch on={ai.allowCloud} label="Allow cloud" onChange={(v) => void set({ allowCloud: v })} /></div>}
-        <div className="setrow"><div className="grow"><div className="t">Test connection</div>{test && <div className={`d testres ${test.ok ? 'ok' : 'bad'}`}>{test.text}</div>}</div>
-          <button className="btn" onClick={async () => { setTest(null); const r = await api.post<{ ok: boolean; model?: string; error?: string }>('/api/ai/test'); setTest({ ok: r.ok, text: r.ok ? `Connected · ${r.model}` : r.error ?? 'Failed' }); }}>Test</button></div>
+        <div className="setrow" style={{ alignItems: 'flex-start' }}><div className="grow"><div className="t">Test connection</div>
+          {test && <div className={`d testres ${test.ok ? 'ok' : 'bad'}`} role="status">{test.text}</div>}
+          {test && !test.ok && !test.busy && test.attempts && test.attempts.length > 0 && <><button className="btn sm ghost" style={{ marginTop: 4 }} onClick={() => setWhy(!why)}>{why ? 'Hide details' : 'Show what the provider said'}</button>{why && <ul className="d faint" style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>{test.attempts.map((a, i) => <li key={i}><span className="mono">{a.model}</span>{a.status ? ` · HTTP ${a.status}` : ''} · {a.message}</li>)}</ul>}</>}
+        </div>
+          <span className="row" style={{ gap: 6 }}><button className="btn" disabled={test?.busy} onClick={() => void runTest(false)}>{test?.busy ? <LoaderCircle size={13} className="spin" /> : null} Test</button><button className="btn" disabled={test?.busy} onClick={() => void runTest(true)} title="Checks the model used for reading pictures">Test pictures</button></span></div>
       </>)}
     </>
   );

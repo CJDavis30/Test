@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  X, Check, ChevronUp, ChevronDown, RefreshCw, ArrowLeft, Layers, LoaderCircle, CircleCheck, CircleX, Clock, SkipForward, KeyRound, Minus, Zap, Undo2, CircleHelp,
+  X, Check, ChevronUp, ChevronDown, RefreshCw, ArrowLeft, Layers, LoaderCircle, CircleCheck, CircleX, Clock, SkipForward, KeyRound, Minus, Zap, Undo2, CircleHelp, ShieldCheck,
 } from 'lucide-react';
 import { ENTITY_LABEL, type EntityType, type Finding, type SourceProgress } from '@shared/types';
 import { safeImageSrc } from '@shared/normalize';
@@ -10,6 +10,9 @@ import { EntityGlyph } from '../lib/icons';
 import { TYPE_ORDER, GROUP_LABEL, displayValue, plural } from '../lib/format';
 import { Kbd, Popover, isTyping, MOD, useDialog } from './ui';
 import { FindingDetail } from './FindingDetail';
+import { Avatar } from './ProfileCard';
+import { profileOf, type Profile } from '@shared/profile';
+import { anchorOf, isKnown } from '@shared/anchors';
 import { Overview } from './Overview';
 import { explainRelation, hedge, subjectNoun } from '@shared/explain';
 
@@ -36,8 +39,19 @@ export function Sheet() {
   const tab = sheet.tab;
   const shown = tab === 'review' ? review : tab === 'accepted' ? accepted : tab === 'rejected' ? rejected : [];
 
-  const groups = useMemo(() => TYPE_ORDER.map((t) => ({ type: t, items: shown.filter((f) => f.type === t).sort((a, b) => b.rank - a.rank) })).filter((g) => g.items.length), [shown]);
+  const [typeFilter, setTypeFilter] = useState<EntityType | null>(null);
+  const typeCounts = useMemo(() => TYPE_ORDER.map((t) => ({ type: t, n: shown.filter((f) => f.type === t).length })).filter((x) => x.n), [shown]);
+  const filtered = useMemo(() => (typeFilter ? shown.filter((f) => f.type === typeFilter) : shown), [shown, typeFilter]);
+  useEffect(() => { if (typeFilter && !typeCounts.some((x) => x.type === typeFilter)) setTypeFilter(null); }, [typeCounts, typeFilter]);
+  // the review list is grouped by how sure Plexus is, because that is the order a person wants to decide in; the other tabs by kind of thing
+  const groups = useMemo(() => {
+    const sorted = [...filtered].sort((a, b) => b.rank - a.rank);
+    if (tab === 'review') return BANDS.map((b) => ({ key: b.key, label: b.label, help: b.help, level: b.level, type: undefined as EntityType | undefined, items: sorted.filter((f) => f.level === b.level) })).filter((g) => g.items.length);
+    return TYPE_ORDER.map((t) => ({ key: t, label: GROUP_LABEL[t], help: '', level: 0, type: t as EntityType | undefined, items: sorted.filter((f) => f.type === t) })).filter((g) => g.items.length);
+  }, [filtered, tab]);
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
+  const knownAnchors = useMemo(() => (s.snap?.nodes ?? []).filter(isKnown).map(anchorOf), [s.snap?.nodes]);
+  const profiles = useMemo(() => new Map(flat.map((f) => [f.id, profileOf(f, findings, knownAnchors)])), [flat, findings, knownAnchors]);
 
   const [cursor, setCursor] = useState(0);
   const [flash, setFlash] = useState<string | null>(null);
@@ -84,13 +98,12 @@ export function Sheet() {
 
   const finish = async () => {
     const st = useStore.getState();
-    if (toAddRef.current > 0) {
-      const { added } = await st.commit(subjectId);
-      st.toast(added > 0 ? `Added ${added} to the graph` : 'Graph updated');
-      st.closeSheet();
-      setTimeout(() => window.dispatchEvent(new CustomEvent('plexus:fit')), 450);
-    } else st.closeSheet();
+    if (toAddRef.current > 0) await st.commit(subjectId);       // anything accepted by an older version that never reached the graph
+    st.closeSheet();
+    setTimeout(() => window.dispatchEvent(new CustomEvent('plexus:fit')), 450);
   };
+  // accepted means correct: it is on the graph already. This only catches findings accepted before that was automatic.
+  useEffect(() => { if (toAdd > 0 && run?.status !== 'running') void useStore.getState().commit(subjectId); }, [toAdd, run?.status, subjectId]);
 
   // --- keyboard -------------------------------------------------------------------------------------------------
   useEffect(() => {
@@ -153,7 +166,7 @@ export function Sheet() {
   const subject = { type: node.type, label: node.label };
   const overlay = !wide && detailOpen && !!cur && tab !== 'overview';
   const idx = cur ? flat.findIndex((x) => x.id === cur.id) : -1;
-  const TABS = [['overview', 'Overview', null], ['review', 'To review', review.length], ['accepted', 'Accepted', accepted.length], ['rejected', 'Rejected', rejected.length]] as const;
+  const TABS = [['overview', 'Overview', null], ['review', 'To review', review.length], ['accepted', 'On your graph', accepted.length], ['rejected', 'Rejected', rejected.length]] as const;
 
   return (
     <>
@@ -189,7 +202,7 @@ export function Sheet() {
         <div className="sheet-body" ref={bodyRef}>
           {sheet.triage ? (
             <Triage subject={subject} queue={flat.filter((f) => f.status === 'pending')} total={review.length + accepted.length + rejected.length} running={run?.status === 'running'} parked={review.filter((f) => f.status === 'unsure').length}
-              onExit={() => s.setSheet({ triage: false })} onFinish={finish} toAdd={toAdd} act={act} />
+              onExit={() => s.setSheet({ triage: false })} onFinish={finish} toAdd={accepted.length} act={act} />
           ) : tab === 'overview' ? (
             <div className="ov-scroll">
               <Overview node={subject} run={run} findings={findings} subjectId={subjectId} onOpen={jumpTo} pendingCount={pendingCount} onStart={() => s.setSheet({ tab: 'review' })} />
@@ -197,23 +210,25 @@ export function Sheet() {
           ) : (
             <div className={`split ${wide ? '' : 'narrow'}`}>
               <div className="left">
-                {tab === 'review' && (strongPending.length > 0 || weakPending.length > 0) && (
-                  <div className="bulkbar">
-                    <span className="faint">Quick actions</span>
-                    {strongPending.length > 0 && <button className="btn sm" title="Accept every finding that several sources agree on" onClick={() => void s.review(strongPending.map((f) => f.id), 'accepted', { toast: true })}>Accept {strongPending.length} likely</button>}
-                    {weakPending.length > 0 && <button className="btn sm ghost" title="Reject every weak lead" onClick={() => void s.review(weakPending.map((f) => f.id), 'rejected', { toast: true })}>Reject {weakPending.length} weak</button>}
+                {typeCounts.length > 1 && (
+                  <div className="tfilter" role="group" aria-label="Show only">
+                    <button className="fchip" aria-pressed={typeFilter === null} onClick={() => setTypeFilter(null)}>All <span className="num">{shown.length}</span></button>
+                    {typeCounts.map((x) => <button key={x.type} className="fchip" aria-pressed={typeFilter === x.type} onClick={() => setTypeFilter(typeFilter === x.type ? null : x.type)}><EntityGlyph type={x.type} size={12} /> {GROUP_LABEL[x.type]} <span className="num">{x.n}</span></button>)}
                   </div>
                 )}
                 <div className="list-scroll" ref={scroller} role="listbox" aria-label="Findings">
                   {flat.length === 0 && <EmptyList run={run} tab={tab} hasAny={findings.length > 0} subjectId={subjectId} />}
                   {groups.map((g) => (
-                    <section key={g.type}>
+                    <section key={g.key} className={`band ${g.level ? `b${g.level}` : ''}`}>
                       <div className="ghead">
-                        <EntityGlyph type={g.type} size={13} /> {GROUP_LABEL[g.type]} <span className="cnt num">{g.items.length}</span>
+                        {g.type ? <EntityGlyph type={g.type} size={13} /> : <span className="bdot" style={{ background: `var(--lvl${g.level})` }} />} {g.label} <span className="cnt num">{g.items.length}</span>
+                        {g.help && <span className="bhelp">{g.help}</span>}
+                        {tab === 'review' && g.level === 4 && g.items.some((f) => f.status === 'pending') && <button className="btn sm band-act" title="Accept every finding in this group: several independent things agree on each" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending').map((f) => f.id), 'accepted', { toast: true })}><Check size={12} /> Accept all {g.items.filter((f) => f.status === 'pending').length}</button>}
+                        {tab === 'review' && g.level === 1 && g.items.some((f) => f.status === 'pending') && <button className="btn sm ghost band-act" title="Reject every weak lead" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending').map((f) => f.id), 'rejected', { toast: true })}><X size={12} /> Reject all {g.items.filter((f) => f.status === 'pending').length}</button>}
                       </div>
                       <AnimatePresence initial={false}>
                         {g.items.map((f) => (
-                          <Row key={f.id} f={f} tab={tab} subject={subject} isCursor={cur?.id === f.id} flash={flash === f.id}
+                          <Row key={f.id} f={f} tab={tab} subject={subject} profile={profiles.get(f.id)!} isCursor={cur?.id === f.id} flash={flash === f.id}
                             onFocus={() => setCursor(flat.findIndex((x) => x.id === f.id))} onOpen={() => { setCursor(flat.findIndex((x) => x.id === f.id)); if (!wide) setDetailOpen(true); }}
                             reg={(el) => { if (el) rowRefs.current.set(f.id, el); else rowRefs.current.delete(f.id); }} inGraph={nodeKeys.has(`${f.type}:${f.key}`)} />
                         ))}
@@ -258,8 +273,8 @@ export function Sheet() {
             </div>
             <div className="grow" />
             {s.undoStack.length > 0 && <button className="btn ghost sm" onClick={() => void s.undo()}><Undo2 size={13} /> Undo <Kbd>{MOD}Z</Kbd></button>}
-            <span className="muted num foot-acc">{accepted.length} accepted</span>
-            <button className="btn primary lg" onClick={() => void finish()}>{toAdd > 0 ? `Add ${toAdd} to graph` : 'Done'}</button>
+            <span className="muted num foot-acc">{accepted.length === 0 ? 'Nothing accepted yet' : `${accepted.length} accepted, already on your graph`}</span>
+            <button className="btn primary lg" onClick={() => void finish()}>Done</button>
           </div>
         )}
       </motion.div>
@@ -268,35 +283,47 @@ export function Sheet() {
 }
 
 // ------------------------------------------------------------------------------------------------ Rows
-const Row = memo(function Row({ f, tab, subject, isCursor, flash, onFocus, onOpen, reg, inGraph }: {
-  f: Finding; tab: string; subject: { type: EntityType; label: string }; isCursor: boolean; flash: boolean; onFocus: () => void; onOpen: () => void; reg: (el: HTMLElement | null) => void; inGraph: boolean;
+const BANDS = [
+  { key: 'b4', level: 4, label: 'Very likely', help: 'Several independent things agree' },
+  { key: 'b3', level: 3, label: 'Likely', help: '' },
+  { key: 'b2', level: 2, label: 'Possible', help: 'Worth a look' },
+  { key: 'b1', level: 1, label: 'Weak leads', help: 'Probably not it' },
+] as const;
+
+const Row = memo(function Row({ f, tab, subject, profile, isCursor, flash, onFocus, onOpen, reg, inGraph }: {
+  f: Finding; tab: string; subject: { type: EntityType; label: string }; profile: Profile; isCursor: boolean; flash: boolean; onFocus: () => void; onOpen: () => void; reg: (el: HTMLElement | null) => void; inGraph: boolean;
 }) {
   const review = useStore((st) => st.review);
   const sources = new Set(f.evidence.filter((e) => e.polarity !== 'against').map((e) => e.family)).size;
+  const matched = f.evidence.filter((e) => e.adapter === 'anchor' && e.polarity !== 'against' && e.family.startsWith('anchor:'));
   const sentence = hedge(explainRelation(f.relation, subjectNoun(subject.type), displayValue(f)), f.level, f.evidence.some((e) => e.polarity === 'against'));
   const conflict = f.conflictsWith?.length;
+  const title = profile.rich ? (profile.displayName || profile.handle || displayValue(f)) : displayValue(f);
+  const bits = [profile.platform, profile.handle && profile.handle.toLowerCase() !== title.toLowerCase() ? `@${profile.handle.replace(/^@/, '')}` : '', profile.created ? `since ${new Date(profile.created).getUTCFullYear()}` : '', profile.location].filter(Boolean);
+  const showAvatar = f.type === 'account' || f.type === 'person' || f.type === 'image' || f.type === 'username';
   return (
     <motion.div ref={reg} layout="position" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0 }}
       transition={{ type: 'spring', stiffness: 520, damping: 40, opacity: { duration: .15 } }} style={{ overflow: 'hidden' }}>
       <div className={`frow ${flash ? 'flash' : ''}`} data-cursor={isCursor} onMouseMove={() => !isCursor && onFocus()} onClick={onOpen} role="option" aria-selected={isCursor}>
-        <div className="gl">{f.type === 'image' ? <img src={safeImageSrc(f.value)} alt="" /> : <EntityGlyph type={f.type} size={15} />}</div>
+        <div className="gl">{showAvatar ? <Avatar src={f.type === 'image' ? safeImageSrc(f.value) : profile.avatar} name={title} size={34} type={f.type} /> : <EntityGlyph type={f.type} size={15} />}</div>
         <div className="fr-main">
           <div className="v truncate selectable">
-            {displayValue(f)}
+            {title}
             {conflict ? <span className="tag warn" title="Other sources gave a different answer to the same question"><Zap size={10} />Conflict</span> : null}
             {f.status === 'unsure' && <span className="tag mute">Not sure</span>}
             {inGraph && <span className="tag mute">On graph</span>}
           </div>
-          <div className="sub truncate" title={sentence}>{sentence}</div>
+          <div className="sub truncate" title={sentence}>{bits.length ? bits.join(' · ') : sentence}</div>
+          {matched.length > 0 && <div className="mchip" title={matched.map((m) => m.verdict).join('\n')}><ShieldCheck size={12} /> Matches {matched.length === 1 ? 'something you know' : `${matched.length} things you know`}</div>}
         </div>
         <div className="fr-meta" title={`${Math.round(f.score * 100)}% confidence · ${plural(sources, 'independent source')}`}>
           <span className="pct num" style={{ color: `var(--lvl${f.level})` }}>{Math.round(f.score * 100)}%</span>
-          <span className="sn num">{plural(sources, 'source')}</span>
+          <span className="mbar"><i style={{ width: `${Math.round(f.score * 100)}%`, background: `var(--lvl${f.level})` }} /></span>
         </div>
         <div className="acts" onClick={(e) => e.stopPropagation()}>
           {tab === 'review' ? (<>
             <button className="act no" aria-label="Reject" title="Reject: this is wrong or irrelevant (R)" onClick={() => void review([f.id], 'rejected')}><X size={15} /></button>
-            <button className="act ok" aria-label="Accept" title="Accept: add this to your graph (A)" onClick={() => void review([f.id], 'accepted')}><Check size={15} /></button>
+            <button className="act ok" aria-label="Accept" title="Accept: this is correct. It goes on the graph and connects (A)" onClick={() => void review([f.id], 'accepted')}><Check size={15} /></button>
           </>) : (
             <button className="act" aria-label="Move back to review" title="Back to review" onClick={() => void review([f.id], 'pending')}><Undo2 size={14} /></button>
           )}
@@ -364,7 +391,7 @@ const TRI_VARIANTS = {
   exit: (d: number) => ({ opacity: 0, x: d * 180, rotate: d * 5, transition: { duration: .22 } }),
 };
 
-function Triage({ queue, total, running, parked, onExit, onFinish, toAdd, act, subject }: {
+function Triage({ queue, total, running, parked, onExit, onFinish, toAdd: reviewedAccepted, act, subject }: {
   subject: { type: EntityType; label: string }; queue: Finding[]; total: number; running: boolean; parked: number; onExit: () => void; onFinish: () => void; toAdd: number; act: (id: string | undefined, st: Finding['status']) => void;
 }) {
   const s = useStore();
@@ -393,10 +420,10 @@ function Triage({ queue, total, running, parked, onExit, onFinish, toAdd, act, s
               {running ? (<><LoaderCircle size={26} className="spin faint" style={{ margin: '0 auto' }} /><h3>Waiting for more results…</h3><p className="muted">Sources are still answering.</p></>) : (<>
                 <CircleCheck size={36} style={{ color: 'var(--lvl4)', margin: '0 auto' }} />
                 <h3>All reviewed</h3>
-                <p className="muted">{toAdd > 0 ? `${toAdd} accepted and ready to add.` : 'Nothing accepted yet.'}{parked > 0 ? ` ${parked} parked as unsure.` : ''}</p>
+                <p className="muted">{reviewedAccepted > 0 ? `${reviewedAccepted} accepted and already on your graph.` : 'Nothing accepted yet.'}{parked > 0 ? ` ${parked} parked as unsure.` : ''}</p>
                 <div className="row" style={{ justifyContent: 'center', marginTop: 8 }}>
                   <button className="btn" onClick={onExit}>Back to list</button>
-                  <button className="btn primary lg" onClick={onFinish}>{toAdd > 0 ? `Add ${toAdd} to graph` : 'Done'}</button>
+                  <button className="btn primary lg" onClick={onFinish}>Done</button>
                 </div>
               </>)}
             </motion.div>

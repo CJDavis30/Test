@@ -10,6 +10,7 @@ import { getSecret } from './config';
 import { uid, type Store } from './store';
 import { howFor, lookupUrl } from './adapters/how';
 import { fingerprint } from './integrity';
+import { contextFor, applyAnchorEvidence } from './anchors';
 import { breaker, PausedError } from './breaker';
 import { noticeYouth } from './safeguards';
 import { learnIds } from './idclocks';
@@ -132,8 +133,22 @@ export class Orchestrator {
     const snapshot = (f: Finding) => `${f.score.toFixed(4)}|${f.rank.toFixed(4)}|${f.evidence.length}|${(f.checks ?? []).length}|${f.status}|${(f.conflictsWith ?? []).join()}`;
     let before = new Map([...known.values()].map((f) => [f.id, snapshot(f)]));
 
+    // what the investigator already knows (checked against every finding) and what other starting points found (second routes)
+    const anchorCtx = contextFor(store, subject.caseId);
+    const otherFindings = store.listFindings(subject.caseId).filter((f) => f.subjectId !== subject.id && f.status !== 'rejected');
     const flush = () => {
       const all = [...byKey.values()];
+      if (anchorCtx.anchors.length || otherFindings.length) {
+        const touched = applyAnchorEvidence(all, otherFindings, anchorCtx).filter((f) => !byKey.has(`${f.type}|${f.key}`) || f.subjectId !== subject.id);
+        if (touched.length) {
+          // re-score each affected lookup as a whole, so conflicts between its findings are still judged against each other
+          const groups = new Map<string, Finding[]>();
+          for (const t of touched) groups.set(t.subjectId, otherFindings.filter((o) => o.subjectId === t.subjectId));
+          for (const g of groups.values()) rescore(g, rel, '');
+          for (const t of touched) store.saveFinding(t);
+          this.hub.push(run.id, { t: 'findings', findings: touched });
+        }
+      }
       rescore(all, rel, context);
       const changed: Finding[] = [];
       for (const f of all) {

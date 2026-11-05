@@ -78,6 +78,7 @@ export class Store {
     // Audit entries are hash-chained (each covers the one before it) so edits or deletions show up when verified.
     try { this.db.exec('ALTER TABLE audit ADD COLUMN prev TEXT'); } catch { /* column already exists */ }
     try { this.db.exec('ALTER TABLE audit ADD COLUMN hash TEXT'); } catch { /* column already exists */ }
+    try { this.db.exec('ALTER TABLE edges ADD COLUMN why TEXT'); } catch { /* column already exists */ }
     this.path = path;
   }
   path: string;
@@ -236,23 +237,35 @@ export class Store {
   // ---- edges ------------------------------------------------------------
   private edgeRow = (r: any): GraphEdge => ({
     id: r.id, caseId: r.case_id, from: r.from_id, to: r.to_id, label: r.label, strength: r.strength, kind: r.kind,
-    findingId: r.finding_id ?? undefined, createdAt: r.created_at,
+    findingId: r.finding_id ?? undefined, why: r.why ?? undefined, createdAt: r.created_at,
   });
   listEdges(caseId: string): GraphEdge[] {
     return (this.db.prepare('SELECT * FROM edges WHERE case_id=?').all(caseId) as any[]).map(this.edgeRow);
   }
-  upsertEdge(e: { caseId: string; from: string; to: string; label: string; strength: number; kind: GraphEdge['kind']; findingId?: string }): GraphEdge {
+  upsertEdge(e: { caseId: string; from: string; to: string; label: string; strength: number; kind: GraphEdge['kind']; findingId?: string; why?: string }): GraphEdge {
     const ex = this.db.prepare('SELECT * FROM edges WHERE case_id=? AND from_id=? AND to_id=? AND label=?').get(e.caseId, e.from, e.to, e.label) as any;
     if (ex) {
-      this.db.prepare('UPDATE edges SET strength=MAX(strength,?), kind=CASE WHEN kind=\'evidenced\' THEN kind ELSE ? END WHERE id=?').run(e.strength, e.kind, ex.id);
+      this.db.prepare('UPDATE edges SET strength=MAX(strength,?), kind=CASE WHEN kind=\'evidenced\' THEN kind ELSE ? END, why=COALESCE(why,?) WHERE id=?').run(e.strength, e.kind, e.why ?? null, ex.id);
       return this.edgeRow(this.db.prepare('SELECT * FROM edges WHERE id=?').get(ex.id));
     }
     const id = uid('e_');
-    this.db.prepare('INSERT INTO edges(id,case_id,from_id,to_id,label,strength,kind,finding_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
-      .run(id, e.caseId, e.from, e.to, e.label, e.strength, e.kind, e.findingId ?? null, Date.now());
+    this.db.prepare('INSERT INTO edges(id,case_id,from_id,to_id,label,strength,kind,finding_id,why,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+      .run(id, e.caseId, e.from, e.to, e.label, e.strength, e.kind, e.findingId ?? null, e.why ?? null, Date.now());
     return this.edgeRow(this.db.prepare('SELECT * FROM edges WHERE id=?').get(id));
   }
   deleteEdge(id: string) { this.db.prepare('DELETE FROM edges WHERE id=?').run(id); }
+  edgesOfFinding(findingId: string): GraphEdge[] { return (this.db.prepare('SELECT * FROM edges WHERE finding_id=?').all(findingId) as any[]).map(this.edgeRow); }
+  edgesOfNode(nodeId: string): GraphEdge[] { return (this.db.prepare('SELECT * FROM edges WHERE from_id=? OR to_id=?').all(nodeId, nodeId) as any[]).map(this.edgeRow); }
+  /** Set one attribute on a node, or remove it with undefined. */
+  setNodeAttr(id: string, key: string, value: string | number | boolean | undefined) {
+    const n = this.getNode(id); if (!n) return;
+    const attrs = { ...n.attrs } as Record<string, unknown>;
+    if (value === undefined) delete attrs[key]; else attrs[key] = value;
+    this.db.prepare('UPDATE nodes SET attrs=? WHERE id=?').run(JSON.stringify(attrs), id);
+  }
+  setNodeState(id: string, state: 'seed' | 'confirmed', score?: number | null, level?: number | null) {
+    this.db.prepare('UPDATE nodes SET state=?, score=?, level=? WHERE id=?').run(state, score ?? null, level ?? null, id);
+  }
   setEdgeLabel(id: string, label: string) { this.db.prepare('UPDATE edges SET label=? WHERE id=?').run(label, id); }
 
   // ---- findings ---------------------------------------------------------

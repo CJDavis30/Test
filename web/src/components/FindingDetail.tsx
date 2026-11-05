@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { Check, ChevronDown, ChevronRight, CircleCheck, CircleHelp, CircleX, ExternalLink, Minus, TriangleAlert, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, ChevronDown, ChevronRight, CircleCheck, CircleHelp, CircleX, ExternalLink, Minus, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import { ENTITY_LABEL, type EntityType, type Evidence, type Finding, type GraphEdge, type GraphNode } from '@shared/types';
 import { confidenceSentence, evidenceStrength, explainRelation, hedge, warningsFor } from '@shared/explain';
 import { safeHttpUrl } from '@shared/normalize';
 import { useStore } from '../lib/store';
+import { api } from '../lib/api';
+import { ProfileCard, useProfile } from './ProfileCard';
 import { EntityGlyph } from '../lib/icons';
 import { ago, displayValue, fmtDate, hostOf } from '../lib/format';
 import { Dots, Kbd } from './ui';
@@ -202,6 +204,54 @@ function MoreChecks({ f }: { f: Finding }) {
   );
 }
 
+const LEVEL_WORD: Record<number, string> = { 4: 'Very likely', 3: 'Likely', 2: 'Possible', 1: 'Weak lead' };
+
+/** The few reasons that matter, in the order a person weighs them: what matches what you told Plexus, who agrees, what disagrees. */
+function reasonsFor(f: Finding): { kind: 'known' | 'agree' | 'against' | 'note'; text: string; title?: string }[] {
+  const out: { kind: 'known' | 'agree' | 'against' | 'note'; text: string; title?: string }[] = [];
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  for (const e of f.evidence.filter((x) => x.adapter === 'anchor' && x.polarity !== 'against' && x.family.startsWith('anchor:'))) out.push({ kind: 'known', text: cap(e.verdict ?? 'Matches something you told Plexus.'), title: e.snippet });
+  const route = f.evidence.filter((x) => x.adapter === 'anchor' && x.family.startsWith('route:'));
+  if (route.length) out.push({ kind: 'known', text: `Also reached starting from ${route.length === 1 ? 'another thing you looked up' : `${route.length} other things you looked up`}.`, title: route.map((r) => r.snippet).join('\n') });
+  const direct = [...new Set(f.evidence.filter((e) => e.kind !== 'cross' && e.polarity !== 'against' && e.adapter !== 'anchor').map((e) => e.adapterName))];
+  if (direct.length) out.push({ kind: 'agree', text: direct.length === 1 ? `Reported by ${direct[0]}.` : `Reported by ${direct.length} separate sources: ${direct.slice(0, 3).join(', ')}${direct.length > 3 ? '…' : ''}.` });
+  const confirm = f.evidence.filter((e) => e.kind === 'cross' && e.polarity !== 'against' && e.adapter !== 'anchor');
+  if (confirm.length) out.push({ kind: 'agree', text: `${confirm.length} cross-check${confirm.length === 1 ? '' : 's'} back${confirm.length === 1 ? 's' : ''} it up: ${[...new Set(confirm.map((e) => e.adapterName))].slice(0, 3).join(', ')}.` });
+  for (const e of f.evidence.filter((x) => x.polarity === 'against')) out.push({ kind: 'against', text: cap(e.verdict ?? 'A source contradicts this.'), title: e.snippet });
+  return out;
+}
+
+/** What accepting will join this to on the graph, asked of the server so it is exactly what will happen. */
+function useConnections(f: Finding) {
+  const nodeCount = useStore((s) => s.snap?.nodes.length ?? 0);
+  const [rows, setRows] = useState<{ nodeId: string; label: string; why: string; weight: number; kind: 'found-from' | 'match' }[] | null>(null);
+  useEffect(() => {
+    let live = true; setRows(null);
+    api.get<{ connections: NonNullable<typeof rows> }>(`/api/findings/${f.id}/connections`).then((r) => live && setRows(r.connections)).catch(() => live && setRows([]));
+    return () => { live = false; };
+  }, [f.id, f.status, f.evidence.length, nodeCount]);
+  return rows;
+}
+
+function WillConnect({ f }: { f: Finding }) {
+  const rows = useConnections(f);
+  const nodes = useStore((s) => s.snap?.nodes ?? []);
+  if (!rows || rows.length === 0) return null;
+  const onGraph = f.status === 'accepted';
+  const matches = rows.filter((r) => r.kind === 'match');
+  return (
+    <section className="wc" aria-label={onGraph ? 'What this is connected to' : 'What accepting will connect'}>
+      <div className="wc-h">{onGraph ? <>On your graph, connected to</> : <>If you accept, it goes on the graph and connects to</>}</div>
+      <ul>{rows.map((r) => { const n = nodes.find((x) => x.id === r.nodeId); return (
+        <li key={r.nodeId} className={r.kind}>
+          <span className="wc-n">{n ? <EntityGlyph type={n.type} size={13} /> : null}<b className="truncate selectable">{r.label}</b>{n?.attrs.known ? <ShieldCheck size={12} className="wc-k" aria-label="You know this" /> : null}</span>
+          <span className="wc-w">{r.kind === 'found-from' ? 'where it was found' : r.why}</span>
+        </li>); })}</ul>
+      {!onGraph && matches.length > 0 && <p className="wc-note">These extra connections are drawn because the account itself shows the match, not just because of the search.</p>}
+    </section>
+  );
+}
+
 /** Everything someone needs to approve or reject a finding. The decision bar stays pinned at the bottom while the evidence scrolls. */
 export function FindingDetail({ f, subject, onDecide }: { f: Finding; subject: Subject; onDecide?: (s: 'accepted' | 'rejected' | 'unsure') => void }) {
   const all = useStore((s) => s.findings);
@@ -209,29 +259,41 @@ export function FindingDetail({ f, subject, onDecide }: { f: Finding; subject: S
   const rivals = (f.conflictsWith ?? []).map((id) => all[id]).filter(Boolean);
   const warns = warningsFor(f);
   const quiet = (f.checks ?? []).filter((c) => c.result === 'neutral' || c.result === 'failed');
+  const reasons = reasonsFor(f);
+  const [open, setOpen] = useState(false);
   const R = 21, C = 2 * Math.PI * R;
+  const rich = useProfile(f)?.rich;
   return (
     <div className="fdetail">
       <div className="fscroll">
-        <div className="fhead">
-          <span className="fic"><EntityGlyph type={f.type} size={18} /></span>
-          <div className="fhead-t">
-            <div className="fvalue selectable">{displayValue(f)}</div>
-            <div className="ftype">{ENTITY_LABEL[f.type]}{f.when ? ` · from ${fmtDate(f.when)}` : ''}</div>
+        {rich ? <ProfileCard f={f} /> : (
+          <div className="fhead">
+            <span className="fic"><EntityGlyph type={f.type} size={18} /></span>
+            <div className="fhead-t"><div className="fvalue selectable">{displayValue(f)}</div><div className="ftype">{ENTITY_LABEL[f.type]}{f.when ? ` · from ${fmtDate(f.when)}` : ''}</div></div>
           </div>
-          <div className="fscore" title="An estimate from how many independent sources agree, how much each is trusted, and what cross-checks found. Not a guarantee.">
-            <svg viewBox="0 0 50 50" width="50" height="50" aria-hidden>
+        )}
+
+        <section className={`verdict l${f.level}`} aria-label="How sure Plexus is">
+          <div className="fscore" title="An estimate from how many independent sources agree, how much each is trusted, what you told Plexus, and what cross-checks found. Not a guarantee.">
+            <svg viewBox="0 0 50 50" width="52" height="52" aria-hidden>
               <circle cx="25" cy="25" r={R} fill="none" stroke="var(--line)" strokeWidth="3" />
               <circle cx="25" cy="25" r={R} fill="none" stroke={`var(--lvl${f.level})`} strokeWidth="3" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - f.score)} transform="rotate(-90 25 25)" />
             </svg>
             <b className="num" style={{ color: `var(--lvl${f.level})` }}>{Math.round(f.score * 100)}%</b>
           </div>
-        </div>
+          <div className="v-main">
+            <div className="v-word" style={{ color: `var(--lvl${f.level})` }}>{LEVEL_WORD[f.level]}</div>
+            <p className="v-sent">{hedge(explainRelation(f.relation, subject.label, displayValue(f)), f.level, f.evidence.some((e) => e.polarity === 'against'))}</p>
+          </div>
+        </section>
 
-        <p className="fsentence">{confidenceSentence(f.level, independent)}</p>
-        <ScoreChips f={f} />
-        <StressCard f={f} />
-        {quiet.length > 0 && <div className="fquiet">Also asked, no answer either way: {quiet.map((c) => `${c.source}${c.result === 'failed' ? ' (unreachable)' : ''}`).join(', ')}.</div>}
+        {reasons.length > 0 && (
+          <ul className="reasons" aria-label="Why">
+            {reasons.slice(0, 6).map((r, i) => <li key={i} className={r.kind} title={r.title}>{r.kind === 'against' ? <CircleX size={15} /> : r.kind === 'known' ? <ShieldCheck size={15} /> : <CircleCheck size={15} />}<span>{r.text}</span></li>)}
+          </ul>
+        )}
+
+        <WillConnect f={f} />
 
         {(warns.length > 0 || rivals.length > 0) && (
           <div className="fwatch">
@@ -247,19 +309,23 @@ export function FindingDetail({ f, subject, onDecide }: { f: Finding; subject: S
           </div>
         )}
 
-        <div className="fsec">How it’s connected</div>
-        <ConnectionPath subject={subject} f={f} subjectId={f.subjectId} />
-        <p className="plain selectable">{hedge(explainRelation(f.relation, subject.label, displayValue(f)), f.level, f.evidence.some((e) => e.polarity === 'against'))}</p>
-
-        <SourceCards f={f} />
-        <MoreChecks f={f} />
+        <button className="fmore-btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Evidence and how the number was reached <span className="cnt">{f.evidence.length}</span></button>
+        {open && (<div className="fmore">
+          <ScoreChips f={f} />
+          <StressCard f={f} />
+          {quiet.length > 0 && <div className="fquiet">Also asked, no answer either way: {quiet.map((c) => `${c.source}${c.result === 'failed' ? ' (unreachable)' : ''}`).join(', ')}.</div>}
+          <div className="fsec">How it’s connected</div>
+          <ConnectionPath subject={subject} f={f} subjectId={f.subjectId} />
+          <SourceCards f={f} defaultOpen="none" />
+          <MoreChecks f={f} />
+        </div>)}
       </div>
 
       {onDecide && (
         <div className="fdecide">
           <button className="btn" onClick={() => onDecide('rejected')} title="This is wrong or irrelevant. Plexus will trust the sources that reported it a little less."><X size={14} /> Reject <Kbd>R</Kbd></button>
           <button className="btn ghost" onClick={() => onDecide('unsure')} title="Park it and decide later"><CircleHelp size={14} /> Not sure <Kbd>U</Kbd></button>
-          <button className="btn primary grow" onClick={() => onDecide('accepted')} title="Add this to your graph, linked to what you searched"><Check size={14} /> Accept <Kbd>A</Kbd></button>
+          <button className="btn primary grow" onClick={() => onDecide('accepted')} title="This is correct: add it to the graph and connect it"><Check size={14} /> Accept <Kbd>A</Kbd></button>
         </div>
       )}
     </div>

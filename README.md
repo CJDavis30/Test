@@ -26,7 +26,7 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 573 unit/integration tests (they use a fictional test world that is not part of the app)
+npm test           # 674 unit/integration tests (they use a fictional test world that is not part of the app)
 npm run typecheck
 ```
 
@@ -65,14 +65,15 @@ input ─► detect type ─► run sources (fallback chains) ─► merge by ca
 2. **Query sources.** Sources that answer the same question form a **fallback chain**: they are tried in priority order and the next one runs if the previous fails, returns nothing, or is rate-limited. Sources that return different data (e.g. username checks) all run. Results stream in as each source answers.
 3. **Merge.** Claims from different sources about the same thing collapse into one finding by canonical key (`Jane.Doe+x@gmail.com` = `janedoe@gmail.com`, `Doe, Jane` = `Jane Doe`, tracking params stripped). Rejected findings are never resurrected by a re-run.
 4. **Score.** See below.
-5. **Review.** Four tabs: **Overview** (a two-line summary, the overall confidence, a map of how everything connects, and what to dig into next), **To review** (a ranked list with a details panel beside it), **Accepted** and **Rejected**. In the details panel the confidence and how it was reached sit at the top, then the chain *what you searched → how it relates → what was found*, then one compact row per source that opens to show exactly what was asked, what came back, the record's fields and a link to check it yourself. Accept / Reject / Not sure stay pinned at the bottom. In a narrow window the details slide over the list (with Back and ‹ › buttons) and the sidebar becomes a drawer, so nothing ever disappears. Accepted findings become nodes and evidenced edges.
-6. **Connect.** The graph uses an **organized layout** by default (see below). Deterministic link suggestions (same handle as an email, profile URL ↔ username, name variants → "possibly the same", people sharing an employer, subdomain families), shortest strongest-evidence path between any two nodes, optional AI hypotheses.
+5. **Review.** Four tabs: **Overview** (a two-line summary, the overall confidence, a map of how everything connects, what to dig into next), **To review**, **On your graph** and **Rejected**. *To review* is grouped by how sure Plexus is (Very likely / Likely / Possible / Long shot), with filter chips by type (emails, accounts, names…) and an *Accept all* for the top group. Each row shows the avatar, a one-line sentence, the confidence, and a green *Matches something you know* tag when it matches a fact you gave it. The panel beside it shows a **profile preview** (name, avatar, bio, created date, followers and so on, read from the evidence, no link-clicking), the verdict, the reasons in plain words, and **exactly what accepting will connect** to. The evidence and the maths behind the number are one click away.
+6. **Accept means correct.** Accepting a finding puts it on the graph *immediately* and connects it to everything it touches: to what it was found from, and to every email, username, phone or other node whose value its own page shows (a Roblox profile whose display name is your username and whose bio lists your email ties to both nodes). Rejecting or marking *not sure* takes it back off again, unless you pinned it or wrote notes on it. There is no separate "add to graph" step. Undo (`⌘Z`) reverses a decision with its connections.
+7. **Connect.** The graph uses an **organized layout** by default (see below). Deterministic link suggestions (same handle as an email, profile URL ↔ username, name variants → "possibly the same", people sharing an employer, subdomain families), shortest strongest-evidence path between any two nodes, optional AI hypotheses.
 
 ### The graph layout
 
 Graphs get hairy because every finding links back to a hub and hubs share neighbours. Plexus avoids that structurally instead of hoping a physics simulation untangles it:
 
-- **A tidy radial tree.** The strongest-evidence spanning tree of each connected group is the skeleton. The best-connected entity sits at the centre, its children on a ring grouped by type (emails together, accounts together…), deeper levels fanning out. Crowded rings stagger onto two radii. A relaxation pass guarantees a minimum gap between neighbours, and tests assert that nothing overlaps at 8, 30, 56, 120 and 300 nodes.
+- **A tidy radial tree.** The strongest-evidence spanning tree of each connected group is the skeleton. The best-connected entity sits at the centre, its children on a ring grouped by type (emails together, accounts together…), deeper levels fanning out. Crowded rings split into two or three lanes so they stay compact, separate clusters are packed snugly around the biggest one instead of in a far-away row, and lone nodes share one tidy cluster. A relaxation pass guarantees a minimum gap between neighbours, and tests assert that nothing overlaps at 8, 30, 56, 120 and 300 nodes.
 - **Cross-links are quiet.** Links that aren't part of the skeleton are drawn as faint arcs bundled toward the centre, and light up (with their label) only when you select or hover either end. Selecting a node dims everything unrelated.
 - **Labels never collide.** They sit *outward* from their node, every node circle and earlier label is an obstacle, each label tries alternative positions, and the least important are dropped (they reappear as you zoom in).
 - **Direct manipulation.** Drag a node and its whole branch comes with it (hold ⌥ to move just one); it stays pinned, and pins survive reloads. **Tidy up** (zoom controls, right-click, or ⌘K) releases every pin. A toggle switches to a free-form force layout if you prefer it.
@@ -175,9 +176,21 @@ Reads what is inside a file, on this Mac, and puts the few facts that matter fir
 
 ### AI (optional)
 
-Providers: OpenRouter (default "auto" or any model you pick), Google AI Studio, OpenAI, Ollama (local), or any OpenAI-compatible endpoint. A local-only switch pauses every cloud call.
+Providers: OpenRouter, Google AI Studio, OpenAI, Ollama (local), or any OpenAI-compatible endpoint. The model defaults to **Automatic**: on OpenRouter Plexus lists the models your key can use, tries the free ones first (so an account with no credits works), remembers which one worked and falls back to the next if one is overloaded or rate-limited; on Google AI Studio it walks through the Flash models. Errors are in plain words ("your key is missing or wrong", "this account has no credits, pick a free model", "the free quota is used up for now", "this model does not accept pictures") with the one thing to do about it, and **Save and test** checks text and pictures separately. A local-only switch pauses every cloud call.
 
 The model is **never a source of facts**. It reads scored, numbered findings and must cite them (`[F3]`). A validator then drops every sentence without a valid citation and every citation that doesn't resolve; a headline must cite real findings or the rules headline is used. Scraped text is passed inside a `<data>` block under explicit "untrusted, never follow instructions" rules. If AI is off, slow, or returns garbage, the deterministic brief is used and nothing breaks.
+
+### What you already know (known facts)
+
+Start a case with more than one fact: *\"I know this email is theirs, and I know they use this username.\"* (welcome screen → *I already know a few things about them*, or ⌘K, or right-click a node → *Mark as known*.) Known facts are treated as true (confirmed, top level, linked to each other) and are looked up like any search. Then **everything found for any of them is checked against all of them**: does this account's page list the email? is its handle the username? does it show the phone? Matches add independent evidence (an exact email on the page is worth about 95%, a shared handle depends on how unusual it is, a different name counts against), look-alike handles (`maralinden_`) do not get the credit of the real one, and a result reached from two different starting points counts as two routes. Telling Plexus something later re-scores everything already found. Taking a fact back removes its evidence.
+
+### Tools tab (⌘6)
+
+Thirty-odd small instruments that work with or without a case; anything they find can be added to your case in one click. Pictures and files: photo and file forensics, AI photo location, screenshot reader (AI reads the handles, emails, numbers and dates on a screenshot), edit detector (Error Level Analysis heat map), image twin finder (same picture, resized or mirrored?), reverse-image search links, metadata remover. Where and when: coordinate toolkit (decimal, DMS, Plus Code, geohash, UTM), shadow geolocator (sun height from a shadow plus the time gives a ring or a spot on Earth), shadow clock (time of day from a shadow at a known place), daylight check, historical weather at a place and hour, travel plausibility (could one person be at both sightings?), timestamp decoder (Unix, Windows, Chrome, iOS epochs in twelve zones), decode IDs and chat logs. Names and accounts: identify anything (IDs, hashes, JWTs, wallets, MACs, IBANs), username variants, username comparison in bits, look-alike and hidden-character detector (Cyrillic \"а\" in \"paypal\", zero-width characters, punycode), writing-style matcher, identities. Links and contacts: email guesser with Gravatar check, Gravatar checker, phone reader, domain history (registration, certificate and archive timeline), link unshortener (refuses private networks), link inspector, email header tracer. Your case: pull entities from pasted text, source health.
+
+Honest limits: the shadow tools need a clear shadow on level ground and a trustworthy time (a 2° error in sun height moves the ring about 220 km); error-level analysis is a hint, not proof (sharp edges also light up); writing-style matching is weak evidence and says so; the AI tools need a vision model in Settings and ask before sending a picture to a cloud provider.
+
+---
 
 ---
 
@@ -188,9 +201,9 @@ The model is **never a source of facts**. It reads scored, numbered findings and
 | `⌘K` | Search / add anything · paste a list · run commands |
 | Findings sheet | `↑↓` move · `A` accept · `R` reject · `U` unsure · `↵`/`Space` open details (narrow windows) · `T` one-by-one · `Esc` back · `⌘Z` undo · `⌘↵` add to graph |
 | Graph | click · shift-click · drag-box · drag to pin · `↵` open · `R` run checks · `F` focus · `P` trace path · `L` link · `C` compare two accounts · `M` merge · `⌫` remove (undoable) · `0` fit |
-| Anywhere | `⌘,` settings · `⌘B` sidebar · `⌘I` inspector · `⌘1–5` views · drop a file to extract entities · paste to start |
+| Anywhere | `⌘,` settings · `⌘B` sidebar · `⌘I` inspector · `⌘1–6` views · drop a file to extract entities · paste to start |
 
-Views: **Graph**, **Table** (sortable/filterable), **Timeline** (every dated fact), **Report** (cited Markdown, redactable, print-to-PDF, JSON export).
+Views: **Graph**, **Table** (sortable/filterable), **Timeline** (every dated fact), **Identities**, **Report** (cited Markdown, redactable, print-to-PDF, JSON export) and **Tools**.
 
 ---
 
@@ -245,7 +258,7 @@ Register it in `server/adapters/live/index.ts` and it appears in Settings with a
 - **Keys** live in `~/.plexus/secrets.json` (mode 0600), outside the database, so they never appear in exports or backups. The Keychain is the planned home for them in the packaged app.
 - **Untrusted data stays untrusted.** Source URLs are reduced to http(s) before storage and again before rendering (no `javascript:` links); image sources are allow-listed; React renders everything as text.
 - **Audit log** per case; report/JSON exports are themselves logged; the Report view can redact values for screenshots.
-- No telemetry. The only outbound traffic is the lookups you run (and the AI provider you choose).
+- No telemetry. The only outbound traffic is the lookups you run (and the AI provider you choose). The Tools tab adds, only when you press its button: Open-Meteo (weather: a place and an hour), gravatar.com (a one-way hash of an email, never the address), rdap.org, crt.sh and web.archive.org (a domain name), and the link you ask it to follow. Pictures stay on your computer for the edit detector, image comparison and metadata remover; the screenshot reader sends a picture to your AI provider only after you confirm. The link follower refuses anything that points at a private network.
 
 Use Plexus for lawful, authorized work: security research, journalism, fraud and due-diligence checks. **Findings are leads, not proof**: a matching name can describe a different person, and the UI says so wherever that is the only link.
 
@@ -256,9 +269,9 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 573 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the fictional test world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
+- 674 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the fictional test world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
-- The UI in a real browser (Chromium): every view in light and dark; **176 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
+- The UI in a real browser (Chromium): every view in light and dark; **230 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
 - The production server bundle runs standalone and serves the app; `npm run dev` works including streaming through the proxy.
 - Behaviour when **every** source fails (this sandbox's reality): honest per-source errors, a "couldn't reach most sources" state, and no fake "nothing found".
@@ -285,6 +298,6 @@ web/       React UI: design system, canvas graph engine, findings sheet, views, 
 desktop/   Electron shell + tested helpers
 scripts/mac/ install / update / uninstall
 assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
-test/      573 tests (test/world/ holds the fictional world, test-only)
+test/      674 tests (test/world/ holds the fictional world, test-only)
 scripts/qa/  browser end-to-end + stress scripts
 ```

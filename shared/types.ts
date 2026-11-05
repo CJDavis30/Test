@@ -141,6 +141,8 @@ export interface GraphEdge {
   /** inferred = proposed by AI/heuristics, evidenced = backed by accepted findings. */
   kind: 'evidenced' | 'inferred' | 'manual';
   findingId?: string;
+  /** One sentence saying why these two are connected (what matched where). */
+  why?: string;
   createdAt: number;
 }
 

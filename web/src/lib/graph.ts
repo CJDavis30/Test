@@ -9,7 +9,7 @@ import { organize, descendants, type Layout } from './layout';
 export type LayoutMode = 'organized' | 'free';
 
 export interface SimNode extends SimulationNodeDatum {
-  id: string; type: EntityType; label: string; state: GraphNode['state']; score?: number; level?: Level; r: number; degree: number; born: number; pinned: boolean; image?: string;
+  id: string; type: EntityType; label: string; state: GraphNode['state']; score?: number; level?: Level; r: number; degree: number; born: number; pinned: boolean; image?: string; known?: boolean;
   /** organized layout: where the node is heading, and where it sits around its component's centre (drives label placement) */
   tx?: number; ty?: number; ang?: number; depth?: number; comp?: number;
 }
@@ -166,7 +166,7 @@ export class GraphEngine {
         if (n.pinned && n.x !== undefined && n.y !== undefined) { s.x = n.x; s.y = n.y; s.fx = n.x; s.fy = n.y; }
         this.byId.set(n.id, s);
       }
-      s.type = n.type; s.label = n.label; s.state = n.state; s.score = n.score; s.level = n.level; s.r = r; s.degree = d;
+      s.type = n.type; s.label = n.label; s.state = n.state; s.score = n.score; s.level = n.level; s.r = r; s.degree = d; s.known = n.attrs?.known === true;
       s.image = n.type === 'image' && /^(data:image|https?:)/.test(n.value) ? n.value : undefined;
       if (!!n.pinned !== s.pinned) {
         s.pinned = !!n.pinned;
@@ -573,6 +573,14 @@ export class GraphEngine {
         }
       }
       if (n.pinned && !lod) { ctx.beginPath(); ctx.arc(x + r * 0.78, y - r * 0.78, 2.6, 0, Math.PI * 2); ctx.fillStyle = P.accent; ctx.fill(); }
+      // something you told Plexus you know: a green check badge, so it is never mistaken for something merely found
+      if (n.known && !lod) {
+        const bx = x + r * 0.74, by = y + r * 0.74, br = Math.max(4.2, r * 0.3);
+        ctx.beginPath(); ctx.arc(bx, by, br + 1.2, 0, Math.PI * 2); ctx.fillStyle = P.nodeFill; ctx.fill();
+        ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fillStyle = P.lvl[4]; ctx.fill();
+        ctx.beginPath(); ctx.moveTo(bx - br * 0.45, by + br * 0.02); ctx.lineTo(bx - br * 0.1, by + br * 0.38); ctx.lineTo(bx + br * 0.5, by - br * 0.32);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.2, br * 0.28); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+      }
     }
     ctx.globalAlpha = 1;
     if (!lod) this.drawLabels(now);

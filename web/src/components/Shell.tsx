@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Network, Table2, Clock, FileText, Plus, Search, Settings as Cog, PanelLeft, PanelRight, Sun, Moon, Monitor, Ellipsis,
-  LoaderCircle, Inbox, Check, Pencil, Trash2, ChevronDown, X, Users,
+  LoaderCircle, Inbox, Check, Pencil, Trash2, ChevronDown, X, Users, Wrench,
 } from 'lucide-react';
 import { useStore, type View } from '../lib/store';
 import { Popover, Kbd, MOD } from './ui';
@@ -14,6 +14,7 @@ const VIEWS: { id: View; label: string; icon: typeof Network }[] = [
   { id: 'timeline', label: 'Timeline', icon: Clock },
   { id: 'identities', label: 'Identities', icon: Users },
   { id: 'report', label: 'Report', icon: FileText },
+  { id: 'tools', label: 'Tools', icon: Wrench },
 ];
 
 export function Sidebar() {

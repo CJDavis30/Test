@@ -10,6 +10,7 @@ import { Shortcuts } from './components/Shortcuts';
 import { MatchLab } from './components/forensics/MatchLab';
 import { Decode } from './components/forensics/Decode';
 import { FileLab } from './components/forensics/FileLab';
+import { KnownDialog } from './components/KnownDialog';
 import { AutopilotHud } from './components/AutopilotHud';
 import { CareBanner, ConfirmDialog, PurposeDialog } from './components/Safeguards';
 import { IdentitiesView } from './views/Identities';
@@ -17,6 +18,7 @@ import { Palette } from './components/Palette';
 import { Settings } from './components/Settings';
 import { Onboarding, ImportDialog } from './components/Welcome';
 import { TableView, TimelineView, ReportView } from './views/Views';
+import { ToolsView } from './tools/ToolsView';
 import { isTyping } from './components/ui';
 import { detectMany } from '@shared/detect';
 import type { Detected } from '@shared/types';
@@ -49,14 +51,14 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState(); // always the live state: this handler outlives the render that created it
       const mod = e.metaKey || e.ctrlKey;
-      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && st.sidebar && !st.sheet && !st.palette && !st.settingsOpen && !st.shortcuts && !st.matchLab && !st.decode && !st.fileLab && !st.purposeAsk && !st.confirmAsk) { st.toggle('sidebar', false); return; }
+      if (e.key === 'Escape' && window.matchMedia('(max-width: 980px)').matches && st.sidebar && !st.sheet && !st.palette && !st.settingsOpen && !st.shortcuts && !st.matchLab && !st.decode && !st.fileLab && !st.knownDialog && !st.purposeAsk && !st.confirmAsk) { st.toggle('sidebar', false); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); st.toggle('palette'); }
       else if (mod && e.key === ',') { e.preventDefault(); st.openSettings(st.settingsOpen ? null : 'general'); }
       else if (e.key === '?' && !mod && !isTyping(e.target)) { e.preventDefault(); st.setShortcuts(!st.shortcuts); }
       else if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); st.toggle('sidebar'); }
       else if (mod && e.key.toLowerCase() === 'i' && !e.altKey) { e.preventDefault(); st.toggle('inspector'); }
       else if (mod && e.key.toLowerCase() === 'z' && !st.sheet && !isTyping(e.target)) { e.preventDefault(); void st.undo(); }
-      else if (mod && /^[1-5]$/.test(e.key)) { e.preventDefault(); st.setView((['graph', 'table', 'timeline', 'identities', 'report'] as const)[Number(e.key) - 1]); }
+      else if (mod && /^[1-6]$/.test(e.key)) { e.preventDefault(); st.setView((['graph', 'table', 'timeline', 'identities', 'report', 'tools'] as const)[Number(e.key) - 1]); }
     };
     // Pasting anywhere (outside a field) opens the palette with what you pasted.
     const onPaste = (e: ClipboardEvent) => {
@@ -91,12 +93,12 @@ export function App() {
   }, []);
 
   // While a dialog is open, the window's drag area (toolbar, sidebar header) must not sit under it: on macOS a drag region swallows clicks on anything above it, including the dialog's close button.
-  const overlayOpen = !!(s.sheet || s.shortcuts || s.matchLab || s.decode || s.fileLab || s.purposeAsk || s.confirmAsk || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
+  const overlayOpen = !!(s.sheet || s.shortcuts || s.matchLab || s.decode || s.fileLab || s.knownDialog || s.purposeAsk || s.confirmAsk || s.palette || s.settingsOpen || imported || (s.settings && !s.settings.onboarded));
   useEffect(() => { document.body.classList.toggle('overlay-open', overlayOpen); return () => document.body.classList.remove('overlay-open'); }, [overlayOpen]);
 
   if (!s.booted) return <div className="app" style={{ display: 'grid', placeItems: 'center' }}><div className="skeleton" style={{ width: 160, height: 14 }} /></div>;
 
-  const showInspector = s.inspector && s.view !== 'report';
+  const showInspector = s.inspector && s.view !== 'report' && s.view !== 'tools';
   return (
     <>
       <div className={`app ${s.sidebar ? '' : 'no-sidebar'}`}>
@@ -111,6 +113,7 @@ export function App() {
           {s.view === 'timeline' && <TimelineView />}
           {s.view === 'identities' && <IdentitiesView />}
           {s.view === 'report' && <ReportView />}
+          {s.view === 'tools' && <ToolsView />}
           <AnimatePresence initial={false}>
             {showInspector && (
               <motion.div key="insp" className="insp-wrap" initial={{ width: 0, opacity: 0 }} animate={{ width: 336, opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ type: 'spring', stiffness: 420, damping: 40 }} style={{ overflow: 'hidden', flex: 'none', display: 'flex' }}>
@@ -127,6 +130,7 @@ export function App() {
       {s.matchLab && <MatchLab />}
       {s.decode && <Decode />}
       {s.fileLab && <FileLab />}
+      {s.knownDialog && <KnownDialog />}
       {s.purposeAsk && <PurposeDialog />}
       {s.confirmAsk && <ConfirmDialog />}
       {s.settings && !s.settings.onboarded && <Onboarding />}
