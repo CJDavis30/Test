@@ -63,11 +63,104 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     await p.keyboard.press('u'); await settle(400);
     s = await S();
     ok(s.findings.some((f) => f.status === 'unsure'), 'U parks a finding as unsure');
-    ok(await p.locator('.frow .tag', { hasText: 'Unsure' }).count() >= 1, 'unsure rows are tagged');
+    ok(await p.locator('.frow .tag', { hasText: 'Not sure' }).count() >= 1, 'unsure rows are tagged');
     await p.keyboard.press('Control+z'); await settle(400);
     s = await S();
     ok(!s.findings.some((f) => f.status === 'unsure'), 'Ctrl+Z undoes it');
     void before;
+    await p.keyboard.press('Escape'); await settle(400);
+  });
+
+
+  await section('review clarity: every finding explains itself', async () => {
+    const subj = (await S()).nodes.find((n) => n.type === 'email');
+    await p.evaluate((id) => window.__plexusStore.getState().openSheet(id, 'review', false), subj.id); await settle(900);
+    const pane = p.locator('.detail-pane');
+    ok(await pane.count() === 1, 'a detail panel is always visible beside the list');
+    const rows = await p.locator('.frow').count();
+    ok(rows >= 5, `list has findings (${rows})`);
+    let seen = 0, jargon = [], dupNotes = 0;
+    for (let i = 0; i < Math.min(rows, 12); i++) {
+      await p.locator('.frow').nth(i).hover(); await settle(120);
+      const t = await pane.innerText();
+      seen++;
+      for (const must of ['HOW IT’S CONNECTED', 'FOUND DIRECTLY', 'ASKED', 'CHECK', 'YOU SEARCHED']) if (!t.toUpperCase().includes(must.toUpperCase())) jargon.push(`row ${i} missing section ${must}`);
+      if (/Demo ·|undefined|\[object|\{[sf]\}/.test(t)) jargon.push(`row ${i} leaks internals: ${t.match(/Demo ·|undefined|\[object|\{[sf]\}/)[0]}`);
+      const clean = await pane.locator('.strail dd.quote').allInnerTexts();
+      const asked = await pane.locator('.strail dt', { hasText: 'Asked' }).count(), cards = await pane.locator('.scard').count();
+      if (asked !== cards) jargon.push(`row ${i}: ${cards} source cards but ${asked} "Asked" lines`);
+      if (clean.length !== cards) jargon.push(`row ${i}: ${cards} source cards but ${clean.length} "Found" records`);
+      if (new Set(clean.map((c) => c.trim())).size < clean.length) dupNotes++;
+      const sentence = await pane.locator('p.plain').innerText();
+      if (sentence.length < 20 || /belongs to\.$/.test(sentence)) jargon.push(`row ${i} weak sentence: ${sentence}`);
+    }
+    ok(jargon.length === 0, `every finding shows the path, and for every source what was asked and what was found ${jargon.join(' | ')}`);
+    ok(dupNotes === 0, `no finding shows the same record from two different sources (${dupNotes} did)`);
+    // the row itself reads as a sentence too
+    const firstSub = await p.locator('.frow .sub').first().innerText();
+    ok(/ (is|are|appears|works|was|used|looks|points|also|might|shows|has)\b/.test(firstSub), `row text is a sentence: "${firstSub}"`);
+    // sources are named in full, never as letters
+    ok((await p.locator('.frow .srcs').first().innerText()).length > 5, 'each row names its sources in words');
+    // detail buttons act on the highlighted finding
+    await p.locator('.frow').first().hover(); await settle(150);
+    const before = (await S()).findings.filter((f) => f.status === 'accepted').length;
+    await pane.getByRole('button', { name: /Accept/ }).click(); await settle(500);
+    ok((await S()).findings.filter((f) => f.status === 'accepted').length === before + 1, 'Accept in the detail panel accepts that finding');
+    await pane.getByRole('button', { name: /Reject/ }).click(); await settle(500);
+    ok((await S()).findings.some((f) => f.status === 'rejected'), 'Reject in the detail panel rejects the next one');
+    // tip banner dismiss persists
+    if (await p.locator('.review-hint').count()) { await p.locator('.review-hint button').click(); await settle(300); ok(await p.locator('.review-hint').count() === 0, 'tip can be dismissed'); }
+    // summary collapse
+    if (await p.locator('.brief-mini').count() === 0) { await p.getByRole('button', { name: /Hide summary/ }).click(); await settle(400); }
+    ok(await p.locator('.brief-mini').count() === 1 && await p.locator('.brief').count() === 0, 'summary collapses to a single line (automatically after the first decision)');
+    await p.getByRole('button', { name: /Show summary/ }).click(); await settle(300);
+    ok(await p.locator('.brief').count() === 1, 'and can be shown again');
+    // narrow window: inline explanation instead of a side panel
+    await p.setViewportSize({ width: 1100, height: 760 }); await settle(600);
+    ok(await p.locator('.detail-pane').count() === 0, 'narrow window hides the side panel');
+    await p.locator('.frow').nth(1).click(); await settle(500);
+    ok(await p.locator('.frow-detail .scard').count() >= 1, 'narrow window explains inline when you click a row');
+    await p.setViewportSize({ width: 1440, height: 900 }); await settle(500);
+    await p.keyboard.press('Escape'); await settle(400);
+  });
+
+
+  await section('cross-checks: confirm, contradict, score card, links', async () => {
+    await p.evaluate(() => window.__plexusStore.getState().closeSheet()); await settle(400);
+    await p.evaluate(() => window.__plexusStore.getState().submit([{ type: 'person', value: 'Mara Linden' }]));
+    await p.waitForSelector('.frow', { timeout: 20000 });
+    await p.waitForFunction(() => { const s = window.__plexusStore.getState(); const r = Object.values(s.runs).find((x) => x.status === 'done' && x.sources.some((y) => y.capability === 'verify' && y.state === 'done')); return !!r; }, null, { timeout: 25000 });
+    await settle(500);
+    const pane = p.locator('.detail-pane');
+    const rowOf = (name) => p.locator('.frow', { has: p.locator('.v', { hasText: new RegExp('^' + name + '(\\s|$)') }) }).first();
+    const pct = async () => Number((await pane.locator('.fpct').innerText()).replace('%', ''));
+    const stored = (value) => p.evaluate((v) => { const st = window.__plexusStore.getState(); const f = Object.values(st.findings).find((x) => x.value === v && x.subjectId === st.sheet.subjectId); return f && { score: f.score, ev: f.evidence.length, against: f.evidence.filter((e) => e.polarity === 'against').length, cross: f.evidence.filter((e) => e.kind === 'cross' && e.polarity !== 'against').length }; }, value);
+
+    await rowOf('maralinden').hover(); await settle(300);
+    const good = await stored('maralinden');
+    ok(good.cross >= 1, `the real username gains cross-check confirmations (${good.cross})`);
+    ok(await pane.locator('.scard.ok').count() >= 1, 'confirming cross-checks are shown as green cards');
+    ok(/cross-checks? confirm/.test(await pane.locator('.scorecard').innerText()), 'score card says how many cross-checks confirm it');
+    const goodPct = await pct();
+    ok(goodPct === Math.round(good.score * 100), `the % shown (${goodPct}) is exactly the stored score (${Math.round(good.score * 100)})`);
+
+    await rowOf('mlinden').hover(); await settle(300);
+    const bad = await stored('mlinden');
+    ok(bad.against >= 1, 'the handle that belongs to a namesake collects contradicting evidence');
+    ok(await pane.locator('.scard.bad .sverdict').count() >= 1, 'a contradicting cross-check is a red card with a verdict');
+    ok(/does not match/.test(await pane.locator('.scard.bad .sverdict').first().innerText()), 'the verdict says what did not match');
+    ok(/contradict/.test(await pane.locator('.scorecard').innerText()), 'score card counts the contradiction');
+    ok(await pane.getByText('Watch out').count() === 1, 'a Watch out note appears');
+    ok(await pct() < goodPct, 'contradicted finding scores below the confirmed one');
+    ok(/^Disputed\./.test(await rowOf('mlinden').locator('.sub').innerText()), 'its list row is worded as disputed, not as fact');
+
+    const cards = await pane.locator('.scard').count();
+    ok(cards >= 2, `evidence cards present (${cards})`);
+    ok(await pane.locator('.strail dt', { hasText: 'Check' }).count() === cards, 'every card has a Check row (a link, or a note that there is no real page)');
+    ok(await pane.locator('.strail dt', { hasText: 'Asked' }).count() === cards, 'every card says what was asked');
+    ok(await pane.locator('.srecord').count() >= 1, 'cards quote the source record fields');
+    ok(await pane.locator('.svia').count() >= 1, 'cross-check cards say which finding prompted the check');
+    ok(/Cross-checking|sources answered/.test(await p.locator('.src-pill').innerText()), 'the header reflects the run (cross-check included)');
     await p.keyboard.press('Escape'); await settle(400);
   });
 
@@ -92,7 +185,7 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
       ok((await S()).nodes.length === n0 - 1, 'M merges two nodes into one');
     } else console.log('  (skipped merge: nodes not present)');
     const nodes = (await S()).nodes;
-    const x = nodes.find((n) => n.type === 'domain'), y = nodes.find((n) => n.type === 'email');
+    const x = nodes.find((n) => n.type === 'domain') || nodes[nodes.length - 1], y = nodes.find((n) => n.type === 'email' && n.id !== x.id) || nodes[0];
     const P1 = await nodePos(x.label), P2 = await nodePos(y.label);
     const e0 = (await S()).edges.length;
     await p.mouse.click(P1.x, P1.y); await p.keyboard.down('Shift'); await p.mouse.click(P2.x, P2.y); await p.keyboard.up('Shift'); await settle(300);
@@ -131,7 +224,7 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
   });
 
   await section('inspector: notes autosave, rename, pin button', async () => {
-    const n = (await S()).nodes.find((x) => x.type === 'domain');
+    const n = (await S()).nodes.find((x) => x.type === 'domain') || (await S()).nodes[(await S()).nodes.length - 1];
     const P1 = await nodePos(n.label); await p.mouse.click(P1.x, P1.y); await settle(600);
     await p.getByRole('tab', { name: 'Notes' }).click();
     await p.locator('.insp-body textarea').fill('verify registrar before onboarding'); await settle(1400);

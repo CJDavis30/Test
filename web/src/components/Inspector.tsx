@@ -7,6 +7,9 @@ import { api } from '../lib/api';
 import { EntityGlyph } from '../lib/icons';
 import { ago, fmtDate, hostOf, plural, TYPE_ORDER, GROUP_LABEL } from '../lib/format';
 import { Dots } from './ui';
+import { ConnectionPath, SourceCards } from './FindingDetail';
+import { explainRelation } from '@shared/explain';
+import { displayValue } from '../lib/format';
 
 type Tab = 'overview' | 'evidence' | 'notes';
 
@@ -106,27 +109,26 @@ function NodePanel({ node }: { node: GraphNode }) {
             return (
               <button key={e.id} className="conn" onClick={() => { s.select([other.id]); window.dispatchEvent(new CustomEvent('plexus:pan', { detail: other.id })); }}>
                 <span className="gl"><EntityGlyph type={other.type} size={13} /></span>
-                <span className="grow" style={{ minWidth: 0 }}><span className="truncate" style={{ display: 'block' }}>{other.label}</span><small>{e.from === node.id ? '' : '← '}{e.label}{e.kind !== 'evidenced' ? ` · ${e.kind}` : ''}</small></span>
+                <span className="grow" style={{ minWidth: 0 }}><span className="truncate" style={{ display: 'block' }}>{other.label}</span><small className="truncate" style={{ display: 'block' }} title={e.from === node.id ? explainRelation(e.label, node.label, other.label) : explainRelation(e.label, other.label, node.label)}>{e.from === node.id ? explainRelation(e.label, node.label, other.label) : explainRelation(e.label, other.label, node.label)}{e.kind === 'inferred' ? ' (inferred)' : e.kind === 'manual' ? ' (added by you)' : ''}</small></span>
                 <Dots level={e.strength >= 0.85 ? 4 : e.strength >= 0.65 ? 3 : e.strength >= 0.4 ? 2 : 1} />
               </button>
             );
           })}
         </>)}
         {tab === 'evidence' && (<>
-          {fs.length === 0 && <div className="empty-note">{node.state === 'seed' ? 'This is a starting point you entered. Evidence appears on the things found from it.' : 'No stored evidence for this item.'}</div>}
-          {fs.map((f) => (
-            <div key={f.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
-              <div className="row" style={{ marginBottom: 6 }}><Dots level={f.level} label /><span className="faint">· {f.relation}</span></div>
-              {f.evidence.map((e) => (
-                <div key={e.id} style={{ padding: '4px 0' }}>
-                  <div style={{ fontWeight: 600 }}>{e.adapterName}</div>
-                  <div className="muted" style={{ fontSize: 12.5 }}>{e.snippet || 'Match found, no excerpt.'}</div>
-                  <div className="faint" style={{ fontSize: 11.5 }}>{ago(e.retrievedAt)}{safeHttpUrl(e.url) && <> · <a href={safeHttpUrl(e.url)} target="_blank" rel="noreferrer noopener">{hostOf(e.url)} <ExternalLink size={10} style={{ verticalAlign: -1 }} /></a></>}{f.when && ` · ${fmtDate(f.when)}`}</div>
-                </div>
-              ))}
-              {f.reasons.length > 0 && <div className="reasons" style={{ marginTop: 6 }}>{f.reasons.map((r) => <span key={r} className="reason">{r}</span>)}</div>}
-            </div>
-          ))}
+          {fs.length === 0 && <div className="empty-note">{node.state === 'seed' ? 'This is something you entered, so there is no evidence to show. Evidence appears on the things found from it.' : 'No stored evidence for this item.'}</div>}
+          {fs.map((f) => {
+            const subj = s.snap!.nodes.find((n) => n.id === f.subjectId);
+            return (
+              <div key={f.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
+                <div className="row" style={{ marginBottom: 6 }}><Dots level={f.level} label /></div>
+                {subj && <ConnectionPath subject={{ type: subj.type, label: subj.label }} f={f} subjectId={f.subjectId} />}
+                {subj && <p className="plain selectable" style={{ fontSize: 13 }}>{explainRelation(f.relation, subj.label, displayValue(f))}</p>}
+                <SourceCards f={f} />
+                {f.reasons.length > 0 && <ul className="why" style={{ marginTop: 10, fontSize: 12.5 }}>{f.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
+              </div>
+            );
+          })}
         </>)}
         {tab === 'notes' && <Notes node={node} />}
       </div>
@@ -193,6 +195,7 @@ function EdgePanel({ id }: { id: string }) {
         )}
         <div className="insp-sub"><Dots level={lvl as 1 | 2 | 3 | 4} label /> <span>· {e.kind === 'evidenced' ? 'backed by evidence' : e.kind === 'inferred' ? 'inferred' : 'added by you'}</span></div></div></div>
       <div className="insp-body selectable">
+        {a && b && <p className="plain" style={{ marginTop: 6 }}>{explainRelation(e.label, a.label, b.label)}</p>}
         {[a, b].map((n) => n && (
           <button key={n.id} className="conn" onClick={() => s.select([n.id])}><span className="gl"><EntityGlyph type={n.type} size={13} /></span><span className="grow truncate">{n.label}</span><small>{ENTITY_LABEL[n.type]}</small></button>
         ))}

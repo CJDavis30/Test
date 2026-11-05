@@ -1,6 +1,6 @@
 .sheet-scrim { position: fixed; inset: 0; z-index: 40; background: var(--scrim); backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2); }
 .sheet {
-  position: fixed; z-index: 50; left: 50%; top: 50%; width: min(1000px, calc(100vw - 40px)); height: min(880px, calc(100vh - 40px));
+  position: fixed; z-index: 50; left: 50%; top: 50%; width: min(1200px, calc(100vw - 40px)); height: min(880px, calc(100vh - 40px));
   display: flex; flex-direction: column; border-radius: 22px; background: var(--surface); border: 1px solid var(--line);
   box-shadow: var(--shadow-float); overflow: hidden;
 }
@@ -119,3 +119,112 @@
 .srcrow { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; }
 .srcrow .st { width: 18px; height: 18px; display: grid; place-items: center; flex: none; }
 .srcrow small { color: var(--text-3); display: block; font-size: 11.5px; }
+
+/* ---------- review: list + always-visible explanation ---------- */
+.split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 430px; border-top: 1px solid var(--line); }
+.split.narrow { grid-template-columns: minmax(0, 1fr); }
+.split .left { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.split .list-head { border-top: 0; }
+.detail-pane { border-left: 1px solid var(--line); overflow: auto; padding: 18px 22px 24px; background: var(--surface); min-width: 0; }
+.detail-empty { color: var(--text-3); text-align: center; padding: 60px 20px; }
+.review-hint { margin: 10px 20px 0 28px; padding: 10px 12px; border-radius: 11px; background: var(--accent-soft); color: var(--text); display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; line-height: 1.5; }
+.review-hint b { font-weight: 600; }
+.review-hint button { margin-left: auto; flex: none; }
+
+.fdetail { display: flex; flex-direction: column; }
+.fhead { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.fic { width: 40px; height: 40px; border-radius: 12px; background: var(--surface-2); display: grid; place-items: center; color: var(--text-2); flex: none; }
+.fvalue { font: 650 20px/1.2 var(--font-display); letter-spacing: -.025em; word-break: break-word; }
+.ftype { color: var(--text-2); font-size: 12.5px; margin-top: 2px; }
+.fverdict { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); }
+.fsentence { font-size: 13.5px; line-height: 1.5; }
+.fbuttons { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.fsec { margin: 20px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); display: flex; gap: 8px; align-items: baseline; }
+.fsec .cnt { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.plain { margin: 10px 0 0; font-size: 13.5px; line-height: 1.55; }
+.fhelp { margin: 18px 0 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.why { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.55; }
+.why li { margin: 3px 0; }
+
+
+.rivals { margin-top: 12px; padding: 10px 12px; border-radius: 11px; border: 1px solid color-mix(in srgb, var(--lvl2) 40%, transparent); background: color-mix(in srgb, var(--lvl2) 7%, transparent); }
+.rival { display: flex; gap: 10px; align-items: center; padding: 4px 0; font-size: 13px; }
+.rival[data-self='true'] { font-weight: 600; }
+
+.fdetail.compact { padding: 4px 0 8px; }
+.frow-detail { grid-column: 1 / -1; padding: 6px 12px 14px 94px; }
+@media (max-width: 980px) { .sheet-foot .hints .wide-only { display: none; } }
+
+.tabs button { white-space: nowrap; }
+.list-head { flex-wrap: nowrap; overflow: hidden; }
+.list-head .btn { flex: none; }
+/* vertical connection path: what you searched, how it relates, what was found */
+.cpath .cpath 
+.brief { position: relative; }
+.brief-toggle { position: absolute; right: 22px; top: 8px; z-index: 1; opacity: .75; }
+.brief-toggle:hover { opacity: 1; }
+.brief-mini { display: flex; align-items: center; gap: 14px; padding: 12px 22px 8px 28px; flex: none; }
+.brief-mini h2 { font: 650 17px var(--font-display); letter-spacing: -.025em; margin: 0; min-width: 0; }
+.meter { padding-right: 0; }
+
+/* ---------- evidence trail ---------- */
+.cpath { display: flex; flex-direction: column; }
+.cstep { display: flex; flex-direction: column; }
+.crow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ctag { width: 92px; flex: none; font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--text-3); }
+.cnode { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px 0 9px; border-radius: 9px; background: var(--surface); border: 1px solid var(--line-strong); min-width: 0; max-width: calc(100% - 102px); font-weight: 500; }
+.cnode svg { color: var(--text-2); flex: none; }
+.cnode.found { background: var(--accent-soft); border-color: var(--accent-line); font-weight: 600; }
+.clink { display: flex; align-items: center; gap: 8px; margin: 0 0 0 112px; padding: 4px 0; color: var(--text-2); font-size: 12px; position: relative; }
+.cline { position: absolute; left: 14px; top: -2px; bottom: -2px; width: 2px; background: var(--line-strong); border-radius: 1px; }
+.clabel { margin-left: 22px; padding: 1px 8px; border-radius: 10px; background: var(--surface-2); font-weight: 500; }
+.plain { font-size: 12.5px; color: var(--text-2); margin: 10px 0 0; line-height: 1.5; }
+
+.scards { display: flex; flex-direction: column; gap: 8px; }
+.scard { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 9px; background: var(--surface); }
+.shead { display: flex; align-items: center; gap: 9px; }
+.sic { width: 22px; height: 22px; border-radius: 7px; background: var(--surface-3); display: grid; place-items: center; font: 650 11px var(--font); color: var(--text-2); flex: none; }
+.sname { font-weight: 600; flex: 1; min-width: 0; }
+.sstr { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); flex: none; }
+.strail { display: grid; grid-template-columns: 50px minmax(0, 1fr); gap: 5px 10px; margin: 9px 0 0; font-size: 12.5px; line-height: 1.45; }
+.strail dt { color: var(--text-3); font-weight: 600; font-size: 11px; letter-spacing: .03em; text-transform: uppercase; padding-top: 2px; }
+.strail dd { margin: 0; word-break: break-word; }
+.strail dd.quote { padding: 4px 9px; border-radius: 7px; background: var(--surface-2); border-left: 3px solid var(--line-strong); }
+.smeta2 { margin-top: 7px; font-size: 11.5px; color: var(--text-3); }
+.fsec.warn { color: var(--lvl2); }
+.watch { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+.watch li { display: flex; gap: 7px; align-items: flex-start; padding: 2px 0; color: var(--lvl2); }
+.watch li svg { margin-top: 2px; flex: none; }
+.rivals { margin-top: 6px; padding: 6px 10px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--lvl2) 35%, transparent); background: color-mix(in srgb, var(--lvl2) 6%, transparent); }
+.srcs { max-width: 250px; }
+.srcs .sn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.brief-toggle { top: 12px !important; right: 28px !important; }
+.brief { position: relative !important; }
+
+/* ---------- score card & cross-checks ---------- */
+.fpct { font: 700 26px/1 var(--font-display); letter-spacing: -.03em; }
+.scorecard { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); font-size: 12.5px; display: flex; flex-direction: column; gap: 4px; }
+.scorecard li { display: flex; gap: 7px; align-items: flex-start; line-height: 1.4; }
+.scorecard li svg { margin-top: 2px; flex: none; }
+.scorecard .y { color: var(--lvl4); } .scorecard .n { color: var(--danger); } .scorecard .z { color: var(--text-2); }
+.scorecard .y span, .scorecard .n span { color: var(--text); }
+.okc { color: var(--lvl4); font-weight: 600; } .badc { color: var(--danger); font-weight: 600; }
+.scard.ok { border-left: 3px solid var(--lvl4); }
+.scard.bad { border-left: 3px solid var(--danger); background: color-mix(in srgb, var(--danger) 4%, var(--surface)); }
+.sverdict { display: flex; gap: 7px; align-items: flex-start; margin-top: 8px; font-weight: 550; font-size: 12.5px; line-height: 1.4; }
+.sverdict.ok { color: var(--lvl4); } .sverdict.bad { color: var(--danger); }
+.sverdict svg { margin-top: 2px; flex: none; }
+.sverdict span { color: var(--text); }
+.srecord { margin-top: 9px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.rtitle { padding: 4px 9px; font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-3); background: var(--surface-2); }
+.srecord table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.srecord th { text-align: left; font-weight: 500; color: var(--text-2); padding: 3px 9px; width: 38%; vertical-align: top; white-space: nowrap; }
+.srecord td { padding: 3px 9px; word-break: break-word; }
+.srecord tr + tr th, .srecord tr + tr td { border-top: 1px solid var(--line); }
+.svia { margin-top: 7px; font-size: 11.5px; color: var(--text-3); }
+
+/* `hidden` boxes can still be scrolled by focus / scrollIntoView, which shoved the whole dialog up. `clip` cannot. */
+.sheet, .sheet-body, .split, .split .left { overflow: clip; }
+
+.shome { margin-left: 6px; color: var(--text-3); vertical-align: -1px; } .shome:hover { color: var(--accent); }

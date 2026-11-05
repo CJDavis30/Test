@@ -1,7 +1,7 @@
 import type { Claim } from '../../../shared/types';
 import { normalizeDomain } from '../../../shared/normalize';
 import type { Adapter } from '../types';
-import { adapter, arr, claim, countryName, getJson, iso, joinPlace, str } from './util';
+import { adapter, arr, claim, countryName, getJson, iso, joinPlace, rec, str, withRecord } from './util';
 
 // ---------------------------------------------------------------------------------------------------------------
 // DNS over HTTPS (two providers = fallback chain)
@@ -94,7 +94,10 @@ export const rdapDomain = adapter({
     }
     for (const n of arr<any>(j.nameservers)) { const h = normalizeDomain(str(n.ldhName)); if (h) out.push(claim('domain', h, 'nameserver', 0.85, { snippet: 'RDAP nameserver' })); }
     if (created && !out.some((c) => c.when)) out.push(claim('url', `https://rdap.org/domain/${reg}`, 'registration record', 0.9, { snippet, when: created }));
-    return out;
+    const registrar = arr<any>(j.entities).filter((x) => arr<string>(x.roles).includes('registrar')).map(vcard)[0];
+    const registrant = arr<any>(j.entities).filter((x) => arr<string>(x.roles).includes('registrant')).map(vcard)[0];
+    const redacted = (v?: string) => (v && !REDACTED.test(v) ? v : v ? '(hidden for privacy)' : '');
+    return withRecord(out, rec(`Registration record for ${reg}`, [['Domain', reg], ['Registrar', registrar?.fn || registrar?.org], ['Registered', created], ['Expires', expires], ['Last updated', changed], ['Registrant', redacted(registrant?.org || registrant?.fn)], ['Registrant email', redacted(registrant?.email)], ['Nameservers', arr<any>(j.nameservers).map((n) => str(n.ldhName).toLowerCase()).filter(Boolean).slice(0, 4).join(', ')]]));
   },
 });
 
@@ -268,11 +271,12 @@ export const internetdb = adapter({
 const geo = (j: { city?: string; region?: string; country?: string; lat?: number; lon?: number; org?: string; isp?: string; domain?: string }): Claim[] => {
   const out: Claim[] = [];
   const place = joinPlace(j.city, j.region, j.country);
+  const record = rec('IP geolocation', [['City', j.city], ['Region', j.region], ['Country', j.country], ['Network', j.org || j.isp], ['Coordinates', j.lat !== undefined ? `${j.lat}, ${j.lon}` : '']]);
   if (place) out.push(claim('location', place, 'geolocated to', 0.45, { snippet: 'IP geolocation is approximate (usually the ISP or datacenter, not a person)', conflictKey: 'location', attrs: j.lat !== undefined ? { lat: j.lat, lon: j.lon ?? 0 } : undefined }));
   const org = str(j.org) || str(j.isp);
   if (org) out.push(claim('org', org, 'network operator', 0.7, { snippet: 'ISP / network operator' }));
   if (str(j.domain)) out.push(claim('domain', j.domain!, 'operator domain', 0.6));
-  return out;
+  return withRecord(out, record);
 };
 
 export const ipwho = adapter({

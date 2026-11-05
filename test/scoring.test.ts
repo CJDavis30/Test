@@ -93,3 +93,34 @@ describe('ruleBrief', () => {
     for (const m of b.summary.matchAll(/\[(F\d+)\]/g)) expect(b.cites[m[1]]).toBeTruthy();
   });
 });
+
+describe('evidence for and against', () => {
+  const xe = (adapter: string, family: string, weight: number, extra: Partial<Evidence> = {}): Evidence => ({ id: adapter + family, adapter, adapterName: adapter, family, retrievedAt: 0, weight, ...extra });
+  it('contradictions lower the score but cannot erase strong independent support', () => {
+    const pro = [xe('a', 'fa', 0.8), xe('b', 'fb', 0.8)];
+    const base = scoreEvidence('username', pro, rel).score;
+    const hit = scoreEvidence('username', [...pro, xe('c', 'fc', 0.8, { polarity: 'against', kind: 'cross' })], rel);
+    expect(hit.score).toBeLessThan(base);
+    expect(hit.score).toBeGreaterThan(base * 0.3);
+    expect(hit.against).toBe(1);
+    expect(hit.reasons.join(' ')).toMatch(/contradict/);
+  });
+  it('a lone weak guess that a cross-check contradicts drops to near nothing', () => {
+    const r = scoreEvidence('username', [xe('derive', 'derived', 0.25), xe('gh', 'github', 0.9, { polarity: 'against', kind: 'cross' })], rel);
+    expect(r.score).toBeLessThan(0.1);
+  });
+  it('a cross-check from a NEW source family raises the score; from the same family it does not', () => {
+    const direct = [xe('github', 'github', 0.7)];
+    const base = scoreEvidence('username', direct, rel).score;
+    const sameFamily = scoreEvidence('username', [...direct, xe('github', 'github', 0.7, { kind: 'cross' })], rel).score;
+    const newFamily = scoreEvidence('username', [...direct, xe('gravatar', 'gravatar', 0.7, { kind: 'cross' })], rel);
+    expect(sameFamily).toBeCloseTo(base, 6);
+    expect(newFamily.score).toBeGreaterThan(base);
+    expect(newFamily.reasons.join(' ')).toMatch(/1 cross-check from other sources back it up/);
+  });
+  it('describes direct vs cross-check support separately', () => {
+    const r = scoreEvidence('email', [xe('a', 'fa', 0.8), xe('b', 'fb', 0.7), xe('c', 'fc', 0.6, { kind: 'cross' })], rel);
+    expect(r.reasons[0]).toMatch(/2 separate sources report this directly/);
+    expect(r.independent).toBe(3);
+  });
+});

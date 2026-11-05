@@ -54,6 +54,8 @@ function General() {
         <div className="seg">{(['auto', 'light', 'dark'] as const).map((t) => <button key={t} aria-pressed={s.theme === t} onClick={() => s.setTheme(t)}>{t === 'auto' ? 'System' : t[0].toUpperCase() + t.slice(1)}</button>)}</div></div>
       <div className="setrow"><div className="grow"><div className="t">Demo data</div><div className="d">Use simulated sources and fictional people (all on reserved .example domains). Nothing is sent over the network. Great for learning the app.</div></div>
         <Switch on={st.demoMode} label="Demo data" onChange={(v) => void set({ demoMode: v }).then(() => s.toast(v ? 'Using demo data' : 'Using live sources'))} /></div>
+      <div className="setrow"><div className="grow"><div className="t">Cross-check findings</div><div className="d">After a lookup, ask other sources about what was found and compare. Links back, shared details and contradictions are added as evidence. Uses a few extra requests per lookup.</div></div>
+        <Switch on={st.crossCheck} label="Cross-check findings" onChange={(v) => void set({ crossCheck: v })} /></div>
       <div className="setrow"><div className="grow"><div className="t">Phone number region</div><div className="d">Used to interpret numbers typed without a country code.</div></div>
         <select value={st.region} onChange={(e) => void set({ region: e.target.value })} aria-label="Region">{REGIONS.map((r) => <option key={r}>{r}</option>)}</select></div>
       <div className="setrow"><div className="grow"><div className="t">Lookup cache</div><div className="d">Source responses are cached for a few hours so repeat lookups are instant and polite to free APIs.</div></div>

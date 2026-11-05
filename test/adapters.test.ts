@@ -245,3 +245,43 @@ describe('error honesty', () => {
     expect(has(c, 'ip', '1.2.3.4')).toBe(true);
   });
 });
+
+describe('source records quote only what the source returned', () => {
+  const factsOf = (claims: { record?: { facts: [string, string][] } }[]) => Object.fromEntries(claims[0].record!.facts);
+  it('gravatar: the profile fields, with empty ones dropped', async () => {
+    const body = { entry: [{ profileUrl: 'https://gravatar.com/jroe', preferredUsername: 'jroe', displayName: 'Jane Roe', currentLocation: 'Denver, CO', accounts: [{ url: 'https://github.com/jroe', shortname: 'github', verified: true }] }] };
+    const c = await run(idn.gravatar, 'email', 'jane@roe.example', fake([['gravatar.com/', { body }]]));
+    const f = factsOf(c);
+    expect(f).toMatchObject({ 'Registered with': 'jane@roe.example', 'Display name': 'Jane Roe', Username: 'jroe', Location: 'Denver, CO', 'Linked accounts': 'github' });
+    expect(Object.keys(f)).not.toContain('Websites');
+    expect(Object.keys(f)).not.toContain('About');
+    expect(c.every((x) => x.record === c[0].record)).toBe(true);   // every claim from the profile cites the same record
+  });
+  it('github: profile fields and the commit evidence behind an email match', async () => {
+    const p = { login: 'jroe', html_url: 'https://github.com/jroe', name: 'Jane Roe', company: '@Roe', location: 'Denver', email: 'jane@roe.example', public_repos: 12, followers: 3, created_at: '2014-05-19T00:00:00Z' };
+    const u = await run(idn.github, 'username', 'jroe', fake([['/users/jroe', { body: p }]]));
+    expect(factsOf(u)).toMatchObject({ Username: 'jroe', Name: 'Jane Roe', 'Public email': 'jane@roe.example', Joined: '2014-05-19', Activity: '12 public repos · 3 followers' });
+    const e = await run(idn.github, 'email', 'jane@roe.example', fake([[/search\/users/, { body: { items: [] } }], [/search\/commits/, { body: { items: [{ author: { login: 'jroe' }, commit: { author: { name: 'Jane Roe' } } }] } }]]));
+    const name = e.find((x) => x.type === 'person')!;
+    expect(Object.fromEntries(name.record!.facts)).toMatchObject({ 'Searched for': 'author-email:jane@roe.example', 'Author name on those commits': 'Jane Roe', 'Commits with that name': '1' });
+  });
+  it('rdap: registrar, dates and a privacy-hidden registrant are shown as hidden, not blank or invented', async () => {
+    const vc = (fn: string) => ({ vcardArray: ['vcard', [['fn', {}, 'text', fn]]] });
+    const body = { events: [{ eventAction: 'registration', eventDate: '2018-03-12T00:00:00Z' }], nameservers: [{ ldhName: 'NS1.X.NET' }], entities: [{ roles: ['registrar'], ...vc('Example Registrar') }, { roles: ['registrant'], ...vc('REDACTED FOR PRIVACY') }] };
+    const f = factsOf(await run(net.rdapDomain, 'domain', 'example.com', fake([['rdap.org/domain', { body }]])));
+    expect(f).toMatchObject({ Registrar: 'Example Registrar', Registered: '2018-03-12', Registrant: '(hidden for privacy)', Nameservers: 'ns1.x.net' });
+    expect(Object.keys(f)).not.toContain('Expires');
+  });
+  it('hibp: each breach quotes its own details', async () => {
+    const body = [{ Name: 'Adobe', Title: 'Adobe', Domain: 'adobe.com', BreachDate: '2013-10-04', PwnCount: 152445165, DataClasses: ['Email addresses'] }];
+    const f = factsOf(await run(idn.hibp, 'email', 'a@b.example', fake([['breachedaccount', { body }]], 'k')));
+    expect(f).toMatchObject({ 'Address checked': 'a@b.example', 'Breach date': '2013-10-04', 'Exposed data': 'Email addresses', 'Accounts affected': '152,445,165', Site: 'adobe.com' });
+  });
+  it('username sweep: explains why a hit can be trusted, and its limit', async () => {
+    const dribbble = SITES.find((s) => s.name === 'Dribbble')!.url.split('{u}')[0];
+    const c = await run(usernameSweep, 'username', 'jroe', fake([[`${dribbble}plx-ctrl`, { status: 404 }], [`${dribbble}jroe`, { status: 200, body: 'ok' }]]));
+    const f = factsOf(c.filter((x) => x.attrs?.platform === 'Dribbble'));
+    expect(f['Reliability check']).toMatch(/made-up username returns “not found”/);
+    expect(f.Limit).toMatch(/not who owns it/);
+  });
+});

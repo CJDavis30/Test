@@ -32,25 +32,43 @@ export function scoreEvidence(
   type: EntityType,
   evidence: Evidence[],
   rel: ReliabilityFn,
-): { score: number; independent: number; reasons: string[] } {
-  const byFamily = new Map<string, { p: number; name: string }>();
+): { score: number; independent: number; against: number; reasons: string[] } {
+  // Evidence is grouped by source family so two views of the same dataset count once. Cross-checks and direct hits share the
+  // family map: asking GitHub a second question does not make GitHub a second opinion.
+  const pro = new Map<string, { p: number; name: string; direct: boolean }>();
+  const con = new Map<string, { p: number; name: string }>();
   for (const e of evidence) {
     const p = Math.min(0.98, Math.max(0, e.weight) * rel(e.adapter, type));
-    const cur = byFamily.get(e.family);
-    if (!cur || p > cur.p) byFamily.set(e.family, { p, name: e.adapterName });
+    if (e.polarity === 'against') {
+      const cur = con.get(e.family);
+      if (!cur || p > cur.p) con.set(e.family, { p, name: e.adapterName });
+    } else {
+      const cur = pro.get(e.family);
+      const direct = e.kind !== 'cross';
+      if (!cur || p > cur.p) pro.set(e.family, { p, name: e.adapterName, direct: direct || !!cur?.direct });
+      else if (direct) cur.direct = true;
+    }
   }
   let miss = 1;
-  for (const { p } of byFamily.values()) miss *= 1 - p;
-  const score = Math.min(0.99, 1 - miss);
-  const independent = byFamily.size;
+  for (const { p } of pro.values()) miss *= 1 - p;
+  let missCon = 1;
+  for (const { p } of con.values()) missCon *= 1 - p;
+  const pFor = 1 - miss, pAgainst = 1 - missCon;
+  // Contradictions pull the score down but cannot erase strong, independent support on their own.
+  const score = Math.min(0.99, Math.max(0, pFor * (1 - 0.75 * pAgainst)));
+  const independent = pro.size;
+  const directNames = [...pro.values()].filter((f) => f.direct).map((f) => f.name);
   const reasons: string[] = [];
-  if (independent >= 2) reasons.push(`${independent} independent sources agree`);
-  else if (independent === 1) reasons.push(`Only one source (${[...byFamily.values()][0].name})`);
-  const strong = [...byFamily.values()].filter((f) => f.p >= 0.8).map((f) => f.name);
-  if (strong.length) reasons.push(`Authoritative: ${strong.slice(0, 3).join(', ')}`);
-  const dup = evidence.length - byFamily.size;
-  if (dup > 0) reasons.push(`${dup} more from the same data family (counted once)`);
-  return { score, independent, reasons };
+  if (directNames.length >= 2) reasons.push(`${directNames.length} separate sources report this directly.`);
+  else if (directNames.length === 1) reasons.push(`Only one source reported this directly (${directNames[0]}).`);
+  const cross = [...pro.values()].filter((f) => !f.direct);
+  if (cross.length) reasons.push(`${cross.length} cross-check${cross.length > 1 ? 's' : ''} from other sources back it up: ${cross.map((c) => c.name).slice(0, 3).join(', ')}.`);
+  if (con.size) reasons.push(`${con.size} cross-check${con.size > 1 ? 's' : ''} contradict it: ${[...con.values()].map((c) => c.name).slice(0, 3).join(', ')}.`);
+  const strong = [...pro.values()].filter((f) => f.p >= 0.8).map((f) => f.name);
+  if (strong.length) reasons.push(`Comes from a high-trust source: ${strong.slice(0, 3).join(', ')}.`);
+  const dup = evidence.filter((e) => e.polarity !== 'against').length - pro.size;
+  if (dup > 0) reasons.push(`${dup} more source${dup > 1 ? 's' : ''} use the same underlying data, so they count as one.`);
+  return { score, independent, against: con.size, reasons };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,12 +131,12 @@ export function applyConflicts(findings: Finding[]): void {
       if (nameSimilarity(f.value, top.value) >= 0.88) continue; // same place, different spelling
       f.score = Math.max(0.05, f.score * 0.8);
       f.level = levelFor(f.score);
-      f.reasons = [...f.reasons.filter((r) => !r.startsWith('Disagrees')), `Disagrees with “${top.value}”`];
+      f.reasons = [...f.reasons.filter((r) => !r.startsWith('Disagrees')), `Disagrees with “${top.value}”, which has stronger support.`];
       f.conflictsWith = [top.id];
       top.conflictsWith = [...(top.conflictsWith ?? []), f.id];
     }
     if (top.conflictsWith?.length)
-      top.reasons = [...top.reasons.filter((r) => !r.startsWith('Competes')), `Competes with ${top.conflictsWith.length} other value${top.conflictsWith.length > 1 ? 's' : ''}`];
+      top.reasons = [...top.reasons.filter((r) => !r.startsWith('Other sources')), `Other sources gave ${top.conflictsWith.length} different answer${top.conflictsWith.length > 1 ? 's' : ''} for this.`];
   }
 }
 
@@ -154,7 +172,7 @@ export function overallConfidence(findings: Finding[]): Brief['confidence'] {
   const top = live.slice(0, 5);
   const score = top.length ? top.reduce((s, f) => s + f.score, 0) / top.length : 0;
   const fams = new Set<string>();
-  for (const f of live) if (f.score >= 0.4) for (const e of f.evidence) fams.add(e.family);
+  for (const f of live) if (f.score >= 0.4) for (const e of f.evidence) if (e.polarity !== 'against') fams.add(e.family);
   const level = levelFor(score);
   return { score, level, label: LEVEL_LABEL[level], independentSources: fams.size };
 }

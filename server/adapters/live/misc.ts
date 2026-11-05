@@ -2,7 +2,7 @@ import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 import type { Claim } from '../../../shared/types';
 import { nameSimilarity } from '../../../shared/normalize';
 import type { Adapter } from '../types';
-import { adapter, arr, claim, countryName, getJson, iso, joinPlace, str } from './util';
+import { adapter, arr, claim, countryName, getJson, iso, joinPlace, rec, str, withRecord } from './util';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Phone numbers: fully offline (libphonenumber metadata)
@@ -19,7 +19,7 @@ export const phone = adapter({
     const country = p.country ? countryName(p.country) : '';
     const snippet = [p.isValid() ? 'Valid numbering-plan format' : 'Format looks possible but not assigned', type && `line type: ${type}`, `calling code +${p.countryCallingCode}`].filter(Boolean).join(' · ');
     if (country) out.push(claim('location', country, 'number registered in', 0.45, { snippet, attrs: { lineType: type || 'unknown', e164: p.number, national: p.formatNational() } }));
-    return out;
+    return withRecord(out, rec('Phone number analysis', [['Number', p.formatInternational()], ['Country', country], ['Line type', type || 'unknown'], ['Valid numbering-plan format', p.isValid() ? 'Yes' : 'No']]));
   },
 });
 
@@ -41,10 +41,11 @@ export const gleif = adapter({
       if (!legal || nameSimilarity(legal, e.value) < 0.6) continue;
       const url = `https://search.gleif.org/#/record/${r.id}`;
       const w = nameSimilarity(legal, e.value) >= 0.95 ? 0.8 : 0.55;
-      out.push(claim('org', legal, 'registered legal entity', w, { url, attrs: { lei: str(r.id), status: str(en.status), jurisdiction: str(en.jurisdiction) }, snippet: `LEI ${r.id} · ${str(en.status) || 'status unknown'} · ${str(en.jurisdiction)}` }));
       const a = en.headquartersAddress ?? en.legalAddress ?? {};
       const place = joinPlace(str(a.city), str(a.region).replace(/^[A-Z]{2}-/, ''), countryName(str(a.country)));
-      if (place) out.push(claim('location', place, 'registered address', w, { url, conflictKey: 'org-hq', snippet: 'Official legal / headquarters address' }));
+      const record = rec('GLEIF legal-entity record', [['Legal name', legal], ['LEI', r.id], ['Status', en.status], ['Jurisdiction', en.jurisdiction], ['Registered address', place]]);
+      out.push(claim('org', legal, 'registered legal entity', w, { url, attrs: { lei: str(r.id), status: str(en.status), jurisdiction: str(en.jurisdiction) }, snippet: `LEI ${r.id} · ${str(en.status) || 'status unknown'} · ${str(en.jurisdiction)}`, record }));
+      if (place) out.push(claim('location', place, 'registered address', w, { url, conflictKey: 'org-hq', snippet: 'Official legal / headquarters address', record }));
     }
     return out;
   },

@@ -273,14 +273,15 @@ export async function createApp(store = new Store()) {
   });
   app.get('/api/settings', (c) => c.json({
     demoMode: demoMode(store), ai: aiSettings(store), aiReady: aiReady(store),
-    region: store.getSetting('region', 'US'), onboarded: store.getSetting('onboarded', false),
+    region: store.getSetting('region', 'US'), onboarded: store.getSetting('onboarded', false), crossCheck: store.getSetting('crossCheck', true),
   }));
   app.put('/api/settings', async (c) => {
-    const b = await body<{ demoMode?: boolean; ai?: Partial<typeof DEFAULT_AI>; region?: string; onboarded?: boolean }>(c);
+    const b = await body<{ demoMode?: boolean; ai?: Partial<typeof DEFAULT_AI>; region?: string; onboarded?: boolean; crossCheck?: boolean }>(c);
     if (typeof b.demoMode === 'boolean') store.setSetting('demoMode', b.demoMode);
     if (b.ai) store.setSetting('ai', { ...store.getSetting('ai', DEFAULT_AI), ...b.ai, keySet: undefined });
     if (b.region) store.setSetting('region', b.region);
     if (typeof b.onboarded === 'boolean') store.setSetting('onboarded', b.onboarded);
+    if (typeof b.crossCheck === 'boolean') store.setSetting('crossCheck', b.crossCheck);
     return c.json({ ok: true });
   });
   app.get('/api/ai/models', async (c) => {

@@ -1,7 +1,7 @@
 import type { Claim } from '../../../shared/types';
 import type { Adapter } from '../types';
 import { RateLimitedError } from '../types';
-import { adapter, arr, bioClaims, claim, getJson, iso, md5, str } from './util';
+import { adapter, arr, bioClaims, claim, getJson, iso, md5, rec, str, withRecord } from './util';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Email → profile
@@ -29,7 +29,7 @@ export const gravatar = adapter({
     }
     for (const u of arr<any>(p.urls)) if (str(u.value)) out.push(claim('url', u.value, 'website on profile', 0.6, { url, snippet: str(u.title) || undefined }));
     out.push(...bioClaims(p.aboutMe, 'Gravatar', url));
-    return out;
+    return withRecord(out, rec('Gravatar profile', [['Registered with', e.value], ['Display name', name], ['Username', p.preferredUsername], ['Location', p.currentLocation], ['Linked accounts', arr<any>(p.accounts).map((a) => str(a.shortname) || str(a.domain)).filter(Boolean).join(', ')], ['Websites', arr<any>(p.urls).map((u) => str(u.value)).join(', ')], ['About', p.aboutMe]]));
   },
 });
 
@@ -44,7 +44,7 @@ export const emailrep = adapter({
     const out: Claim[] = [];
     for (const prof of arr<string>(d.profiles)) out.push(claim('account', prof, 'registered with this email', 0.75, { attrs: { platform: prof[0].toUpperCase() + prof.slice(1) }, snippet: 'EmailRep detected an account on this service' }));
     if (d.credentials_leaked || d.data_breach) out.push(claim('breach', 'Unspecified breach (via EmailRep)', 'appeared in', 0.6, { attrs: { classes: d.credentials_leaked ? 'Credentials' : 'Data', note: 'EmailRep does not name the breach' }, snippet: `Reputation: ${str(j.reputation) || 'unknown'}${d.first_seen && d.first_seen !== 'never' ? ` · first seen ${d.first_seen}` : ''}` }));
-    return out;
+    return withRecord(out, rec('EmailRep record', [['Address checked', e.value], ['Reputation', j.reputation], ['Registered on', arr<string>(d.profiles).join(', ')], ['First seen', d.first_seen], ['Seen in a data breach', d.data_breach ? 'Yes' : 'No']]));
   },
 });
 
@@ -60,6 +60,7 @@ export const hibp = adapter({
     return rows.map((b) => claim('breach', str(b.Title) || str(b.Name), 'appeared in', 0.95, {
       attrs: { date: str(b.BreachDate), classes: arr<string>(b.DataClasses).join(', '), count: Number(b.PwnCount) || 0, domain: str(b.Domain) },
       when: iso(b.BreachDate), url: `https://haveibeenpwned.com/PwnedWebsites#${str(b.Name)}`, snippet: `Exposed: ${arr<string>(b.DataClasses).slice(0, 6).join(', ')}`,
+      record: rec(`Breach: ${str(b.Title) || str(b.Name)}`, [['Address checked', e.value], ['Breach date', b.BreachDate], ['Exposed data', arr<string>(b.DataClasses).join(', ')], ['Accounts affected', Number(b.PwnCount) ? Number(b.PwnCount).toLocaleString('en-US') : ''], ['Site', b.Domain]]),
     })).filter((c) => c.value);
   },
 });
@@ -71,7 +72,7 @@ export const xposedornot = adapter({
   async run(e, ctx) {
     const j = await getJson<any>(ctx, `https://api.xposedornot.com/v1/check-email/${encodeURIComponent(e.value)}`);
     const names = arr<any>(j?.breaches).flat().map(str).filter(Boolean);
-    return [...new Set(names)].map((n) => claim('breach', n, 'appeared in', 0.85, { snippet: 'Reported by XposedOrNot', url: 'https://xposedornot.com/' }));
+    return [...new Set(names)].map((n) => claim('breach', n, 'appeared in', 0.85, { snippet: 'Reported by XposedOrNot', url: 'https://xposedornot.com/', record: rec(`Breach: ${n}`, [['Address checked', e.value], ['Breach', n], ['Listed by', 'XposedOrNot']]) }));
   },
 });
 
@@ -100,11 +101,13 @@ export const github = adapter({
       if (str(p.twitter_username)) out.push(claim('account', `https://x.com/${p.twitter_username}`, 'linked account', 0.55, { url, attrs: { platform: 'X' } }));
       if (str(p.avatar_url)) out.push(claim('image', p.avatar_url, 'profile photo', 0.6, { url, attrs: { hash: `github:${p.id}` } }));
       out.push(...bioClaims(p.bio, 'GitHub', url));
+      return withRecord(out, rec('GitHub profile', [['Username', p.login], ['Name', p.name], ['Company', p.company], ['Location', p.location], ['Public email', p.email], ['Website', p.blog], ['Joined', iso(p.created_at)], ['Activity', `${p.public_repos ?? 0} public repos · ${p.followers ?? 0} followers`]]));
     } else {
       const s = await getJson<any>(ctx, `https://api.github.com/search/users?q=${encodeURIComponent(`${e.value} in:email`)}`, { headers: ghHeaders(ctx.key) });
       for (const u of arr<any>(s?.items).slice(0, 3)) {
-        out.push(claim('account', u.html_url, 'profile with this public email', 0.8, { url: u.html_url, attrs: { platform: 'GitHub' } }));
-        out.push(claim('username', u.login, 'handle', 0.75, { url: u.html_url }));
+        const r = rec('GitHub search result', [['Searched for', `${e.value} in:email`], ['Matching profile', u.login], ['Profile page', u.html_url]]);
+        out.push(claim('account', u.html_url, 'profile with this public email', 0.8, { url: u.html_url, attrs: { platform: 'GitHub' }, record: r }));
+        out.push(claim('username', u.login, 'handle', 0.75, { url: u.html_url, record: r }));
       }
       const c = await getJson<any>(ctx, `https://api.github.com/search/commits?q=${encodeURIComponent(`author-email:${e.value}`)}&per_page=30`, { headers: ghHeaders(ctx.key) }).catch(() => null);
       const byLogin = new Map<string, number>(), names = new Map<string, number>();
@@ -113,8 +116,9 @@ export const github = adapter({
         const n = str(it.commit?.author?.name);
         if (n) names.set(n, (names.get(n) ?? 0) + 1);
       }
-      for (const [login, n] of byLogin) out.push(claim('username', login, 'commits as', Math.min(0.85, 0.6 + n * 0.03), { snippet: `${n} public commit${n > 1 ? 's' : ''} authored with this email`, url: `https://github.com/${login}` }));
-      for (const [name, n] of names) out.push(claim('person', name, 'commit author name', Math.min(0.75, 0.5 + n * 0.04), { snippet: `Name used on ${n} public commit${n > 1 ? 's' : ''} with this email` }));
+      const commitRec = (extra: [string, unknown][]) => rec('GitHub commits authored with this email', [['Searched for', `author-email:${e.value}`], ['Commits seen', arr(c?.items).length], ...extra]);
+      for (const [login, n] of byLogin) out.push(claim('username', login, 'commits as', Math.min(0.85, 0.6 + n * 0.03), { snippet: `${n} public commit${n > 1 ? 's' : ''} authored with this email`, url: `https://github.com/${login}`, record: commitRec([['Account on those commits', login], ['Commits by that account', n]]) }));
+      for (const [name, n] of names) out.push(claim('person', name, 'commit author name', Math.min(0.75, 0.5 + n * 0.04), { snippet: `Name used on ${n} public commit${n > 1 ? 's' : ''} with this email`, record: commitRec([['Author name on those commits', name], ['Commits with that name', n]]) }));
     }
     return out;
   },
@@ -131,7 +135,7 @@ export const gitlab = adapter({
     const url = str(p.web_url) || `https://gitlab.com/${p.username}`;
     const out = [claim('account', url, 'GitLab profile', 0.65, { url, attrs: { platform: 'GitLab' }, snippet: `State: ${p.state ?? 'unknown'}` })];
     if (str(p.name) && str(p.name).toLowerCase() !== str(p.username).toLowerCase()) out.push(claim('person', p.name, 'name on profile', 0.5, { url }));
-    return out;
+    return withRecord(out, rec('GitLab profile', [['Username', p.username], ['Name', p.name], ['Status', p.state], ['Profile page', url]]));
   },
 });
 
@@ -148,7 +152,7 @@ export const bluesky = adapter({
     if (str(p.displayName)) out.push(claim('person', p.displayName, 'display name', 0.5, { url }));
     if (str(p.avatar)) out.push(claim('image', p.avatar, 'profile photo', 0.6, { url, attrs: { hash: `bsky:${p.did}` } }));
     out.push(...bioClaims(p.description, 'Bluesky', url));
-    return out;
+    return withRecord(out, rec('Bluesky profile', [['Handle', p.handle], ['Display name', p.displayName], ['Joined', iso(p.createdAt)], ['Followers', p.followersCount], ['Bio', p.description]]));
   },
 });
 
@@ -160,7 +164,8 @@ export const hackernews = adapter({
     const p = await getJson<any>(ctx, `https://hacker-news.firebaseio.com/v0/user/${encodeURIComponent(e.value)}.json`);
     if (!p?.id) return [];
     const url = `https://news.ycombinator.com/user?id=${p.id}`;
-    return [claim('account', url, 'Hacker News profile', 0.55, { url, attrs: { platform: 'Hacker News', karma: Number(p.karma) || 0 }, when: iso(p.created), snippet: `Karma ${p.karma ?? 0}` }), ...bioClaims(String(p.about ?? '').replace(/<[^>]+>/g, ' '), 'Hacker News', url)];
+    const about = String(p.about ?? '').replace(/<[^>]+>/g, ' ');
+    return withRecord([claim('account', url, 'Hacker News profile', 0.55, { url, attrs: { platform: 'Hacker News', karma: Number(p.karma) || 0 }, when: iso(p.created), snippet: `Karma ${p.karma ?? 0}` }), ...bioClaims(about, 'Hacker News', url)], rec('Hacker News profile', [['Username', p.id], ['Joined', iso(p.created)], ['Karma', p.karma], ['About', about]]));
   },
 });
 
@@ -179,7 +184,7 @@ export const devto = adapter({
     if (str(p.twitter_username)) out.push(claim('account', `https://x.com/${p.twitter_username}`, 'linked account', 0.65, { url, attrs: { platform: 'X' } }));
     if (str(p.website_url)) out.push(claim('url', p.website_url, 'website on profile', 0.55, { url }));
     out.push(...bioClaims(p.summary, 'DEV', url));
-    return out;
+    return withRecord(out, rec('DEV profile', [['Username', p.username], ['Name', p.name], ['Location', p.location], ['GitHub', p.github_username], ['Twitter / X', p.twitter_username], ['Website', p.website_url], ['Joined', p.joined_at], ['Summary', p.summary]]));
   },
 });
 
@@ -199,7 +204,7 @@ export const keybase = adapter({
       const link = str(pr.service_url);
       if (link && pr.state === 1) out.push(claim('account', link, 'cryptographically proven account', 0.93, { url, attrs: { platform: str(pr.proof_type) }, snippet: `Signed proof on ${pr.proof_type}: ${pr.nametag}` }));
     }
-    return out;
+    return withRecord(out, rec('Keybase profile', [['Username', t.basics.username], ['Name', t.profile?.full_name], ['Location', t.profile?.location], ['Verified proofs', arr<any>(t.proofs_summary?.all).filter((x) => x.state === 1).map((x) => `${x.proof_type}: ${x.nametag}`).join(', ')]]));
   },
 });
 
@@ -215,7 +220,7 @@ export const reddit = adapter({
     const p = (await res.json())?.data;
     if (!p?.name || p.is_suspended) return [];
     const url = `https://www.reddit.com/user/${p.name}`;
-    return [claim('account', url, 'Reddit profile', 0.45, { url, attrs: { platform: 'Reddit', karma: (Number(p.link_karma) || 0) + (Number(p.comment_karma) || 0) }, when: iso(p.created_utc), snippet: 'A matching username is not proof it is the same person' })];
+    return [claim('account', url, 'Reddit profile', 0.45, { url, attrs: { platform: 'Reddit', karma: (Number(p.link_karma) || 0) + (Number(p.comment_karma) || 0) }, when: iso(p.created_utc), snippet: 'A matching username is not proof it is the same person', record: rec('Reddit profile', [['Username', p.name], ['Account created', iso(p.created_utc)], ['Karma', (Number(p.link_karma) || 0) + (Number(p.comment_karma) || 0)]]) })];
   },
 });
 

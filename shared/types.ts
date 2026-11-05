@@ -17,7 +17,19 @@ export const LEVEL_LABEL: Record<Level, string> = { 1: 'Weak', 2: 'Fair', 3: 'Go
 
 export type FindingStatus = 'pending' | 'accepted' | 'rejected' | 'unsure';
 
-/** One independent observation, from one source, backing a finding. */
+/** The source's own record, quoted: a title plus the specific fields that matter ("Display name: Mara Linden"). */
+export interface EvidenceRecord {
+  title: string;
+  facts: [label: string, value: string][];
+}
+
+/**
+ * direct: the source returned this when asked about the thing you searched.
+ * cross:  found later by a cross-check: we asked another source about something we'd found and compared its answer.
+ */
+export type EvidenceKind = 'direct' | 'cross';
+
+/** One independent observation, from one source, backing (or, if polarity is "against", contradicting) a finding. */
 export interface Evidence {
   id: string;
   adapter: string;
@@ -26,6 +38,18 @@ export interface Evidence {
   family: string;
   url?: string;
   snippet?: string;
+  /** What we asked this source, in plain words ("Searched public certificate logs for names under example.com"). */
+  how?: string;
+  kind?: EvidenceKind;
+  /** record: a page for this exact record. lookup: a page where you can repeat the same lookup yourself. */
+  urlKind?: 'record' | 'lookup';
+  polarity?: 'for' | 'against';
+  /** The record the source returned (specific fields), when it has one. */
+  record?: EvidenceRecord;
+  /** Cross-checks: one line saying what the check showed ("Lists this email as its public email"). */
+  verdict?: string;
+  /** Cross-checks: which finding we asked about to get this. */
+  via?: { findingId: string; label: string };
   retrievedAt: number;
   /** How strongly this single observation supports the claim, 0..1. */
   weight: number;
@@ -40,11 +64,24 @@ export interface Claim {
   weight: number;
   url?: string;
   snippet?: string;
+  /** Optional per-claim override of what was asked. */
+  how?: string;
+  /** The source record this claim was read from, with its specific fields. */
+  record?: EvidenceRecord;
   attrs?: Record<string, string | number | boolean>;
   /** Claims with the same conflictKey are mutually competing (e.g. "location"). */
   conflictKey?: string;
   /** Optional ISO date the underlying fact refers to (account created, cert issued…). */
   when?: string;
+}
+
+/** The outcome of asking one other source about a finding, so you can see what was checked and what it said. */
+export interface CrossCheck {
+  adapter: string;
+  source: string;
+  result: 'confirms' | 'contradicts' | 'neutral' | 'failed';
+  /** One line: what the check showed. */
+  note?: string;
 }
 
 export interface Finding {
@@ -58,6 +95,8 @@ export interface Finding {
   relation: string;
   attrs: Record<string, string | number | boolean>;
   evidence: Evidence[];
+  /** Other sources we asked about this finding (or about something it led to), and what each said. */
+  checks?: CrossCheck[];
   /** Calibrated belief that the claim is true. */
   score: number;
   /** Ordering score = score + context relevance. Never shown as confidence. */

@@ -21,7 +21,7 @@ const subj = ids[0];
 s.db.exec('BEGIN');
 for (let i = 0; i < 400; i++) {
   const t = types[i % types.length]; const v = `found-${i}.sub${i % 9}.example`;
-  s.saveFinding({ id: uid('f_'), caseId: c.id, runId: 'r', subjectId: subj, type: t, value: v, key: keyFor(t, v), relation: 'subdomain', attrs: {}, evidence: [{ id: uid('e'), adapter: 'x', adapterName: 'Src', family: 'x' + i, retrievedAt: Date.now(), weight: 0.6 }], score: r(), rank: r(), level: (1 + Math.floor(r() * 4)) as 1, reasons: ['Only one source (Src)'], status: 'pending', createdAt: Date.now() });
+  s.saveFinding({ id: uid('f_'), caseId: c.id, runId: 'r', subjectId: subj, type: t, value: v, key: keyFor(t, v), relation: 'subdomain', attrs: {}, evidence: [{ id: uid('e'), adapter: 'x', adapterName: 'Src', family: 'x' + i, retrievedAt: Date.now(), weight: 0.6 }], score: r(), rank: r(), level: (1 + Math.floor(r() * 4)) as 1, reasons: ['Only one source reported this (Src), so treat it as a lead, not a fact.'], status: 'pending', createdAt: Date.now() });
 }
 s.db.exec('COMMIT');
 console.log('seeded', c.id);

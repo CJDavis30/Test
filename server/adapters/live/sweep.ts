@@ -1,6 +1,6 @@
 import type { Claim } from '../../../shared/types';
 import type { Adapter, AdapterCtx } from '../types';
-import { adapter } from './util';
+import { adapter, rec } from './util';
 
 interface Site { name: string; url: string; /** status: 200=exists/404=absent. absent-text: 200 always, the page says so when missing. */ kind?: 'status' | 'absent-text'; text?: string; api?: boolean }
 
@@ -69,7 +69,7 @@ export const usernameSweep = adapter({
           if (hit === null) { blocked++; continue; }
           if (hit) {
             const url = s.api ? s.url.replace('{u}', encodeURIComponent(u)).replace('api.chess.com/pub/player', 'www.chess.com/member').replace('lichess.org/api/user', 'lichess.org/@').replace('hub.docker.com/v2/users', 'hub.docker.com/u').replace('en.gravatar.com/', 'gravatar.com/').replace(/\.json$/, '').replace(/\/$/, '') : s.url.replace('{u}', encodeURIComponent(u));
-            out.push({ type: 'account', value: url, relation: 'same handle exists', weight: 0.3, url, attrs: { platform: s.name }, snippet: `“${u}” is registered on ${s.name}. Name match only.` });
+            out.push({ type: 'account', value: url, relation: 'same handle exists', weight: 0.3, url, attrs: { platform: s.name }, snippet: `“${u}” is registered on ${s.name}. Name match only.`, record: rec(`${s.name} username check`, [['Checked page', url], ['Result', 'A profile page exists for this username'], ['Reliability check', `A made-up username returns “not found” on ${s.name}, so a hit here is real`], ['Limit', 'Only proves the username is taken, not who owns it']]) });
           }
         } catch { blocked++; }
       }

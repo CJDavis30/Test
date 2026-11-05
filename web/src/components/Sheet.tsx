@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  X, Check, RefreshCw, TriangleAlert, ChevronRight, CircleHelp, ArrowLeft, Layers, LoaderCircle, CircleCheck, CircleX, Clock, SkipForward, KeyRound, Minus, ExternalLink, Zap, Sparkles, Undo2,
+  X, Check, Info, ChevronUp, ChevronDown, RefreshCw, TriangleAlert, ChevronRight, CircleHelp, ArrowLeft, Layers, LoaderCircle, CircleCheck, CircleX, Clock, SkipForward, KeyRound, Minus, ExternalLink, Zap, Sparkles, Undo2,
 } from 'lucide-react';
 import { ENTITY_LABEL, LEVEL_LABEL, type EntityType, type Finding, type SourceProgress } from '@shared/types';
 import { initials, safeHttpUrl, safeImageSrc } from '@shared/normalize';
@@ -9,9 +9,12 @@ import { useStore, keyOfNode, type RunState } from '../lib/store';
 import { EntityGlyph } from '../lib/icons';
 import { TYPE_ORDER, GROUP_LABEL, displayValue, hostOf, ago, fmtDate, plural } from '../lib/format';
 import { Dots, Kbd, Popover, isTyping, MOD } from './ui';
+import { FindingDetail } from './FindingDetail';
+import { explainRelation, hedge, subjectNoun } from '@shared/explain';
 
 const CONTEXT_IDEAS = ['Employer', 'Other accounts', 'Location', 'Associates', 'Infrastructure', 'Money'];
-const srcLetter = (n: string) => n.replace(/^Demo · /, '').trim()[0]?.toUpperCase() ?? '?';
+const HINT_KEY = 'plexus.hint.review';
+const readHint = () => { try { return localStorage.getItem(HINT_KEY) === '1'; } catch { return false; } };
 
 export function Sheet() {
   const s = useStore();
@@ -40,6 +43,18 @@ export function Sheet() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [srcOpen, setSrcOpen] = useState(false);
+  const [wide, setWide] = useState(() => window.innerWidth >= 1180);
+  const [hintGone, setHintGone] = useState(readHint);
+  const [briefOpen, setBriefOpen] = useState(() => { try { return localStorage.getItem('plexus.brief') !== 'closed'; } catch { return true; } });
+  const decided = accepted.length + rejected.length;
+  const decidedBefore = useRef(decided);
+  useEffect(() => {
+    let pref: string | null = null; try { pref = localStorage.getItem('plexus.brief'); } catch { /* storage unavailable */ }
+    if (decidedBefore.current === 0 && decided > 0 && !pref) setBriefOpen(false); // first decision: give the evidence the room
+    decidedBefore.current = decided;
+  }, [decided]);
+  const toggleBrief = () => { const v = !briefOpen; setBriefOpen(v); try { localStorage.setItem('plexus.brief', v ? 'open' : 'closed'); } catch { /* storage unavailable */ } };
+  useEffect(() => { const f = () => setWide(window.innerWidth >= 1180); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
   const scroller = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
   const cur = flat[Math.min(cursor, flat.length - 1)];
@@ -91,7 +106,7 @@ export function Sheet() {
       }
       if (e.key === 'ArrowDown' || k === 'j') { e.preventDefault(); setCursor((c) => Math.min(flatRef.current.length - 1, c + 1)); }
       else if (e.key === 'ArrowUp' || k === 'k') { e.preventDefault(); setCursor((c) => Math.max(0, c - 1)); }
-      else if (k === ' ') { e.preventDefault(); const id = flatRef.current[Math.min(cursorRef.current, flatRef.current.length - 1)]?.id; if (id) setExpanded((x) => (x === id ? null : id)); }
+      else if (k === ' ') { e.preventDefault(); if (wideRef.current) return; const id = flatRef.current[Math.min(cursorRef.current, flatRef.current.length - 1)]?.id; if (id) setExpanded((x) => (x === id ? null : id)); }
       else if (k === 'a' || k === 'r' || k === 'u') {
         e.preventDefault();
         const f = flatRef.current[Math.min(cursorRef.current, flatRef.current.length - 1)];
@@ -102,6 +117,7 @@ export function Sheet() {
     return () => window.removeEventListener('keydown', onKey);
   }, [expanded, srcOpen, act, toAdd]);
   const cursorRef = useRef(cursor); cursorRef.current = cursor;
+  const wideRef = useRef(wide); wideRef.current = wide;
   useEffect(() => { setCursor((c) => Math.min(c, Math.max(0, flat.length - 1))); }, [flat.length]);
   useEffect(() => { if (cur && !sheet.triage) rowRefs.current.get(cur.id)?.scrollIntoView({ block: 'nearest' }); }, [cur?.id]);
 
@@ -122,7 +138,8 @@ export function Sheet() {
   const done = run?.status === 'done';
   const srcs = run?.sources ?? [];
   const finished = srcs.filter((x) => !['queued', 'running'].includes(x.state)).length;
-  const active = srcs.filter((x) => x.state !== 'needs_key' && x.state !== 'skipped');
+  const crossing = srcs.find((x) => x.capability === 'verify');
+  const active = srcs.filter((x) => x.state !== 'needs_key' && x.state !== 'skipped' && x.capability !== 'verify');
   const activeDone = active.filter((x) => !['queued', 'running'].includes(x.state)).length;
   const pct = active.length ? (activeDone / active.length) * 100 : 0;
   void finished;
@@ -138,7 +155,7 @@ export function Sheet() {
           <div className="grow" />
           <button className="src-pill" onClick={() => setSrcOpen(!srcOpen)} aria-expanded={srcOpen}>
             {run?.status === 'running' ? <LoaderCircle size={14} className="spin" /> : <Layers size={14} />}
-            {srcs.length === 0 ? 'Sources' : run?.status === 'running' ? `Checking ${activeDone} of ${active.length}` : `${active.filter((x) => x.state === 'done').length} of ${active.length} sources answered`}
+            {srcs.length === 0 ? 'Sources' : run?.status === 'running' ? (crossing?.state === 'running' ? `Cross-checking ${crossing.note ?? ''}` : `Checking ${activeDone} of ${active.length}`) : `${active.filter((x) => x.state === 'done').length} of ${active.length} sources answered`}
           </button>
           <button className="btn icon ghost" aria-label="Run checks again" title="Run checks again" onClick={() => void s.runNode(subjectId, run?.context ?? '', false)} disabled={run?.status === 'running'}><RefreshCw size={15} /></button>
           <button className="btn icon ghost" aria-label="Close" onClick={() => s.closeSheet()}><X size={17} /></button>
@@ -148,45 +165,64 @@ export function Sheet() {
 
         <div className="sheet-body">
           {sheet.triage ? (
-            <Triage queue={flat.filter((f) => f.status === 'pending')} total={review.length + accepted.length + rejected.length} running={run?.status === 'running'} parked={review.filter((f) => f.status === 'unsure').length}
+            <Triage subject={{ type: node.type, label: node.label }} queue={flat.filter((f) => f.status === 'pending')} total={review.length + accepted.length + rejected.length} running={run?.status === 'running'} parked={review.filter((f) => f.status === 'unsure').length}
               onExit={() => s.setSheet({ triage: false })} onFinish={finish} toAdd={toAdd} act={act} />
           ) : (
             <>
-              <Brief node={node} run={run} findings={findings} onJump={jumpTo} subjectId={subjectId} />
+              {briefOpen ? <Brief node={node} run={run} findings={findings} onJump={jumpTo} subjectId={subjectId} onCollapse={toggleBrief} /> : <BriefMini node={node} run={run} onExpand={toggleBrief} />}
               <ContextBar subjectId={subjectId} run={run} />
-              <div className="list-head">
-                <div className="tabs" role="tablist">
-                  {([['review', 'To review', review.length], ['accepted', 'Accepted', accepted.length], ['rejected', 'Rejected', rejected.length]] as const).map(([id, label, n]) => (
-                    <button key={id} role="tab" aria-selected={tab === id} onClick={() => s.setSheet({ tab: id })}>{label}<span className="n num">{n}</span></button>
-                  ))}
-                </div>
-                <div className="grow" />
-                {tab === 'review' && strongPending.length > 0 && <button className="btn sm" onClick={() => void s.review(strongPending.map((f) => f.id), 'accepted', { toast: true })}>Accept {strongPending.length} strong</button>}
-                {tab === 'review' && weakPending.length > 0 && <button className="btn sm ghost" onClick={() => void s.review(weakPending.map((f) => f.id), 'rejected', { toast: true })}>Reject {weakPending.length} weak</button>}
-                {tab === 'review' && review.some((f) => f.status === 'pending') && <button className="btn sm outline" onClick={() => s.setSheet({ triage: true })}><Zap size={13} /> Triage <Kbd>T</Kbd></button>}
-              </div>
-              <div className="list-scroll" ref={scroller}>
-                {flat.length === 0 && <EmptyList run={run} tab={tab} hasAny={findings.length > 0} subjectId={subjectId} />}
-                {groups.map((g) => (
-                  <section key={g.type}>
-                    <div className="ghead">
-                      <EntityGlyph type={g.type} size={13} /> {GROUP_LABEL[g.type]} <span className="cnt num">{g.items.length}</span>
-                      {tab === 'review' && (
-                        <span className="acts">
-                          {g.items.some((f) => f.status === 'pending' && f.level >= 3) && <button className="btn sm ghost" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending' && f.level >= 3).map((f) => f.id), 'accepted', { toast: true })}>Accept strong</button>}
-                          {g.items.some((f) => f.status === 'pending' && f.level === 1) && <button className="btn sm ghost" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending' && f.level === 1).map((f) => f.id), 'rejected', { toast: true })}>Reject weak</button>}
-                        </span>
-                      )}
+              <div className={`split ${wide ? '' : 'narrow'}`}>
+                <div className="left">
+                  {tab === 'review' && !hintGone && review.length > 0 && (
+                    <div className="review-hint" role="note">
+                      <Info size={16} style={{ flex: 'none', marginTop: 1, color: 'var(--accent)' }} />
+                      <div><b>How to review:</b> look at each finding and the explanation beside it. <b>Accept</b> what looks right and it joins your graph. <b>Reject</b> what’s wrong, and Plexus learns to trust that source less. Not sure? Mark it <b>Not sure</b> and come back.</div>
+                      <button className="btn icon sm ghost" aria-label="Dismiss tip" onClick={() => { setHintGone(true); try { localStorage.setItem(HINT_KEY, '1'); } catch { /* storage unavailable */ } }}><X size={13} /></button>
                     </div>
-                    <AnimatePresence initial={false}>
-                      {g.items.map((f) => (
-                        <Row key={f.id} f={f} tab={tab} isCursor={cur?.id === f.id && !sheet.triage} isOpen={expanded === f.id} flash={flash === f.id}
-                          onFocus={() => setCursor(flat.findIndex((x) => x.id === f.id))} onToggle={() => setExpanded(expanded === f.id ? null : f.id)}
-                          reg={(el) => { if (el) rowRefs.current.set(f.id, el); else rowRefs.current.delete(f.id); }} inGraph={nodeKeys.has(`${f.type}:${f.key}`)} />
+                  )}
+                  <div className="list-head">
+                    <div className="tabs" role="tablist">
+                      {([['review', 'To review', review.length], ['accepted', 'Accepted', accepted.length], ['rejected', 'Rejected', rejected.length]] as const).map(([id, label, n]) => (
+                        <button key={id} role="tab" aria-selected={tab === id} onClick={() => s.setSheet({ tab: id })}>{label}<span className="n num">{n}</span></button>
                       ))}
-                    </AnimatePresence>
-                  </section>
-                ))}
+                    </div>
+                    <div className="grow" />
+                    {tab === 'review' && strongPending.length > 0 && <button className="btn sm" title="Accept every finding that several sources agree on" onClick={() => void s.review(strongPending.map((f) => f.id), 'accepted', { toast: true })}>Accept {strongPending.length} likely</button>}
+                    {tab === 'review' && weakPending.length > 0 && <button className="btn sm ghost" title="Reject every weak lead" onClick={() => void s.review(weakPending.map((f) => f.id), 'rejected', { toast: true })}>Reject {weakPending.length} weak</button>}
+                    {tab === 'review' && review.some((f) => f.status === 'pending') && <button className="btn sm outline" title="Go through them one card at a time" onClick={() => s.setSheet({ triage: true })}><Zap size={13} /> One by one <Kbd>T</Kbd></button>}
+                  </div>
+                  <div className="list-scroll" ref={scroller}>
+                    {flat.length === 0 && <EmptyList run={run} tab={tab} hasAny={findings.length > 0} subjectId={subjectId} />}
+                    {groups.map((g) => (
+                      <section key={g.type}>
+                        <div className="ghead">
+                          <EntityGlyph type={g.type} size={13} /> {GROUP_LABEL[g.type]} <span className="cnt num">{g.items.length}</span>
+                          {tab === 'review' && (
+                            <span className="acts">
+                              {g.items.some((f) => f.status === 'pending' && f.level >= 3) && <button className="btn sm ghost" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending' && f.level >= 3).map((f) => f.id), 'accepted', { toast: true })}>Accept likely</button>}
+                              {g.items.some((f) => f.status === 'pending' && f.level === 1) && <button className="btn sm ghost" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending' && f.level === 1).map((f) => f.id), 'rejected', { toast: true })}>Reject weak</button>}
+                            </span>
+                          )}
+                        </div>
+                        <AnimatePresence initial={false}>
+                          {g.items.map((f) => (
+                            <Row key={f.id} f={f} tab={tab} subject={{ type: node.type, label: node.label }} isCursor={cur?.id === f.id && !sheet.triage} isOpen={!wide && expanded === f.id} flash={flash === f.id}
+                              onFocus={() => setCursor(flat.findIndex((x) => x.id === f.id))} onToggle={() => { setCursor(flat.findIndex((x) => x.id === f.id)); if (!wide) setExpanded(expanded === f.id ? null : f.id); }}
+                              reg={(el) => { if (el) rowRefs.current.set(f.id, el); else rowRefs.current.delete(f.id); }} inGraph={nodeKeys.has(`${f.type}:${f.key}`)} />
+                          ))}
+                        </AnimatePresence>
+                      </section>
+                    ))}
+                  </div>
+                </div>
+                {wide && (
+                  <aside className="detail-pane" aria-label="Details for the highlighted finding">
+                    {cur ? (
+                      <FindingDetail key={cur.id} f={cur} subject={{ type: node.type, label: node.label }}
+                        onDecide={tab === 'review' ? (st) => act(cur.id, st) : undefined} />
+                    ) : <div className="detail-empty">{run?.status === 'running' ? 'Details appear here as soon as the first result arrives.' : 'Pick a finding on the left to see where it came from and how it connects to ' + node.label + '.'}</div>}
+                  </aside>
+                )}
               </div>
             </>
           )}
@@ -198,8 +234,8 @@ export function Sheet() {
               <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span>
               <span><Kbd>A</Kbd> accept</span>
               <span><Kbd>R</Kbd> reject</span>
-              <span><Kbd>U</Kbd> unsure</span>
-              <span><Kbd>Space</Kbd> evidence</span>
+              <span><Kbd>U</Kbd> not sure</span>
+              {!wide && <span><Kbd>Space</Kbd> details</span>}
             </div>
             <div className="grow" />
             {s.undoStack.length > 0 && <button className="btn ghost sm" onClick={() => void s.undo()}><Undo2 size={13} /> Undo <Kbd>{MOD}Z</Kbd></button>}
@@ -213,7 +249,19 @@ export function Sheet() {
 }
 
 // ------------------------------------------------------------------------------------------------ Brief
-function Brief({ node, run, findings, onJump, subjectId }: { node: { label: string; type: EntityType }; run?: RunState; findings: Finding[]; onJump: (id: string) => void; subjectId: string }) {
+function BriefMini({ node, run, onExpand }: { node: { label: string; type: EntityType }; run?: RunState; onExpand: () => void }) {
+  const b = run?.brief;
+  return (
+    <div className="brief-mini">
+      <h2 className="truncate selectable">{b?.headline ?? node.label}</h2>
+      {b && <Dots level={b.confidence.level} label />}
+      <div className="grow" />
+      <button className="btn sm ghost" onClick={onExpand}><ChevronDown size={14} /> Show summary</button>
+    </div>
+  );
+}
+
+function Brief({ node, run, findings, onJump, subjectId, onCollapse }: { node: { label: string; type: EntityType }; run?: RunState; findings: Finding[]; onJump: (id: string) => void; subjectId: string; onCollapse: () => void }) {
   const s = useStore();
   const brief = run?.brief;
   const live = findings.filter((f) => f.status !== 'rejected');
@@ -239,6 +287,7 @@ function Brief({ node, run, findings, onJump, subjectId }: { node: { label: stri
 
   return (
     <div className="brief">
+      <button className="btn sm ghost brief-toggle" onClick={onCollapse} title="Hide the summary to make room for the findings"><ChevronUp size={14} /> Hide summary</button>
       <div className="photo">
         <svg className="ringsvg" viewBox="0 0 76 76" width="76" height="76" aria-hidden>
           <circle cx="38" cy="38" r={R} fill="none" stroke="var(--line)" strokeWidth="2.5" />
@@ -258,7 +307,7 @@ function Brief({ node, run, findings, onJump, subjectId }: { node: { label: stri
       </div>
       <div className="meter">
         {conf ? (<>
-          <div className="big" style={{ color: `var(--lvl${conf.level})` }}>{conf.label}</div>
+          <div className="big" style={{ color: `var(--lvl${conf.level})` }}>{conf.label} · {Math.round(conf.score * 100)}%</div>
           <Dots level={conf.level} />
           <small>{plural(conf.independentSources, 'independent source')}</small>
           {brief?.by === 'ai' && <small style={{ marginTop: 4, display: 'inline-flex', gap: 4, alignItems: 'center' }}><Sparkles size={11} /> Written by AI, citations checked</small>}
@@ -278,7 +327,7 @@ function Brief({ node, run, findings, onJump, subjectId }: { node: { label: stri
       )}
       {run && run.next.length > 0 && (
         <div className="nexts">
-          <span className="lab">Next</span>
+          <span className="lab">Dig deeper</span>
           {run.next.slice(0, 4).map((n, i) => (
             <button key={i} className="nextchip" title={n.reason} onClick={() => void s.pivot(n, subjectId)}>
               <EntityGlyph type={n.type} size={13} /><span className="truncate">{n.value}</span><ChevronRight size={13} />
@@ -310,14 +359,13 @@ function ContextBar({ subjectId, run }: { subjectId: string; run?: RunState }) {
 }
 
 // ------------------------------------------------------------------------------------------------ Rows
-const Row = memo(function Row({ f, tab, isCursor, isOpen, flash, onFocus, onToggle, reg, inGraph }: {
-  f: Finding; tab: string; isCursor: boolean; isOpen: boolean; flash: boolean; onFocus: () => void; onToggle: () => void; reg: (el: HTMLElement | null) => void; inGraph: boolean;
+const Row = memo(function Row({ f, tab, subject, isCursor, isOpen, flash, onFocus, onToggle, reg, inGraph }: {
+  f: Finding; tab: string; subject: { type: EntityType; label: string }; isCursor: boolean; isOpen: boolean; flash: boolean; onFocus: () => void; onToggle: () => void; reg: (el: HTMLElement | null) => void; inGraph: boolean;
 }) {
   const review = useStore((st) => st.review);
   const names = [...new Set(f.evidence.map((e) => e.adapterName))];
-  const sub = f.conflictsWith?.length
-    ? <><span className="tag warn"><Zap size={10} />Disagrees</span>{f.reasons.find((r) => r.startsWith('Disagrees')) ?? f.relation}</>
-    : <>{f.status === 'unsure' && <span className="tag mute">Unsure</span>}{f.relation}{f.when ? ` · ${fmtDate(f.when)}` : ''}{f.evidence.find((e) => e.snippet)?.snippet ? ` · ${f.evidence.find((e) => e.snippet)!.snippet}` : ''}</>;
+  const sentence = hedge(explainRelation(f.relation, subjectNoun(subject.type), displayValue(f)), f.level, f.evidence.some((e) => e.polarity === 'against'));
+  const conflict = f.conflictsWith?.length;
   return (
     <motion.div ref={reg} layout="position" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0 }}
       transition={{ type: 'spring', stiffness: 520, damping: 40, opacity: { duration: .15 } }} style={{ overflow: 'hidden' }}>
@@ -325,41 +373,30 @@ const Row = memo(function Row({ f, tab, isCursor, isOpen, flash, onFocus, onTogg
         <Dots level={f.level} />
         <div className="gl">{f.type === 'image' ? <img src={safeImageSrc(f.value)} alt="" /> : <EntityGlyph type={f.type} size={15} />}</div>
         <div style={{ minWidth: 0 }}>
-          <div className="v truncate selectable">{displayValue(f)}{inGraph && <span className="tag mute" style={{ marginLeft: 8 }}>On graph</span>}</div>
-          <div className="sub truncate">{sub}</div>
+          <div className="v truncate selectable">
+            {displayValue(f)}
+            {conflict ? <span className="tag warn" style={{ marginLeft: 8 }} title="Other sources gave a different answer to the same question"><Zap size={10} />Conflict</span> : null}
+            {f.status === 'unsure' && <span className="tag mute" style={{ marginLeft: 8 }}>Not sure</span>}
+            {inGraph && <span className="tag mute" style={{ marginLeft: 8 }}>On graph</span>}
+          </div>
+          <div className="sub truncate" title={sentence}>{sentence}</div>
         </div>
         <div className="srcs" title={names.join(', ')}>
-          <span className="srcstack">{names.slice(0, 3).map((n) => <i key={n}>{srcLetter(n)}</i>)}</span>
-          <span className="num">{f.evidence.length}</span>
+          <span className="sn num">{names.slice(0, 2).join(' · ')}{names.length > 2 ? ` +${names.length - 2}` : ''}</span>
         </div>
         <div className="acts" onClick={(e) => e.stopPropagation()}>
           {tab === 'review' ? (<>
-            <button className="act no" aria-label="Reject" title="Reject (R)" onClick={() => void review([f.id], 'rejected')}><X size={15} /></button>
-            <button className="act ok" aria-label="Accept" title="Accept (A)" onClick={() => void review([f.id], 'accepted')}><Check size={15} /></button>
+            <button className="act no" aria-label="Reject" title="Reject: this is wrong or irrelevant (R)" onClick={() => void review([f.id], 'rejected')}><X size={15} /></button>
+            <button className="act ok" aria-label="Accept" title="Accept: add this to your graph (A)" onClick={() => void review([f.id], 'accepted')}><Check size={15} /></button>
           </>) : (
             <button className="act" aria-label="Move back to review" title="Back to review" onClick={() => void review([f.id], 'pending')}><Undo2 size={14} /></button>
           )}
         </div>
       </div>
-      {isOpen && <Evidence f={f} />}
+      {isOpen && <div className="frow-detail"><FindingDetail f={f} subject={subject} compact /></div>}
     </motion.div>
   );
 });
-
-function Evidence({ f }: { f: Finding }) {
-  return (
-    <div className="evidence selectable">
-      {f.reasons.length > 0 && <div className="reasons">{f.reasons.map((r) => <span key={r} className="reason">{r}</span>)}</div>}
-      {f.evidence.map((e) => (
-        <div className="ev" key={e.id}>
-          <span className="nm truncate">{e.adapterName}</span>
-          <span className="sn">{e.snippet || <span className="faint">Match found, no excerpt</span>}{safeHttpUrl(e.url) && <> · <a href={safeHttpUrl(e.url)} target="_blank" rel="noreferrer noopener">{hostOf(e.url)} <ExternalLink size={10} style={{ verticalAlign: -1 }} /></a></>}</span>
-          <span className="meta"><span className="wbar"><i style={{ width: `${Math.round(e.weight * 100)}%` }} /></span>{ago(e.retrievedAt)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function EmptyList({ run, tab, hasAny, subjectId }: { run?: RunState; tab: string; hasAny: boolean; subjectId: string }) {
   const s = useStore();
@@ -419,8 +456,8 @@ const TRI_VARIANTS = {
   exit: (d: number) => ({ opacity: 0, x: d * 180, rotate: d * 5, transition: { duration: .22 } }),
 };
 
-function Triage({ queue, total, running, parked, onExit, onFinish, toAdd, act }: {
-  queue: Finding[]; total: number; running: boolean; parked: number; onExit: () => void; onFinish: () => void; toAdd: number; act: (id: string | undefined, st: Finding['status']) => void;
+function Triage({ queue, total, running, parked, onExit, onFinish, toAdd, act, subject }: {
+  subject: { type: EntityType; label: string }; queue: Finding[]; total: number; running: boolean; parked: number; onExit: () => void; onFinish: () => void; toAdd: number; act: (id: string | undefined, st: Finding['status']) => void;
 }) {
   const s = useStore();
   const f = queue[0];
@@ -430,7 +467,7 @@ function Triage({ queue, total, running, parked, onExit, onFinish, toAdd, act }:
   return (
     <div className="triage">
       <div className="tri-top">
-        <button className="btn ghost sm" onClick={onExit}><ArrowLeft size={14} /> List</button>
+        <button className="btn ghost sm" onClick={onExit}><ArrowLeft size={14} /> Back to list</button>
         <div className="tri-bar"><i style={{ width: `${total ? (reviewed / total) * 100 : 0}%` }} /></div>
         <span className="num">{Math.min(reviewed + 1, total)} of {total}</span>
       </div>
@@ -441,20 +478,7 @@ function Triage({ queue, total, running, parked, onExit, onFinish, toAdd, act }:
             <motion.div key={f.id} className="tri-card selectable" custom={dir}
               variants={TRI_VARIANTS} initial="enter" animate="center" exit="exit"
               transition={{ type: 'spring', stiffness: 440, damping: 34 }}>
-              <div className="typ"><EntityGlyph type={f.type} size={16} /> {ENTITY_LABEL[f.type]} · {f.relation}</div>
-              {f.type === 'image' ? <img src={safeImageSrc(f.value)} alt="" style={{ width: 120, height: 120, borderRadius: 20, margin: '14px 0', objectFit: 'cover' }} /> : <div className="big">{displayValue(f)}</div>}
-              <div className="row" style={{ marginBottom: 14 }}><Dots level={f.level} label /><span className="faint">· {plural(f.evidence.length, 'source')}</span>{f.when && <span className="faint">· {fmtDate(f.when)}</span>}</div>
-              {f.conflictsWith?.length ? <div className="caveat" style={{ marginBottom: 12 }}><TriangleAlert size={13} />{f.reasons.find((r) => r.startsWith('Disagrees')) ?? 'Conflicts with another value'}</div> : null}
-              <div className="reasons" style={{ marginBottom: 16 }}>{f.reasons.map((r) => <span key={r} className="reason">{r}</span>)}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {f.evidence.slice(0, 5).map((e) => (
-                  <div className="ev" key={e.id} style={{ gridTemplateColumns: '156px 1fr auto' }}>
-                    <span className="nm truncate">{e.adapterName}</span>
-                    <span className="sn">{e.snippet || <span className="faint">Match found</span>}{safeHttpUrl(e.url) && <> · <a href={safeHttpUrl(e.url)} target="_blank" rel="noreferrer noopener">{hostOf(e.url)}</a></>}</span>
-                    <span className="meta">{ago(e.retrievedAt)}</span>
-                  </div>
-                ))}
-              </div>
+              <FindingDetail f={f} subject={subject} />
             </motion.div>
           ) : (
             <motion.div key="done" className="tri-done" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ position: 'absolute', inset: 0, display: 'grid', placeContent: 'center' }}>
@@ -475,7 +499,7 @@ function Triage({ queue, total, running, parked, onExit, onFinish, toAdd, act }:
         <div className="tri-btns">
           <button className="tri-btn" onClick={() => void s.undo()} disabled={!s.undoStack.length} aria-label="Undo last"><ArrowLeft size={16} /> <Kbd>←</Kbd></button>
           <button className="tri-btn" onClick={() => decide('rejected')}><X size={17} /> Reject <Kbd>R</Kbd></button>
-          <button className="tri-btn" onClick={() => decide('unsure')}><CircleHelp size={17} /> Unsure <Kbd>U</Kbd></button>
+          <button className="tri-btn" onClick={() => decide('unsure')}><CircleHelp size={17} /> Not sure <Kbd>U</Kbd></button>
           <button className="tri-btn ok" onClick={() => decide('accepted')}><Check size={17} /> Accept <Kbd>A</Kbd></button>
         </div>
       )}

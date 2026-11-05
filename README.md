@@ -23,7 +23,7 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 121 unit/integration tests
+npm test           # 159 unit/integration tests
 npm run typecheck
 ```
 
@@ -70,6 +70,18 @@ Graphs get hairy because every finding links back to a hub and hubs share neighb
 - **Labels never collide.** They sit *outward* from their node, every node circle and earlier label is an obstacle, each label tries alternative positions, and the least important are dropped (they reappear as you zoom in).
 - **Direct manipulation.** Drag a node and its whole branch comes with it (hold ⌥ to move just one); it stays pinned, and pins survive reloads. **Tidy up** (zoom controls, right-click, or ⌘K) releases every pin. A toggle switches to a free-form force layout if you prefer it.
 - Line widths have a floor in screen pixels, so large graphs stay visible when zoomed out. 700 entities / 1,200 links render at 60 fps.
+
+### How evidence is checked
+
+A finding is not trusted because one source said so. Each one shows its trail, and then Plexus tries to break it:
+
+- **Found directly.** For every source: *what was asked* ("Searched public TLS certificate logs for names under example.com"), *what came back* (the source's own record, quoted field by field: display name, public email, registrar, breach date…), and **a link**: the exact record page when the source gives one, otherwise a page where you can repeat the same lookup yourself. Simulated and offline sources say so instead of showing a dead link.
+- **Cross-checks.** After the first answers arrive, Plexus asks *other* sources about what it found and compares. Three outcomes, each added as evidence quoting what the other source returned:
+  - **Links back**: the account's profile lists the email you searched.
+  - **Shared detail**: the same name, city, employer or photo appears on that profile, which corroborates *both* findings.
+  - **Contradicts**: the profile shows a different name or place than the one we're now fairly sure of. That counts *against* the finding and lowers its score. Famous-person and namesake flags are never counted as corroboration.
+  Sources that were asked and had nothing are listed as such, never as confirmation. Cross-checking uses a few extra requests per lookup (capped) and can be turned off in Settings.
+- **The score** (e.g. 87%) is shown with its breakdown: found directly by N sources · N cross-checks confirm · N contradict · asked with no answer. Two views of the same dataset count once, so a second question to the same source is never a second opinion. Weak or disputed findings are worded as "Unconfirmed." / "Disputed." instead of being stated as fact.
 
 ### How confidence is calculated
 
@@ -160,9 +172,9 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 121 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding.
+- 159 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
-- The UI in a real browser (Chromium): every view in light and dark; **66 end-to-end checks** (`scripts/qa/e2e.cjs`: pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
+- The UI in a real browser (Chromium): every view in light and dark; **96 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score card = stored score, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
 - The production server bundle runs standalone and serves the app; `npm run dev` works including streaming through the proxy.
 - Behaviour when **every** source fails (this sandbox's reality): honest per-source errors, a "couldn't reach most sources" state, and no fake "nothing found".
@@ -189,6 +201,6 @@ web/       React UI: design system, canvas graph engine, findings sheet, views, 
 desktop/   Electron shell + tested helpers
 scripts/mac/ install / update / uninstall
 assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
-test/      121 tests
+test/      159 tests
 scripts/qa/  browser end-to-end + stress scripts
 ```

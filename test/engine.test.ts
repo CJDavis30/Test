@@ -8,7 +8,7 @@ process.env.PLEXUS_DEMO_FAST = '1';
 
 const { createApp } = await import('../server/index');
 const { Store } = await import('../server/store');
-const { register } = await import('../server/registry');
+const { register, allAdapters } = await import('../server/registry');
 import type { RunEvent, Finding } from '../shared/types';
 
 let ctx: Awaited<ReturnType<typeof createApp>>;
@@ -192,5 +192,53 @@ describe('learned trust & edge labels', () => {
     expect((await call('PATCH', `/api/edges/${e.id}`, { label: '  same owner  ' })).status).toBe(200);
     expect(ctx.store.listEdges(caseId).find((x) => x.id === e.id)?.label).toBe('same owner');
     expect((await call('PATCH', `/api/edges/${e.id}`, { label: '   ' })).status).toBe(400);
+  });
+});
+
+describe('evidence trail', () => {
+  it('every piece of evidence records what was asked and what came back', async () => {
+    ctx.store.setSetting('demoMode', true);
+    const { node } = await runAndWait('mara.linden@northwind-labs.example', { type: 'email' });
+    const fs = ctx.store.listFindings(caseId, { subjectId: node.id });
+    expect(fs.length).toBeGreaterThan(5);
+    for (const f of fs) for (const ev of f.evidence) {
+      expect(ev.how, `${f.value} / ${ev.adapterName}`).toMatch(/mara\.linden@northwind-labs\.example/);
+      expect(ev.snippet && ev.snippet.length > 8, `${f.value} / ${ev.adapterName} has no excerpt`).toBe(true);
+    }
+    // different kinds of source never return the same excerpt for the same finding
+    for (const f of fs) { const q = f.evidence.map((e: any) => e.snippet); expect(new Set(q).size, `${f.value}: duplicated excerpts ${q.join(' | ')}`).toBe(q.length); }
+  });
+});
+
+describe('records reach the evidence', () => {
+  it('direct evidence carries the source record (title + fields) and is marked direct', async () => {
+    ctx.store.setSetting('demoMode', true); ctx.store.cacheClear();
+    const { node } = await runAndWait('mara.linden@northwind-labs.example', { type: 'email' });
+    const ev = ctx.store.listFindings(caseId, { subjectId: node.id }).flatMap((f) => f.evidence).filter((e) => e.kind === 'direct');
+    expect(ev.length).toBeGreaterThan(5);
+    for (const e of ev) { expect(e.record?.title, e.adapterName).toBeTruthy(); expect(e.record!.facts.length, e.adapterName).toBeGreaterThanOrEqual(3); expect(e.record!.facts.every(([k, v]) => k && v)).toBe(true); }
+  });
+});
+
+describe('evidence links', () => {
+  it('uses the record page a source returns, else a page to repeat the lookup, and drops unsafe links', async () => {
+    ctx.store.setSetting('demoMode', false); ctx.store.cacheClear();
+    for (const a of allAdapters()) ctx.store.setSourceEnabled(a.id, false);
+    register(
+      { id: 'wayback', name: 'Web archive (Wayback Machine)', description: '', accepts: ['domain' as const], capability: 'link-test', family: 'wayback', reliability: 0.8, priority: 1, selfTest: { type: 'domain' as const, value: 'x.example' },
+        run: async () => [{ type: 'url', value: 'https://links-test.example/about', relation: 'archived page', weight: 0.8 }, { type: 'url', value: 'https://links-test.example/team', relation: 'archived page', weight: 0.8, url: 'https://web.archive.org/web/2020/https://links-test.example/team' }, { type: 'url', value: 'https://links-test.example/evil', relation: 'archived page', weight: 0.8, url: 'javascript:alert(1)' }] } as any,
+    );
+    ctx.store.setSourceEnabled('wayback', true);
+    const { node } = await runAndWait('links-test.example', { type: 'domain' });
+    const fs = ctx.store.listFindings(caseId, { subjectId: node.id });
+    const ev = (v: string) => fs.find((f) => f.value.endsWith(v))!.evidence[0];
+    expect(ev('/about').url).toBe('https://web.archive.org/web/*/links-test.example/*');
+    expect(ev('/about').urlKind).toBe('lookup');
+    expect(ev('/team').url).toContain('web.archive.org/web/2020');
+    expect(ev('/team').urlKind).toBe('record');
+    expect(ev('/evil').urlKind).toBe('lookup');              // the javascript: link was discarded, the safe lookup page used instead
+    expect(ev('/evil').url).not.toMatch(/^javascript:/);
+    for (const a of allAdapters()) if (a.id !== 'wayback') ctx.store.setSourceEnabled(a.id, true);
+    ctx.store.setSetting('demoMode', true);
   });
 });

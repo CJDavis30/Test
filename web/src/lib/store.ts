@@ -29,6 +29,7 @@ export interface Settings {
   aiReady: { ok: boolean; why?: string; model?: string };
   region: string;
   onboarded: boolean;
+  crossCheck: boolean;
 }
 
 export interface Toast { id: number; text: string; action?: { label: string; run: () => void } }

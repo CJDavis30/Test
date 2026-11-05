@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { extractEntities } from '../../../shared/detect';
-import type { Claim, EntityType } from '../../../shared/types';
+import type { Claim, EntityType, EvidenceRecord } from '../../../shared/types';
 import { RateLimitedError, type Adapter, type AdapterCtx } from '../types';
 
 export const md5 = (s: string) => createHash('md5').update(s).digest('hex');
@@ -63,3 +63,16 @@ export const countryName = (code?: string): string => {
   try { return COUNTRY?.of(code.toUpperCase()) ?? code; } catch { return code; }
 };
 export const joinPlace = (...parts: (string | undefined)[]) => parts.map((p) => (p ?? '').trim()).filter(Boolean).filter((p, i, a) => a.indexOf(p) === i).join(', ');
+
+/** A source's own record, quoted: a title and the specific fields it returned. Empty fields are dropped; nothing is invented. */
+export function rec(title: string, facts: [string, unknown][]): EvidenceRecord {
+  return {
+    title,
+    facts: facts
+      .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
+      .slice(0, 8)
+      .map(([k, v]) => [k, String(v).replace(/\s+/g, ' ').trim().slice(0, 180)] as [string, string]),
+  };
+}
+/** Attach one record to every claim read from it. */
+export const withRecord = (claims: Claim[], record: EvidenceRecord): Claim[] => claims.map((c) => ({ ...c, record }));

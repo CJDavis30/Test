@@ -6,6 +6,7 @@ import { useStore, keyOfNode } from '../lib/store';
 import { api } from '../lib/api';
 import { EntityGlyph } from '../lib/icons';
 import { Dots, download } from '../components/ui';
+import { explainRelation } from '@shared/explain';
 import { ago, fmtDate, plural, TYPE_ORDER, GROUP_LABEL, displayValue } from '../lib/format';
 
 // ------------------------------------------------------------------------------------------------ Table
@@ -87,7 +88,7 @@ export function TimelineView() {
                 <button key={f.id} className="tl-item" data-pending={f.status !== 'accepted'} onClick={() => open(f)}>
                   <span className="tl-date num">{fmtDate(f.when)}</span>
                   <span className="gl"><EntityGlyph type={f.type} size={14} /></span>
-                  <span className="grow" style={{ minWidth: 0 }}><span className="truncate selectable" style={{ display: 'block', fontWeight: 500 }}>{displayValue(f)}</span><span className="muted truncate" style={{ display: 'block', fontSize: 12 }}>{f.relation} · {subject(f)}{f.evidence[0]?.snippet ? ` · ${f.evidence[0].snippet}` : ''}</span></span>
+                  <span className="grow" style={{ minWidth: 0 }}><span className="truncate selectable" style={{ display: 'block', fontWeight: 500 }}>{displayValue(f)}</span><span className="muted truncate" style={{ display: 'block', fontSize: 12 }} title={explainRelation(f.relation, subject(f), displayValue(f))}>{explainRelation(f.relation, subject(f), displayValue(f))}</span></span>
                   <Dots level={f.level} />
                 </button>
               ))}

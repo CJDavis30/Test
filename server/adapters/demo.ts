@@ -1,5 +1,5 @@
-import type { Claim, EntityType } from '../../shared/types';
-import { keyFor } from '../../shared/normalize';
+import type { Claim, EntityType, EvidenceRecord } from '../../shared/types';
+import { displayFor, keyFor, labelFor } from '../../shared/normalize';
 import type { Adapter } from './types';
 
 /**
@@ -63,7 +63,7 @@ const b2 = R('breach', 'PhotoShare (2021)', { date: '2021-02', classes: 'Emails,
 
 const LINKS: Link[] = [
   // identity
-  { a: mara, b: emailWork, rel: 'work email', back: 'belongs to', src: { reg: 0.85, code: 0.85, breach: 0.5, social: 0.6 }, snippet: 'Commit author email in 214 public commits' },
+  { a: mara, b: emailWork, rel: 'work email', back: 'belongs to', src: { reg: 0.85, code: 0.85, breach: 0.5, social: 0.6 }, snippet: '214 public commits' },
   { a: mara, b: emailPers, rel: 'personal email', back: 'belongs to', src: { breach: 0.7, code: 0.55, broker: 0.5 }, snippet: 'Listed in breach record alongside username "mlinden"' },
   { a: mara, b: emailSide, rel: 'side-project email', back: 'belongs to', src: { reg: 0.8, social: 0.6 }, snippet: 'WHOIS registrant contact for lindenmade.example', when: '2020-09-02' },
   { a: mara, b: phoneNew, rel: 'phone', back: 'belongs to', src: { broker: 0.6, social: 0.5 }, snippet: 'Austin area code 512, reported by 2 aggregators' },
@@ -72,6 +72,7 @@ const LINKS: Link[] = [
   { a: mara, b: uReddit, rel: 'username', back: 'used by', src: { social: 0.5, breach: 0.55 }, snippet: 'Same display name and city on profile' },
   { a: mara, b: uHn, rel: 'username', back: 'used by', src: { social: 0.5, code: 0.55 }, snippet: 'Bio links to maralinden GitHub' },
   { a: mara, b: img, rel: 'profile photo', back: 'photo of', src: { code: 0.9, social: 0.85 } },
+  { a: uReddit, b: namesake, rel: 'name on profile', back: 'username of', src: { social: 0.65 }, snippet: 'Profile bio: photographer in Stockholm' },
   { a: mara, b: namesake, rel: 'possible namesake', back: 'possible namesake', src: { broker: 0.3 }, snippet: 'Name match only. Different city, different profession' },
   { a: mara, b: R('person', 'Mara L. Linden'), rel: 'also known as', back: 'also known as', src: { social: 0.7, code: 0.6 } },
 
@@ -148,14 +149,66 @@ const LINKS: Link[] = [
   { a: mara, b: wallet, rel: 'payment address', back: 'belongs to', src: { archive: 0.5, social: 0.5 }, snippet: 'Posted as a tip-jar address on personal site' },
 ];
 
-const SOURCES: Record<SrcId, { id: string; name: string; family: string; reliability: number; delay: [number, number]; capability?: string }> = {
-  reg: { id: 'demo-registry', name: 'Registry & filings', family: 'demo-reg', reliability: 0.9, delay: [350, 900] },
-  social: { id: 'demo-social', name: 'Social index', family: 'demo-social', reliability: 0.78, delay: [600, 1500] },
-  code: { id: 'demo-code', name: 'Code hosts', family: 'demo-code', reliability: 0.85, delay: [450, 1100] },
-  breach: { id: 'demo-breach', name: 'Breach index', family: 'demo-breach', reliability: 0.82, delay: [900, 1700] },
-  archive: { id: 'demo-archive', name: 'Web archive', family: 'demo-archive', reliability: 0.7, delay: [1100, 2200] },
-  broker: { id: 'demo-broker', name: 'Data aggregators', family: 'demo-broker', reliability: 0.55, delay: [1300, 2400] },
+const SOURCES: Record<SrcId, { id: string; name: string; about: string; family: string; reliability: number; delay: [number, number] }> = {
+  reg: { id: 'demo-registry', name: 'Business & domain registry', about: 'Official company filings and domain registration records.', family: 'demo-reg', reliability: 0.9, delay: [350, 900] },
+  social: { id: 'demo-social', name: 'Social profiles', about: 'Public profile pages on social and professional networks.', family: 'demo-social', reliability: 0.78, delay: [600, 1500] },
+  code: { id: 'demo-code', name: 'Code platforms', about: 'Public activity on code-hosting sites: commits, repositories and profiles.', family: 'demo-code', reliability: 0.85, delay: [450, 1100] },
+  breach: { id: 'demo-breach', name: 'Breach database', about: 'Records from data breaches. Shows where an identifier was leaked, never passwords.', family: 'demo-breach', reliability: 0.82, delay: [900, 1700] },
+  archive: { id: 'demo-archive', name: 'Web archive', about: 'Old copies of web pages and historical DNS records.', family: 'demo-archive', reliability: 0.7, delay: [1100, 2200] },
+  broker: { id: 'demo-broker', name: 'Data aggregators', about: 'Commercial people-data brokers. Wide coverage, but often out of date.', family: 'demo-broker', reliability: 0.55, delay: [1300, 2400] },
 };
+
+/** What each kind of source would actually return: a record-shaped excerpt, not a sentence about it. */
+function excerpt(src: SrcId, A: Ref, B: Ref, rel: string): string {
+  const a = lbl(A), b = lbl(B);
+  const t = B.type, at = A.type;
+  switch (src) {
+    case 'reg':
+      if (t === 'org' && /registrar/.test(rel)) return `Registrar: ${b}`;
+      if (/registrant/.test(rel) || (at === 'domain' && t === 'person')) return `Registrant name: ${b}`;
+      if (t === 'ip') return `DNS A record: ${a} → ${b}`;
+      if (t === 'domain' && /subdomain/.test(rel)) return `TLS certificate lists the name ${b}`;
+      if (t === 'org') return `Company filing lists ${b}`;
+      if (t === 'person') return `Officers / contacts listed: ${b}`;
+      if (t === 'location') return `Registered address: ${b}`;
+      if (t === 'email') return `Contact email on file: ${b}`;
+      return `Record for ${a} lists “${b}”`;
+    case 'code':
+      if (at === 'email' && t === 'person') return `Commit author “${b}” <${a}>`;
+      if (t === 'email') return `Commit author email ${b} on commits by ${a}`;
+      if (t === 'account') return `Profile page ${b} lists ${a}`;
+      if (t === 'image') return `Avatar image attached to the profile for ${a}`;
+      return `Repository metadata and profile bios mention both ${a} and ${b}`;
+    case 'social':
+      if (t === 'account') return `Public profile found: ${b}`;
+      if (t === 'person') return `Profile name field: “${b}”`;
+      if (t === 'org') return `Profile “works at” field: “${b}”`;
+      if (t === 'location') return `Profile location field: “${b}”`;
+      if (t === 'image') return `Profile photo shown next to ${a}`;
+      if (t === 'email' || t === 'phone') return `Contact field on the profile: ${b}`;
+      return `Profile page shows ${a} together with ${b}`;
+    case 'breach':
+      return t === 'breach' ? `Appears in the breach “${b}”` : `Leaked record contains ${a} and ${b} in the same row`;
+    case 'archive':
+      if (t === 'url') return `Saved copy of ${b}`;
+      if (t === 'ip') return `Old DNS record: ${a} → ${b}`;
+      if (t === 'domain') return `Saved web pages exist under ${b}`;
+      return `Saved web page shows ${a} next to ${b}`;
+    case 'broker':
+      return `Aggregator profile: ${a} ↔ ${b} · last updated 2019 (often out of date)`;
+  }
+}
+
+/** Link-level detail ("214 public commits") belongs to the one source that could have seen it, not to all of them. */
+function detailOwner(l: Link): SrcId {
+  const t = l.snippet ?? '';
+  const has = (k: SrcId) => l.src[k] !== undefined;
+  const pick = (re: RegExp, k: SrcId) => (re.test(t) && has(k) ? k : null);
+  return pick(/commit|repo|GitHub|public email on profile/i, 'code') ?? pick(/breach|exposed|leak/i, 'breach') ?? pick(/WHOIS|registrant|registered|filings|agent|officer|certificate|registrar|dns/i, 'reg')
+    ?? pick(/archive|capture|passive|older records|last seen/i, 'archive') ?? pick(/aggregator|reported by/i, 'broker') ?? pick(/profile|bio|post|travel|display name|cross-link|team page|title|designer/i, 'social')
+    ?? (Object.keys(l.src) as SrcId[]).sort((x, y) => (l.src[y] ?? 0) - (l.src[x] ?? 0))[0];
+}
+const lbl = (r: Ref) => (r.type === 'phone' || r.type === 'email' ? displayFor(r.type, r.value) : labelFor(r.type, r.value, r.attrs));
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const FAST = process.env.PLEXUS_DEMO_FAST === '1';
@@ -163,10 +216,25 @@ const hash = (s: string) => { let h = 2166136261; for (const c of s) h = Math.im
 
 const same = (r: Ref, type: EntityType, key: string) => r.type === type && keyFor(r.type, r.value, r.attrs) === key;
 
-function claimFor(ref: Ref, rel: string, link: Link, w: number): Claim {
+const RECORD_TITLE: Record<SrcId, string> = { reg: 'Registry record', social: 'Public profile', code: 'Commit & profile data', breach: 'Breach record', archive: 'Saved web page', broker: 'Aggregator profile' };
+function recordFor(src: SrcId, A: Ref, B: Ref, rel: string, link: Link, detail: string): EvidenceRecord {
+  const facts: [string, string][] = [['Looked up', lbl(A)], ['Contains', lbl(B)], ['Relationship', rel]];
+  if (link.when) facts.push(['Date', link.when]);
+  if (detail) facts.push(['Detail', detail.replace(/^ · /, '')]);
+  if (src === 'broker') facts.push(['Last updated', '2019 (may be out of date)']);
+  if (src === 'breach' && B.type === 'breach' && B.attrs) facts.push(['Exposed data', String(B.attrs.classes ?? '')], ['Accounts affected', Number(B.attrs.count ?? 0).toLocaleString('en-US')]);
+  return { title: RECORD_TITLE[src], facts: facts.filter(([, v]) => v) };
+}
+
+function claimFor(ref: Ref, rel: string, link: Link, w: number, src: SrcId, lookedUp: Ref): Claim {
   const attrs = { ...(ref.attrs ?? {}) };
+  const note = excerpt(src, lookedUp, ref, rel);
+  // Extra detail from the link ("214 public commits") is shown only on the source that could have seen it, and only if it adds something.
+  const words = (link.snippet ?? '').toLowerCase().match(/[a-z0-9]{4,}/g) ?? [];
+  const novel = words.filter((w) => !note.toLowerCase().includes(w)).length > words.length * 0.4;
+  const detail = detailOwner(link) === src && link.snippet && novel ? ` · ${link.snippet.replace(/\.$/, '')}` : '';
   return {
-    type: ref.type, value: ref.value, relation: rel, weight: w, url: link.url, snippet: link.snippet, attrs,
+    type: ref.type, value: ref.value, relation: rel, weight: w, url: link.url, snippet: note + detail, attrs, record: recordFor(src, lookedUp, ref, rel, link, detail),
     conflictKey: link.conflict === 'hq' ? undefined : link.conflict, when: link.when,
   };
 }
@@ -191,7 +259,7 @@ function generic(type: EntityType, value: string, key: string, src: SrcId): Clai
 function make(src: SrcId): Adapter {
   const s = SOURCES[src];
   return {
-    id: s.id, name: `Demo · ${s.name}`, description: `Simulated ${s.name.toLowerCase()} (fictional data)`,
+    id: s.id, name: s.name, description: `${s.about} (Simulated, fictional data.)`,
     accepts: ['person', 'email', 'phone', 'username', 'domain', 'ip', 'url', 'org', 'location', 'account', 'wallet'],
     capability: 'demo', family: s.family, reliability: s.reliability, priority: 1, demo: true, selfTest: { type: 'email', value: 'mara.linden@northwind-labs.example' },
     async run(entity) {
@@ -201,8 +269,8 @@ function make(src: SrcId): Adapter {
       for (const l of LINKS) {
         const w = l.src[src];
         if (w === undefined) continue;
-        if (same(l.a, entity.type, entity.key)) { hit = true; out.push(claimFor(l.b, l.rel, l, w)); }
-        else if (same(l.b, entity.type, entity.key)) { hit = true; out.push(claimFor(l.a, l.back, l, w)); }
+        if (same(l.a, entity.type, entity.key)) { hit = true; out.push(claimFor(l.b, l.rel, l, w, src, l.a)); }
+        else if (same(l.b, entity.type, entity.key)) { hit = true; out.push(claimFor(l.a, l.back, l, w, src, l.b)); }
       }
       if (!hit) out.push(...generic(entity.type, entity.value, entity.key, src));
       return out;

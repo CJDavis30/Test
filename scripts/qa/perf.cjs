@@ -28,7 +28,7 @@ const SP = process.env.OUT || require('os').tmpdir();
   const scrollFps = await p.evaluate(async () => { const el = document.querySelector('.list-scroll'); let frames = 0; const t = performance.now(); return await new Promise((res) => { const tick = () => { el.scrollTop += 40; frames++; if (performance.now() - t > 1500) res(Math.round(frames / 1.5)); else requestAnimationFrame(tick); }; requestAnimationFrame(tick); }); });
   console.log('sheet scroll fps:', scrollFps);
   const t2 = Date.now(); await p.keyboard.press('Shift+A').catch(() => {}); 
-  await p.getByRole('button', { name: /Accept \d+ strong/ }).first().click(); await p.waitForTimeout(100);
+  await p.getByRole('button', { name: /Accept \d+ likely/ }).first().click(); await p.waitForTimeout(100);
   console.log('bulk accept ~200 → UI settled in ~', Date.now() - t2, 'ms');
   await p.screenshot({ path: `${SP}/plexus-perf-sheet.png` });
   console.log('errors:', errs.join('\n') || 'none'); await b.close();

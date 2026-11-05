@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS findings (
   id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE, run_id TEXT NOT NULL,
   subject_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
   type TEXT NOT NULL, value TEXT NOT NULL, key TEXT NOT NULL, relation TEXT NOT NULL,
-  attrs TEXT NOT NULL DEFAULT '{}', evidence TEXT NOT NULL DEFAULT '[]',
+  attrs TEXT NOT NULL DEFAULT '{}', evidence TEXT NOT NULL DEFAULT '[]', checks TEXT,
   score REAL NOT NULL DEFAULT 0, rank REAL NOT NULL DEFAULT 0, level INTEGER NOT NULL DEFAULT 1, reasons TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'pending', conflict_key TEXT, conflicts_with TEXT, when_at TEXT, created_at INTEGER NOT NULL,
   UNIQUE(case_id, subject_id, type, key)
@@ -63,6 +63,8 @@ export class Store {
   constructor(path = join(HOME, 'plexus.db')) {
     this.db = new DatabaseSync(path);
     this.db.exec(SCHEMA);
+    // Databases created before cross-checking existed get the new column; a second run finds it already there.
+    try { this.db.exec('ALTER TABLE findings ADD COLUMN checks TEXT'); } catch { /* column already exists */ }
   }
   close() { this.db.close(); }
 
@@ -193,7 +195,7 @@ export class Store {
   // ---- findings ---------------------------------------------------------
   private findingRow = (r: any): Finding => ({
     id: r.id, caseId: r.case_id, runId: r.run_id, subjectId: r.subject_id, type: r.type, value: r.value, key: r.key,
-    relation: r.relation, attrs: j(r.attrs, {}), evidence: j<Evidence[]>(r.evidence, []), score: r.score, rank: r.rank,
+    relation: r.relation, attrs: j(r.attrs, {}), evidence: j<Evidence[]>(r.evidence, []), checks: j(r.checks, undefined as any), score: r.score, rank: r.rank,
     level: r.level, reasons: j(r.reasons, []), status: r.status as FindingStatus, conflictKey: r.conflict_key ?? undefined,
     conflictsWith: j(r.conflicts_with, undefined as any), when: r.when_at ?? undefined, createdAt: r.created_at,
   });
@@ -209,12 +211,12 @@ export class Store {
     return r ? this.findingRow(r) : null;
   }
   saveFinding(f: Finding) {
-    this.db.prepare(`INSERT INTO findings(id,case_id,run_id,subject_id,type,value,key,relation,attrs,evidence,score,rank,level,reasons,status,conflict_key,conflicts_with,when_at,created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      ON CONFLICT(id) DO UPDATE SET run_id=excluded.run_id, relation=excluded.relation, attrs=excluded.attrs, evidence=excluded.evidence, score=excluded.score,
+    this.db.prepare(`INSERT INTO findings(id,case_id,run_id,subject_id,type,value,key,relation,attrs,evidence,checks,score,rank,level,reasons,status,conflict_key,conflicts_with,when_at,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET run_id=excluded.run_id, relation=excluded.relation, attrs=excluded.attrs, evidence=excluded.evidence, checks=excluded.checks, score=excluded.score,
         rank=excluded.rank, level=excluded.level, reasons=excluded.reasons, status=excluded.status, conflict_key=excluded.conflict_key,
         conflicts_with=excluded.conflicts_with, when_at=excluded.when_at`)
-      .run(f.id, f.caseId, f.runId, f.subjectId, f.type, f.value, f.key, f.relation, JSON.stringify(f.attrs), JSON.stringify(f.evidence),
+      .run(f.id, f.caseId, f.runId, f.subjectId, f.type, f.value, f.key, f.relation, JSON.stringify(f.attrs), JSON.stringify(f.evidence), f.checks ? JSON.stringify(f.checks) : null,
         f.score, f.rank, f.level, JSON.stringify(f.reasons), f.status, f.conflictKey ?? null, f.conflictsWith ? JSON.stringify(f.conflictsWith) : null, f.when ?? null, f.createdAt);
   }
   setFindingStatus(id: string, status: FindingStatus) { this.db.prepare('UPDATE findings SET status=? WHERE id=?').run(status, id); }

@@ -5,6 +5,7 @@ import { LEVEL_LABEL } from '@shared/types';
 import { ENTITY_LABEL } from '@shared/types';
 import { useStore } from '../lib/store';
 import { api } from '../lib/api';
+import { explainRelation } from '@shared/explain';
 import { GraphEngine, type Hover, type LayoutMode } from '../lib/graph';
 import { neighborhood, shortestPath } from '../lib/graphMath';
 import { EntityGlyph } from '../lib/icons';
@@ -180,7 +181,7 @@ export function GraphView() {
             <small>{ENTITY_LABEL[hn.type]} · {degree(hn.id)} link{degree(hn.id) === 1 ? '' : 's'}{hn.state === 'seed' ? ' · not yet reviewed' : ''}</small>
             {hn.level && <div style={{ marginTop: 4 }}><Dots level={hn.level} label /></div>}
           </>)}
-          {he && (<><b>{he.label}</b><small>{he.kind === 'inferred' ? 'Inferred link' : he.kind === 'manual' ? 'Added by you' : 'Backed by evidence'} · {LEVEL_LABEL[he.strength >= 0.85 ? 4 : he.strength >= 0.65 ? 3 : he.strength >= 0.4 ? 2 : 1]}</small></>)}
+          {he && (<><b>{nodeMap.get(he.from) && nodeMap.get(he.to) ? explainRelation(he.label, nodeMap.get(he.from)!.label, nodeMap.get(he.to)!.label) : he.label}</b><small>{he.kind === 'inferred' ? 'Inferred link' : he.kind === 'manual' ? 'Added by you' : 'Backed by evidence'} · {LEVEL_LABEL[he.strength >= 0.85 ? 4 : he.strength >= 0.65 ? 3 : he.strength >= 0.4 ? 2 : 1]}</small></>)}
         </div>
       )}
 

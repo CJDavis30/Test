@@ -1,15 +1,21 @@
 import type {
-  Brief, Claim, Evidence, Finding, GraphNode, NextStep, RunEvent, RunInfo, SourceProgress,
+  Brief, Claim, CrossCheck, EntityType, Evidence, Finding, GraphNode, NextStep, RunEvent, RunInfo, SourceProgress,
 } from '../shared/types';
-import { displayFor, keyFor, safeHttpUrl } from '../shared/normalize';
+import { displayFor, keyFor, labelFor, nameSimilarity, safeHttpUrl } from '../shared/normalize';
 import { rescore, ruleBrief, suggestNext } from '../shared/scoring';
 import { CAPABILITY_MODE, NeedsKeyError, RateLimitedError, type Adapter } from './adapters/types';
 import { makeCtx, Throttle } from './http';
 import { adaptersFor, reliabilityFn, usable, priorityOf } from './registry';
 import { getSecret } from './config';
 import { uid, type Store } from './store';
+import { howFor, lookupUrl } from './adapters/how';
 
 const MAX_CLAIMS_PER_ADAPTER = 150;
+const CROSS_ID = 'cross-check';
+const MAX_CROSSCHECK = 8;               // findings cross-checked per lookup
+const MAX_CALLS_PER_CANDIDATE = 3;     // other sources asked about each one
+const CROSSCHECK_BUDGET_MS = 25_000;   // the whole pass never holds the results hostage
+const NO_CROSSCHECK = new Set(['username-sweep', 'derive', 'wikidata', 'phone-offline', 'blockstream']);
 
 /** Turn low-level fetch errors into something a person can act on. */
 export function friendlyError(err: any): string {
@@ -119,7 +125,7 @@ export class Orchestrator {
 
     const known = new Map<string, Finding>(store.listFindings(subject.caseId, { subjectId: subject.id }).map((f) => [f.id, f]));
     const byKey = new Map<string, Finding>([...known.values()].map((f) => [`${f.type}|${f.key}`, f]));
-    const snapshot = (f: Finding) => `${f.score.toFixed(4)}|${f.rank.toFixed(4)}|${f.evidence.length}|${f.status}|${(f.conflictsWith ?? []).join()}`;
+    const snapshot = (f: Finding) => `${f.score.toFixed(4)}|${f.rank.toFixed(4)}|${f.evidence.length}|${(f.checks ?? []).length}|${f.status}|${(f.conflictsWith ?? []).join()}`;
     let before = new Map([...known.values()].map((f) => [f.id, snapshot(f)]));
 
     const flush = () => {
@@ -141,8 +147,8 @@ export class Orchestrator {
         if (!k) continue;
         if (c.type === subject.type && k === key) continue; // never "discover" the subject itself
         const ev: Evidence = {
-          id: uid('ev_'), adapter: a.id, adapterName: a.name, family: a.family, url: safeHttpUrl(c.url),
-          snippet: c.snippet?.slice(0, 400), retrievedAt: now, weight: Math.min(1, Math.max(0.01, c.weight)),
+          id: uid('ev_'), adapter: a.id, adapterName: a.name, family: a.family, url: safeHttpUrl(c.url) ?? lookupUrl(a.id, subject.type, subject.value), urlKind: safeHttpUrl(c.url) ? 'record' : lookupUrl(a.id, subject.type, subject.value) ? 'lookup' : undefined,
+          snippet: c.snippet?.slice(0, 400), how: (c.how ?? howFor(a.id, subject.type, subject.value))?.slice(0, 240), kind: 'direct', record: c.record, retrievedAt: now, weight: Math.min(1, Math.max(0.01, c.weight)),
         };
         const mapKey = `${c.type}|${k}`;
         let f = byKey.get(mapKey);
@@ -165,28 +171,18 @@ export class Orchestrator {
     };
 
     const runOne = async (a: Adapter): Promise<number> => {
-      const cacheKey = `${a.id}|${subject.type}|${key}`;
       const t0 = Date.now();
       setProgress(a.id, { state: 'running' });
       await this.sem.acquire();
       try {
         if (ctl.signal.aborted) throw new Error('Cancelled');
-        const cached = store.cacheGet<Claim[]>(cacheKey);
-        let claims: Claim[];
-        if (cached) {
-          claims = cached;
-        } else {
-          await this.throttle.wait(a.id, a.minIntervalMs ?? 0);
-          const sig = AbortSignal.any([ctl.signal, AbortSignal.timeout(ADAPTER_TIMEOUT_MS)]);
-          claims = await this.withRetry(() => a.run({ type: subject.type, value: subject.value, key }, makeCtx(sig, getSecret(a.id))), sig);
-          store.cachePut(cacheKey, a.cacheTtlMs ?? 6 * 3600_000, claims);
-        }
+        const { claims, cached } = await this.fetchClaims(a, subject.type, subject.value, ctl.signal);
         const ms = Date.now() - t0;
         store.recordSource(a.id, true, ms);
         merge(a, claims);
         flush();
         const n = claims.length;
-        setProgress(a.id, { state: n ? 'done' : 'empty', count: n, ms, cached: !!cached });
+        setProgress(a.id, { state: n ? 'done' : 'empty', count: n, ms, cached });
         return n;
       } catch (err: any) {
         const ms = Date.now() - t0;
@@ -227,6 +223,16 @@ export class Orchestrator {
     await Promise.all([...chains.entries()].map(([cap, list]) => runChain(cap, list)));
     flush();
 
+    // Second pass: don't take first answers on trust. Ask other sources about what we found and see whether it holds together.
+    if (!ctl.signal.aborted && store.getSetting<boolean>('crossCheck', true)) {
+      const subjectLabel = labelFor(subject.type, subject.value);
+      const stats = await this.crossCheck({
+        subject, subjectKey: key, subjectLabel, ctl, byKey, flush,
+        onProgress: (patch) => { if (!progress.has(CROSS_ID)) progress.set(CROSS_ID, { adapter: CROSS_ID, name: 'Cross-checking findings', capability: 'verify', state: 'running', count: 0 }); setProgress(CROSS_ID, patch); },
+      });
+      void stats;
+    }
+
     // Brief + next steps from everything now known for this subject.
     const finalFindings = [...byKey.values()];
     const ids = citationIds(finalFindings);
@@ -248,6 +254,147 @@ export class Orchestrator {
     const done: RunInfo = { ...run, status: 'done', finishedAt: Date.now() };
     this.hub.push(run.id, { t: 'run.done', run: done, totals: { findings: finalFindings.length, sources: sources.length, ok } });
     this.hub.retire(run.id);
+  }
+
+  /** One source, one question, cached and rate-limited. Shared by the main lookup and the cross-check pass. */
+  private async fetchClaims(a: Adapter, type: EntityType, value: string, signal: AbortSignal): Promise<{ claims: Claim[]; cached: boolean }> {
+    const key = keyFor(type, value);
+    const cacheKey = `${a.id}|${type}|${key}`;
+    const hit = this.store.cacheGet<Claim[]>(cacheKey);
+    if (hit) return { claims: hit, cached: true };
+    await this.throttle.wait(a.id, a.minIntervalMs ?? 0);
+    const sig = AbortSignal.any([signal, AbortSignal.timeout(ADAPTER_TIMEOUT_MS)]);
+    const claims = await this.withRetry(() => a.run({ type, value, key }, makeCtx(sig, getSecret(a.id))), sig);
+    this.store.cachePut(cacheKey, a.cacheTtlMs ?? 6 * 3600_000, claims);
+    return { claims, cached: false };
+  }
+
+  /**
+   * Cross-check: for each promising finding, ask OTHER sources about it and compare the answer with everything we know.
+   *  - link back:   the answer mentions what you searched              → strong support
+   *  - shared:      the answer shows a detail we found elsewhere       → support for both findings
+   *  - contradicts: the answer shows a different name/place/employer   → counts against it
+   * Every piece of evidence added here quotes what the other source actually returned. Nothing is inferred without a match.
+   */
+  private async crossCheck(o: {
+    subject: GraphNode; subjectKey: string; subjectLabel: string; ctl: AbortController; byKey: Map<string, Finding>; flush: () => void;
+    onProgress: (patch: Partial<SourceProgress>) => void;
+  }): Promise<{ checked: number; added: number }> {
+    const { store } = this;
+    const { subject, subjectKey, subjectLabel, ctl, byKey } = o;
+    const identityish = ['email', 'person', 'username', 'org'].includes(subject.type);
+    const candTypes = new Set<EntityType>(['username', 'email', 'wallet', ...(identityish ? (['domain'] as EntityType[]) : [])]);
+    const cands = [...byKey.values()]
+      .filter((f) => f.status !== 'rejected' && candTypes.has(f.type) && f.score >= 0.12 && !(f.type === subject.type && f.key === subjectKey))
+      .sort((a, b) => b.rank - a.rank).slice(0, MAX_CROSSCHECK);
+    if (!cands.length) return { checked: 0, added: 0 };
+
+    o.onProgress({ state: 'running', note: `0 of ${cands.length}` });
+    const crossSig = AbortSignal.any([ctl.signal, AbortSignal.timeout(CROSSCHECK_BUDGET_MS)]);
+    const now = Date.now();
+    let done = 0, added = 0;
+    const seen = new Set<string>();
+    const known = (type: EntityType) => [...byKey.values()].filter((g) => g.type === type && g.status !== 'rejected' && g.score >= 0.45).map((g) => g.value);
+    const push = (target: Finding, ev: Evidence, result: CrossCheck['result'], note: string, via: Finding) => {
+      const dedupe = `${target.id}|${ev.adapter}|${via.id}|${ev.polarity ?? 'for'}`;
+      if (seen.has(dedupe)) return;
+      seen.add(dedupe);
+      // the same source saying the same thing again (about a different username, say) adds clutter, not information
+      if (target.evidence.some((e) => e.adapter === ev.adapter && e.snippet === ev.snippet && (e.polarity ?? 'for') === (ev.polarity ?? 'for'))) return;
+      target.evidence.push(ev);
+      (target.checks ??= []).push({ adapter: ev.adapter, source: ev.adapterName, result, note });
+      added++;
+    };
+
+    // Phase 1: ask. Gather every answer first so judging does not depend on which request happened to finish first.
+    const gathered = await Promise.all(cands.map(async (f) => {
+      const groups = new Map<string, Adapter[]>();
+      for (const a of adaptersFor(store, f.type)) {
+        if (!usable(store, a).ok || NO_CROSSCHECK.has(a.id)) continue;
+        (groups.get(a.capability) ?? groups.set(a.capability, []).get(a.capability)!).push(a);
+      }
+      for (const l of groups.values()) l.sort((x, y) => priorityOf(store, x) - priorityOf(store, y));
+      const answers: { a: Adapter; claims: Claim[] }[] = [];
+      let calls = 0;
+      for (const [cap, list] of groups) {
+        for (const a of list) {
+          if (calls >= MAX_CALLS_PER_CANDIDATE || crossSig.aborted) break;
+          await this.sem.acquire();
+          try {
+            const r = await this.fetchClaims(a, f.type, f.value, crossSig);
+            calls++;
+            if (r.claims.length) answers.push({ a, claims: r.claims });
+            else (f.checks ??= []).push({ adapter: a.id, source: a.name, result: 'neutral', note: 'Nothing found there for this.' });
+            if ((CAPABILITY_MODE[cap] ?? 'all') === 'first' && r.claims.length) break;
+          } catch { (f.checks ??= []).push({ adapter: a.id, source: a.name, result: 'failed', note: 'Could not be reached.' }); calls++; }
+          finally { this.sem.release(); }
+        }
+      }
+      done++;
+      o.onProgress({ state: 'running', note: `${done} of ${cands.length}` });
+      return { f, answers, via: { findingId: f.id, label: labelFor(f.type, f.value, f.attrs) } };
+    }));
+
+    const mkEvidence = (a: Adapter, f: Finding, via: { findingId: string; label: string }, c: Claim, w: number, polarity: 'for' | 'against', verdict: string): Evidence => ({
+      id: uid('ev_'), adapter: a.id, adapterName: a.name, family: a.family, url: safeHttpUrl(c.url) ?? lookupUrl(a.id, f.type, f.value), urlKind: safeHttpUrl(c.url) ? 'record' : lookupUrl(a.id, f.type, f.value) ? 'lookup' : undefined, snippet: c.snippet?.slice(0, 400),
+      how: `${howFor(a.id, f.type, f.value) ?? `Asked ${a.name}`} (to check a ${f.type} found for ${subjectLabel})`.slice(0, 260),
+      kind: 'cross', polarity, record: c.record, verdict, via, retrievedAt: now, weight: Math.min(0.95, Math.max(0.05, w)),
+    });
+    const matched = new Map<string, Set<string>>(); // `${findingId}|${adapterId}` -> keys the answer already matched
+
+    // Phase 2: confirmations. A link back to what you searched, or a detail we also found elsewhere.
+    for (const { f, answers, via } of gathered) {
+      for (const { a, claims } of answers) {
+        const keys = new Set<string>();
+        matched.set(`${f.id}|${a.id}`, keys);
+        let confirmed = false;
+        for (const c of claims.slice(0, 200)) {
+          const ck = keyFor(c.type, c.value, c.attrs);
+          if (!ck) continue;
+          if (c.type === subject.type && ck === subjectKey) {
+            keys.add(`${c.type}|${ck}`);
+            push(f, mkEvidence(a, f, via, c, 0.55 + c.weight * 0.4, 'for', `It lists ${subjectLabel} (${c.relation}).`), 'confirms', `Links back to ${subjectLabel}.`, f);
+            confirmed = true;
+            continue;
+          }
+          const g = byKey.get(`${c.type}|${ck}`);
+          // A namesake or a famous person with a similar name is a warning, not a fact to be corroborated.
+          if (g && g.id !== f.id && g.status !== 'rejected' && !/namesake|public-figure/.test(g.relation)) {
+            keys.add(`${c.type}|${ck}`);
+            const shown = labelFor(c.type, c.value, c.attrs);
+            push(f, mkEvidence(a, f, via, c, c.weight * 0.75, 'for', `It also shows ${shown}, which we found for ${subjectLabel} too.`), 'confirms', `Also shows ${shown}.`, f);
+            push(g, mkEvidence(a, f, via, c, c.weight * 0.75, 'for', `Shown on this source's record for “${via.label}”, which we found for ${subjectLabel}.`), 'confirms', `Shown on the record for “${via.label}”.`, f);
+            confirmed = true;
+          }
+        }
+        if (!confirmed) (f as Finding & { _unconfirmed?: Set<string> })._unconfirmed = (f as Finding & { _unconfirmed?: Set<string> })._unconfirmed ?? new Set(), (f as Finding & { _unconfirmed?: Set<string> })._unconfirmed!.add(a.id);
+      }
+    }
+    o.flush(); // re-score now, so contradictions are judged against what the confirmations established
+
+    // Phase 3: contradictions. A different name, place or employer than the ones we are now fairly sure of.
+    for (const { f, answers, via } of gathered) {
+      for (const { a, claims } of answers) {
+        const keys = matched.get(`${f.id}|${a.id}`) ?? new Set<string>();
+        let contradicted = false;
+        for (const type of ['person', 'location', 'org'] as const) {
+          const theirs = claims.filter((c) => c.type === type && !keys.has(`${c.type}|${keyFor(c.type, c.value, c.attrs)}`) && !/namesake|public-figure/.test(c.relation));
+          const mine = [...known(type), ...(subject.type === type ? [subject.value] : [])];
+          if (!theirs.length || !mine.length) continue;
+          const c = theirs[0];
+          const best = mine.map((m) => ({ m, sim: nameSimilarity(c.value, m) })).sort((x, y) => y.sim - x.sim)[0];
+          if (best.sim >= (type === 'location' ? 0.88 : 0.9)) continue;
+          push(f, mkEvidence(a, f, via, c, type === 'person' ? 0.75 : 0.5, 'against', `It shows the ${type === 'org' ? 'employer' : type} “${labelFor(c.type, c.value)}”, which does not match “${best.m}”.`), 'contradicts', `Shows “${labelFor(c.type, c.value)}” instead of “${best.m}”.`, f);
+          contradicted = true;
+        }
+        const unconfirmed = (f as Finding & { _unconfirmed?: Set<string> })._unconfirmed?.has(a.id);
+        if (unconfirmed && !contradicted) (f.checks ??= []).push({ adapter: a.id, source: a.name, result: 'neutral', note: 'Found a record, but nothing in it confirms or contradicts the link.' });
+      }
+      delete (f as Finding & { _unconfirmed?: Set<string> })._unconfirmed;
+    }
+    o.onProgress({ state: added ? 'done' : 'empty', count: added, note: `Checked ${cands.length} finding${cands.length > 1 ? 's' : ''} against other sources` });
+    o.flush();
+    return { checked: cands.length, added };
   }
 
   private async withRetry<T>(fn: () => Promise<T>, signal: AbortSignal): Promise<T> {

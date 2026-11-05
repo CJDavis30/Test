@@ -1,4 +1,5 @@
 import type { Claim } from '../../shared/types';
+import { rec, withRecord } from './live/util';
 import type { Adapter } from './types';
 
 const FREE_MAIL = new Set(['gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'yahoo.com', 'icloud.com', 'me.com', 'proton.me', 'protonmail.com', 'aol.com', 'gmx.com', 'mail.com', 'fastmail.com', 'zoho.com', 'yandex.com', 'mailbox.example']);
@@ -13,9 +14,9 @@ export const derive: Adapter = {
     const out: Claim[] = [];
     if (e.type === 'email') {
       const [local, domain] = e.value.toLowerCase().split('@');
-      if (domain && !FREE_MAIL.has(domain)) out.push({ type: 'domain', value: domain, relation: 'mailbox at', weight: 0.98, snippet: 'Domain portion of the email address' });
+      if (domain && !FREE_MAIL.has(domain)) out.push({ type: 'domain', value: domain, relation: 'mailbox at', weight: 0.98, snippet: 'Domain portion of the email address', record: rec('Read from the email address', [['Email', e.value], ['Part after the @', domain], ['Rule', 'Everything after the @ is the domain the mailbox lives on']]) });
       const handle = local.split('+')[0];
-      if (handle.length >= 4 && !ROLE.has(handle)) out.push({ type: 'username', value: handle, relation: 'possible handle', weight: 0.25, snippet: 'Email local part reused as a handle (weak)' });
+      if (handle.length >= 4 && !ROLE.has(handle)) out.push({ type: 'username', value: handle, relation: 'possible handle', weight: 0.25, snippet: 'Email local part reused as a handle (weak)', record: rec('Read from the email address', [['Email', e.value], ['Part before the @', handle], ['Rule', 'People often reuse this as a username. A guess, not a fact']]) });
     }
     if (e.type === 'url' || e.type === 'account') {
       try {
@@ -29,6 +30,6 @@ export const derive: Adapter = {
       const parts = e.value.split('.');
       if (parts.length > 2) out.push({ type: 'domain', value: parts.slice(-2).join('.'), relation: 'parent domain', weight: 0.9, snippet: 'Registrable parent (naive split — may be wrong for co.uk-style TLDs)' });
     }
-    return out;
+    return out.map((c) => (c.record ? c : { ...c, record: rec('Read from the input', [['Input', e.value], ['Derived', c.value], ['Rule', c.snippet ?? c.relation]]) }));
   },
 };
