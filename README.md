@@ -26,7 +26,7 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 358 unit/integration tests (they use a fictional test world that is not part of the app)
+npm test           # 573 unit/integration tests (they use a fictional test world that is not part of the app)
 npm run typecheck
 ```
 
@@ -145,6 +145,24 @@ Everything here is computed on this Mac from public data and from the identifier
 
 **Safeguards for young people.** Roblox and Discord are full of children. If a source shows what a subject says about their own age or school (never inferred from behaviour), Plexus flags the case, holds back from steps that point toward a real name, number, email or place, asks before you accept one, and points to reporting instead (platform safety forms, the police, NCMEC in the US). It can be wrong either way, so a person can override it and the override is logged. Live lookups also ask for a purpose once per case, written to the tamper-evident log; both can be turned off in Settings.
 
+### Photos and files (⌘K → *Analyze a photo, video or file*, or just drop one on the window)
+
+Reads what is inside a file, on this Mac, and puts the few facts that matter first: **where** (GPS with the direction the camera faced, and map, Street View and satellite links), **when** (with the timezone the device was set to, derived from the GPS clock when the camera did not record it), **who** (camera owner, author, last saver, tracked-change authors), **what with** (camera and serial number), and **what was done to it**. Works on JPEG, PNG, GIF, WebP, HEIC and TIFF photos, MP4/MOV video, PDF, Word/Excel/PowerPoint/OpenDocument, MP3/FLAC/WAV, Windows and Linux programs, and zip files.
+
+| It notices | How |
+|---|---|
+| Impossible or contradictory dates | modified before taken; camera clock vs GPS clock; timezone that cannot fit the place; a date in the future; file name vs capture time |
+| A picture edited after capture | the preview inside the file has a different shape from the picture (cropped), editing-software tags, Photoshop blocks, JPEG quality tables |
+| Hidden data | bytes after the end of a JPEG/PNG/PDF (and what they look like: a zip, a program…), embedded files |
+| AI-made images | Stable Diffusion, ComfyUI, NovelAI and similar settings in PNG text; declared AI source in XMP; Content Credentials (C2PA) detected |
+| Leaks inside | the Windows user name in a build path (`C:\Users\jsmith\…`), emails, network shares and server names, MAC addresses, API keys and tokens (masked, with a warning not to use them) |
+| A sky that does not fit | bright blue sky in a picture whose recorded place and time put the sun well below the horizon (NOAA solar position, measured in the browser) |
+| Same camera, same place | across the files in a case: identical files, look-alike pictures (difference hash), same camera serial, same spot, taken minutes apart |
+
+**Where was this picture taken, from the picture itself.** Uses your own AI model's vision (set a picture-reading model in Settings → AI). The picture is sent as pixels only (no metadata), three independent times, and the result is judged by how closely the three readings agree, never by what the model says about its own confidence: *city-level* needs 2+ readings within 25 km, *region* within 300 km, *country* within 1,500 km, and otherwise Plexus says there is no answer and lists candidates to check by hand. A cloud provider needs your confirmation every time. **When the photo also has real GPS, Plexus records how far the guess was, and shows you its measured accuracy on your own photos.** It is a strong lead on photos with distinctive signs and landmarks and weak on generic scenes; it has not been measured against a real model here, so run it on a few photos you know the answer to.
+
+**Link forensics** (in Decode): a Discord file link is dated to the second from its attachment ID, with the time the link was issued and when it expires; avatar links give the account's creation date; TikTok, X, Instagram and Wayback links give their post or capture time; trackers are stripped, redirect wrappers followed to the real destination, and identifying parameters (including base64-hidden ones) shown.
+
 ### Integrity and safety (chain of custody)
 
 - **Evidence fingerprints.** Every observation is sealed with a SHA-256 hash of exactly what Plexus recorded: the source, the question asked, the page, the quote, the record fields and the time. The fingerprint shows on each evidence row and in reports, and is re-checked on demand. The hash covers the *recorded* observation, not the raw network response, so it proves nothing was altered after capture, not that the source was truthful.
@@ -178,24 +196,27 @@ Views: **Graph**, **Table** (sortable/filterable), **Timeline** (every dated fac
 
 ## Sources
 
-31 sources ship in the box. Keys are optional unless noted. Settings → Sources lets you toggle, reorder fallback priority, add keys and **Test** each one.
+**90 sources** ship in the box, plus a username sweep that reads the 600+ site WhatsMyName list. 68 need no key; 22 use a key you add in Settings → Sources (13 need one, 9 are better with one). Settings lets you toggle, reorder fallback priority, add keys and **Test** each one, and **Test all sources** runs every source against a known example and tells you which work from your Mac and why the others do not (blocked, address gone, format changed, unreachable, rate limited), with one click to turn off the dead ones.
 
-| Question | Sources (in fallback order) |
+| Question | Sources |
 |---|---|
-| DNS | Cloudflare DoH → Google DoH |
-| Registration | RDAP (domain), RDAP (IP block) |
-| Subdomains | crt.sh → Cert Spotter |
-| Passive DNS | AlienVault OTX → HackerTarget |
-| Web history / scans | Wayback Machine · urlscan.io |
-| IP | Shodan InternetDB (ports/CVEs) · ipwho.is → ip-api (geo) |
-| Email → profile | Gravatar · EmailRep |
-| Breaches | HaveIBeenPwned (key) → XposedOrNot |
-| Profiles | GitHub (user + email → commit identities) · GitLab · Bluesky · Hacker News · DEV · Keybase (cryptographic proofs) · Reddit |
-| Username sweep | 22 sites, each guarded by a control check (see below) |
-| Phone | libphonenumber, offline |
-| Companies / public figures | GLEIF · Wikidata (deliberately weak) |
-| Bitcoin | Blockstream (balance, common-input co-spends) |
+| DNS, registration, certificates | Cloudflare and Google DoH · RDAP (domain, IP) · crt.sh · Cert Spotter · SecurityTrails (key) · the site's own security.txt and humans.txt |
+| Passive DNS, web history | AlienVault OTX · HackerTarget · Wayback Machine (availability and **first capture**) · urlscan.io |
+| IP address | Shodan InternetDB · Shodan (key) · ipwho.is · ip-api · ipinfo · ipapi.co · BGPView · RIPEstat (abuse contact) · GreyNoise · AbuseIPDB (key) · VirusTotal (key) |
+| Email | Gravatar · EmailRep · Hudson Rock infostealer exposure · HaveIBeenPwned (key) · XposedOrNot · LeakCheck |
+| Developer and social profiles | GitHub · GitLab · Codeberg · Bitbucket · npm (with public emails) · crates.io · Docker Hub · Hugging Face · Launchpad · Stack Overflow · Codeforces · Codewars · Bluesky · Mastodon (tries the big servers, reads verified links) · Lobsters · Hacker News · DEV · Keybase · Reddit · Telegram public pages · YouTube channels · Linktree (every link someone published) · Gravatar by name · Last.fm (key) |
+| Gaming | Roblox (profile, groups, earlier names) · Roblox similar names · Discord invites · Steam Community · Steam Web API (key) · Minecraft · Xbox · Lichess · Chess.com · speedrun.com · FACEIT (key) |
+| Username sweep | 22 hand-picked sites plus **600+ more from WhatsMyName**, each guarded by a control check; adult and dating sites are skipped |
+| People, research, records | OpenAlex · ORCID · US campaign donations (FEC) · US healthcare providers (NPI) · ICIJ Offshore Leaks · OpenSanctions (key) · GLEIF · Wikidata (deliberately weak) |
+| Places | OpenStreetMap (address ⇄ coordinates) · Wikipedia places nearby |
+| Blockchain | Blockstream · Blockchair (five chains) · ENS (the accounts and wallets an .eth name's owner published) |
+| Phone | libphonenumber offline · Veriphone (key) |
+| Web search | Brave Search (key) · Google through Serper (key) |
 | Domain emails | Hunter (key) |
+
+**Honest status.** These adapters are tested against recorded responses. From the build sandbox, a handful were also run against the real services: Bitbucket, crates.io, GitLab, npm and the security.txt reader worked; that run found and fixed a real bug (Docker Hub now answers with a different shape). The rest could not be reached from there, so use **Test all sources** on your Mac to see which of them work today.
+
+**Check elsewhere.** Every item has a *Check elsewhere* button: about 200 hand-check links across usernames, emails, phones, domains, IPs, people, companies, places, wallets and images (profile pages, WHOIS and DNS tools, breach checkers, court and company records, reverse image search, WhatsApp/Telegram/Signal number checks). Plexus only builds the links. People-search data brokers are left out on purpose.
 
 Design rules for sources: every response is parsed null-safely; 404 is "nothing", not an error; a total network failure is an **error**, never "no records"; and username sweeps only trust a site if a made-up username comes back *absent* (sites that answer 200 for everything are skipped, which removes the classic false-positive flood).
 
@@ -235,9 +256,9 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 358 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the fictional test world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
+- 573 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the fictional test world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
-- The UI in a real browser (Chromium): every view in light and dark; **158 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
+- The UI in a real browser (Chromium): every view in light and dark; **176 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
 - The production server bundle runs standalone and serves the app; `npm run dev` works including streaming through the proxy.
 - Behaviour when **every** source fails (this sandbox's reality): honest per-source errors, a "couldn't reach most sources" state, and no fake "nothing found".
@@ -264,6 +285,6 @@ web/       React UI: design system, canvas graph engine, findings sheet, views, 
 desktop/   Electron shell + tested helpers
 scripts/mac/ install / update / uninstall
 assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
-test/      358 tests (test/world/ holds the fictional world, test-only)
+test/      573 tests (test/world/ holds the fictional world, test-only)
 scripts/qa/  browser end-to-end + stress scripts
 ```

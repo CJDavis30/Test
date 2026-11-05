@@ -48,3 +48,5 @@
 .integrity li.y svg { color: var(--lvl4); } .integrity li.n { color: var(--danger); }
 .fp { font-family: var(--mono); font-size: 11px; cursor: help; }
 .src .tag { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; height: 18px; border-radius: 6px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: 1px; white-space: nowrap; }
+
+.doctor { margin: 4px 0 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }

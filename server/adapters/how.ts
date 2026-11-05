@@ -100,6 +100,9 @@ const LOOKUP: Record<string, (type: EntityType, v: string) => string | undefined
 
 function require_md5(v: string) { return createHash('md5').update(v.trim().toLowerCase()).digest('hex'); }
 
+/** Lets a source describe its own "repeat this by hand" page without editing the table above. */
+export const extendLookup = (more: Record<string, (type: EntityType, v: string) => string | undefined>) => { Object.assign(LOOKUP, more); };
+
 export function lookupUrl(adapterId: string, type: EntityType, query: string): string | undefined {
   try { return LOOKUP[adapterId]?.(type, query); } catch { return undefined; }
 }

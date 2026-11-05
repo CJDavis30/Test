@@ -40,6 +40,8 @@ export interface Adapter {
   /** Minimum ms between calls (rate limiting). */
   minIntervalMs?: number;
   cacheTtlMs?: number;
+  /** How long one lookup may take before it is cut off (default 30 s). Wide sweeps ask for more and return partial results. */
+  timeoutMs?: number;
   /** Used by Settings → Sources → Test. Must be a stable, harmless public example. */
   selfTest: { type: EntityType; value: string };
   /** Offline demo adapters only run in demo mode, and live ones never run in demo mode. */

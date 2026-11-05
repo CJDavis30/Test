@@ -25,6 +25,7 @@ import { ledger } from '../shared/ledger';
 import { signer } from './signing';
 import { careOf, minorCareOn, purposeOk, setCare } from './safeguards';
 import { analyzeFile } from './files/analyze';
+import { doctor } from './doctor';
 import { linkFiles, type FileBrief } from '../shared/forensics/filelinks';
 import { geolocate, visionStatus, recordGeo, calibration, type GeoRecord } from './geolocate';
 import { buildPackageHtml, buildPayload } from './evidencePackage';
@@ -477,6 +478,8 @@ export async function createApp(store = new Store()) {
 
   // --- sources & settings -------------------------------------------------------------------------------------
   app.get('/api/sources', (c) => c.json({ sources: sourceInfo(store) }));
+  app.get('/api/sources/doctor', (c) => c.json(doctor.state(store)));
+  app.post('/api/sources/doctor', (c) => c.json(doctor.start(store)));
   app.patch('/api/sources/:id', async (c) => {
     const b = await body<{ enabled?: boolean; priority?: number }>(c);
     const id = c.req.param('id');

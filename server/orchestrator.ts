@@ -274,7 +274,7 @@ export class Orchestrator {
     const gate = breaker.allow(a.id);
     if (!gate.ok) throw new PausedError(gate.until, gate.fails);
     await this.throttle.wait(a.id, a.minIntervalMs ?? 0);
-    const sig = AbortSignal.any([signal, AbortSignal.timeout(ADAPTER_TIMEOUT_MS)]);
+    const sig = AbortSignal.any([signal, AbortSignal.timeout(a.timeoutMs ?? ADAPTER_TIMEOUT_MS)]);
     let claims: Claim[];
     try {
       claims = await this.withRetry(() => a.run({ type, value, key }, makeCtx(sig, getSecret(a.id))), sig);

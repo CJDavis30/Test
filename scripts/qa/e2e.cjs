@@ -294,6 +294,14 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
   await section('inspector: notes autosave, rename, pin button', async () => {
     const n = (await S()).nodes.find((x) => x.type === 'domain') || (await S()).nodes[(await S()).nodes.length - 1];
     const P1 = await nodePos(n.label); await p.mouse.click(P1.x, P1.y); await settle(600);
+    // check elsewhere: a library of places to look this up by hand
+    await p.getByRole('button', { name: /Check elsewhere/ }).click(); await settle(300);
+    const piv = await p.locator('.pivot-pop').innerText();
+    ok((await p.locator('.pivot-link').count()) >= 6, 'Check elsewhere lists places to look (' + (await p.locator('.pivot-link').count()) + ')');
+    ok(/places to look/.test(piv) && /nothing is sent/i.test(piv), 'and says nothing is sent from the app');
+    ok((await p.locator('.pivot-link').first().getAttribute('href')).startsWith('https://') && (await p.locator('.pivot-link').first().getAttribute('rel')).includes('noopener'), 'links open safely in the browser');
+    await p.getByRole('button', { name: /Check elsewhere/ }).click(); await settle(300);
+    ok(await p.locator('.pivot-pop').count() === 0, 'it closes again');
     await p.getByRole('tab', { name: 'Notes' }).click();
     await p.locator('.insp-body textarea').fill('verify registrar before onboarding'); await settle(1400);
     const snap = await api('GET', `/api/cases/${(await S()).caseId}`);
@@ -376,6 +384,9 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
   await section('settings: toggles, keys, tests, AI, audit, demo/region', async () => {
     await p.keyboard.press('Control+,'); await settle(500);
     await p.locator('.settings nav').getByRole('button', { name: 'Sources', exact: true }).click(); await settle(500);
+    // source doctor: tests every source and reports which work
+    await p.getByRole('button', { name: /^Test all sources/ }).click(); await settle(700);
+    ok(/Testing… \d+ of \d+|Test all sources again/.test(await p.locator('.doctor').innerText()), 'Test all sources starts and shows progress');
     const before = (await api('GET', '/api/sources')).sources.find((x) => x.id === 'demo-broker');
     await p.locator('.src', { hasText: 'Data aggregators' }).locator('button[role=switch]').click(); await settle(500);
     const after = (await api('GET', '/api/sources')).sources.find((x) => x.id === 'demo-broker');

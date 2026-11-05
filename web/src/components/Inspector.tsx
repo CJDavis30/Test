@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, FolderOpen, Pin, PinOff, Copy, Trash2, Route, Link2, Merge, ExternalLink, X } from 'lucide-react';
+import { Play, FolderOpen, Pin, PinOff, Copy, Trash2, Route, Link2, Merge, ExternalLink, X, Globe2 } from 'lucide-react';
 import { ENTITY_LABEL, LEVEL_LABEL, type EntityType, type Finding, type GraphNode } from '@shared/types';
 import { keyFor, initials, safeHttpUrl, safeImageSrc } from '@shared/normalize';
 import { useStore } from '../lib/store';
@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 import { EntityGlyph } from '../lib/icons';
 import { ago, fmtDate, hostOf, plural, TYPE_ORDER, GROUP_LABEL } from '../lib/format';
 import { Dots } from './ui';
+import { pivotsFor, pivotCount } from '@shared/pivots';
 import { ConnectionPath, SourceCards } from './FindingDetail';
 import { explainRelation } from '@shared/explain';
 import { displayValue } from '../lib/format';
@@ -88,6 +89,7 @@ function NodePanel({ node }: { node: GraphNode }) {
       <div className="insp-actions">
         <button className="btn sm primary" onClick={() => void s.openNode(node.id)}><FolderOpen size={13} /> {pendingCount > 0 ? `Review ${pendingCount}` : 'Findings'}</button>
         <button className="btn sm" disabled={running} onClick={() => void s.runNode(node.id)}><Play size={13} /> Run checks</button>
+        <CheckElsewhere type={node.type} value={node.value} />
         <button className="btn sm ghost icon" aria-label={node.pinned ? 'Unpin' : 'Pin'} title={node.pinned ? 'Unpin' : 'Pin in place'} onClick={() => void s.patchNode(node.id, { pinned: !node.pinned })}>{node.pinned ? <PinOff size={14} /> : <Pin size={14} />}</button>
         <button className="btn sm ghost icon" aria-label="Copy value" title="Copy value" onClick={() => { void navigator.clipboard?.writeText(node.value); s.toast('Copied'); }}><Copy size={14} /></button>
         <button className="btn sm ghost icon danger" aria-label="Remove" title="Remove from graph" onClick={() => void s.removeNodes([node.id])}><Trash2 size={14} /></button>
@@ -231,5 +233,36 @@ function ActivityTab({ node }: { node: GraphNode }) {
         {others.length > 0 && <select className="field" style={{ height: 28 }} defaultValue="" onChange={(e) => { if (e.target.value) s.setMatchLab({ a: node.id, b: e.target.value }); }} aria-label="Compare with another account"><option value="">Compare with…</option>{others.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>}
       </div>
     </>
+  );
+}
+
+
+/** Hundreds of places to look something up by hand: sites that need a login or a person's judgement. Plexus only builds the links. */
+function CheckElsewhere({ type, value }: { type: EntityType; value: string }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLSpanElement>(null);
+  const groups = useMemo(() => pivotsFor(type, value), [type, value]);
+  useEffect(() => {
+    if (!open) return;
+    // close on a click anywhere outside this button and its panel (the button itself toggles)
+    const down = (e: MouseEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', down); document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
+  }, [open]);
+  if (!groups.length) return null;
+  return (
+    <span ref={wrap} style={{ position: 'relative', display: 'inline-flex' }}>
+      <button className="btn sm" aria-expanded={open} onClick={() => setOpen(!open)} title="Open this in other tools and sites"><Globe2 size={13} /> Check elsewhere</button>
+      {open && (
+        <div className="menu pivot-pop" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0 }}>
+          <div className="pivot-head">{pivotCount(groups)} places to look, opened in your browser. Nothing is sent from here.</div>
+          {groups.map((g) => (
+            <div key={g.group} className="pivot-group"><div className="pivot-title">{g.group}</div>
+              <div className="pivot-links">{g.links.map((l) => <a key={l.url + l.label} className="pivot-link" href={l.url} target="_blank" rel="noreferrer noopener" title={l.note ?? l.url}>{l.label}{l.note ? <small>{l.note}</small> : null}</a>)}</div></div>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { X, Sliders, KeyRound, Cpu, ScrollText, Check, ArrowUp, ArrowDown, LoaderCircle, Trash2, Download, Search, ShieldCheck, ShieldAlert, HardDriveDownload } from 'lucide-react';
+import { X, Sliders, KeyRound, Cpu, ScrollText, Check, ArrowUp, ArrowDown, LoaderCircle, Trash2, Download, Search, ShieldCheck, ShieldAlert, HardDriveDownload, Stethoscope } from 'lucide-react';
 import { ENTITY_LABEL, type AuditEntry, type SourceInfo } from '@shared/types';
 import { useStore, askConfirm, type SettingsTab } from '../lib/store';
+import type { DoctorState, DoctorRow } from '../../../server/doctor';
 import { api } from '../lib/api';
 import { EntityGlyph } from '../lib/icons';
 import { Switch, download, csvCell, useDialog } from './ui';
@@ -11,7 +12,8 @@ const REGIONS = ['US', 'GB', 'CA', 'AU', 'IE', 'NZ', 'DE', 'FR', 'ES', 'IT', 'NL
 const CAP_LABEL: Record<string, string> = {
   derive: 'Derived from the input', dns: 'DNS records', registration: 'Registration (RDAP/WHOIS)', subdomains: 'Subdomains & certificates', 'passive-dns': 'Passive DNS', 'web-history': 'Web history',
   'ip-intel': 'IP intelligence', geoip: 'IP geolocation', 'email-profile': 'Email profiles', 'email-reputation': 'Email reputation', breaches: 'Data breaches', 'code-profile': 'Developer & social profiles',
-  'username-sweep': 'Username sweep', 'phone-intel': 'Phone numbers', 'org-registry': 'Company registries', 'public-figure': 'Public figures', chain: 'Blockchain', 'domain-emails': 'Domain emails', demo: 'Demo',
+  'username-sweep': 'Username sweep', 'phone-intel': 'Phone numbers', 'org-registry': 'Company registries', 'public-figure': 'People, research & watch lists', chain: 'Blockchain & ENS', 'domain-emails': 'Domain emails',
+  'gaming-profile': 'Gaming profiles', activity: 'Activity & clocks', 'ip-registration': 'Network ownership', 'ip-ports': 'Open ports & services', 'web-scans': 'Web scans & reputation', 'web-files': 'Files a site publishes', 'web-first-seen': 'Earliest web history', 'ip-noise': 'Internet background noise', 'ip-reputation': 'IP abuse reports', 'subdomains-extra': 'More subdomains', places: 'Places & addresses', infostealers: 'Infostealer exposure', 'web-search': 'Web search results',
 };
 const FALLBACK = new Set(['dns', 'registration', 'subdomains', 'passive-dns', 'web-history', 'ip-intel', 'geoip', 'email-reputation', 'breaches', 'domain-emails']);
 
@@ -80,9 +82,18 @@ function Sources() {
   const list = s.sources.filter((x) => !q || `${x.name} ${x.description}`.toLowerCase().includes(q.toLowerCase())).filter((x) => only === 'all' || (only === 'key' ? x.requiresKey && !x.keySet : !(x.requiresKey && !x.keyOptional && !x.keySet)));
   const groups = useMemo(() => { const m = new Map<string, SourceInfo[]>(); for (const x of list) (m.get(x.capability) ?? m.set(x.capability, []).get(x.capability)!).push(x); return [...m.entries()]; }, [list]);
   const ready = s.sources.filter((x) => x.enabled && !(x.requiresKey && !x.keyOptional && !x.keySet)).length;
+  const [doc, setDoc] = useState<DoctorState | null>(null);
+  useEffect(() => { api.get<DoctorState>('/api/sources/doctor').then(setDoc).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!doc?.running) return;
+    const t = setInterval(() => api.get<DoctorState>('/api/sources/doctor').then((d) => { setDoc(d); if (!d.running) void s.refreshSources(); }).catch(() => {}), 900);
+    return () => clearInterval(t);
+  }, [doc?.running]);  // eslint-disable-line
+  const startDoctor = async () => setDoc(await api.post<DoctorState>('/api/sources/doctor'));
   return (
     <>
       <h2>Sources</h2>
+      <Doctor doc={doc} onStart={startDoctor} />
       <p className="lead">{`${ready} of ${s.sources.length} sources ready. Where several sources answer the same question, Plexus tries them in order and falls back to the next if one fails, is empty or rate-limited.`}</p>
       <div className="filters">
         {([['all', 'All'], ['ready', 'Ready'], ['key', 'Needs key']] as const).map(([id, l]) => <button key={id} className="fchip" aria-pressed={only === id} onClick={() => setOnly(id)}>{l}</button>)}
@@ -91,7 +102,7 @@ function Sources() {
       {groups.map(([cap, items]) => (
         <section key={cap}>
           <div className="cap">{CAP_LABEL[cap] ?? cap}{FALLBACK.has(cap) && items.length > 1 && <span className="chain faint">· fallback order</span>}</div>
-          {items.map((x, i) => <SourceRow key={x.id} x={x} first={i === 0} last={i === items.length - 1} siblings={items} />)}
+          {items.map((x, i) => <SourceRow key={x.id} x={x} first={i === 0} last={i === items.length - 1} siblings={items} diag={doc?.rows.find((r) => r.id === x.id)} />)}
         </section>
       ))}
       {groups.length === 0 && <div className="empty-note">No sources match.</div>}
@@ -99,7 +110,30 @@ function Sources() {
   );
 }
 
-function SourceRow({ x, first, last, siblings }: { x: SourceInfo; first: boolean; last: boolean; siblings: SourceInfo[] }) {
+const DOC_LABEL: Record<string, string> = { quiet: 'Found nothing', blocked: 'Blocked', gone: 'Address gone', rate: 'Rate limited', broken: 'Format changed', down: 'Unreachable' };
+
+function Doctor({ doc, onStart }: { doc: DoctorState | null; onStart: () => void }) {
+  const s = useStore();
+  const rows = doc?.rows ?? [];
+  const count = (st: string) => rows.filter((r) => r.status === st).length;
+  const dead = rows.filter((r) => ['gone', 'broken', 'blocked'].includes(r.status) && s.sources.find((x) => x.id === r.id)?.enabled);
+  const turnOff = async () => {
+    if (!(await askConfirm('Turn off sources that are not working?', `${dead.length} source${dead.length === 1 ? '' : 's'} could not be reached or were refused: ${dead.slice(0, 6).map((r) => r.name).join(', ')}${dead.length > 6 ? '…' : ''}. You can turn any of them back on.`, 'Turn off'))) return;
+    await Promise.all(dead.map((r) => api.patch(`/api/sources/${r.id}`, { enabled: false }))); await s.refreshSources(); s.toast(`Turned off ${dead.length}`);
+  };
+  return (
+    <div className="doctor">
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <button className="btn" onClick={onStart} disabled={doc?.running}>{doc?.running ? <LoaderCircle size={14} className="spin" /> : <Stethoscope size={14} />} {doc?.running ? `Testing… ${doc.done} of ${doc.total}` : rows.length ? 'Test all sources again' : 'Test all sources'}</button>
+        {rows.length > 0 && !doc?.running && <span className="faint" style={{ fontSize: 12.5 }}>{count('ok')} work{count('quiet') ? ` · ${count('quiet')} found nothing for the example` : ''}{rows.filter((r) => ['blocked', 'gone', 'broken', 'down', 'rate'].includes(r.status)).length ? ` · ${rows.filter((r) => ['blocked', 'gone', 'broken', 'down', 'rate'].includes(r.status)).length} not working` : ''}{count('needs_key') ? ` · ${count('needs_key')} need a key` : ''}{doc?.finishedAt ? ` · tested ${new Date(doc.finishedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}</span>}
+        {dead.length > 0 && !doc?.running && <button className="btn sm" onClick={() => void turnOff()}>Turn off the {dead.length} that are not working</button>}
+      </div>
+      {!rows.length && !doc?.running && <p className="faint" style={{ fontSize: 12.5, margin: '8px 0 0' }}>Runs every source against a harmless known example and tells you which ones work from this Mac and which do not, and why.</p>}
+    </div>
+  );
+}
+
+function SourceRow({ x, first, last, siblings, diag }: { x: SourceInfo; first: boolean; last: boolean; siblings: SourceInfo[]; diag?: DoctorRow }) {
   const s = useStore();
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
@@ -127,6 +161,8 @@ function SourceRow({ x, first, last, siblings }: { x: SourceInfo; first: boolean
       <div style={{ minWidth: 0 }}>
         <div className="nm"><span className={`health ${health}`} title={x.health.lastError ?? (x.health.ok ? `${x.health.ok} successful calls` : 'Not used yet')} />{x.name}
           {x.pausedUntil && <span className="tag warn" style={{ marginLeft: 2 }} title="It failed several times in a row, so lookups skip it for now and use the next source instead.">Paused until {new Date(x.pausedUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>}
+          {diag && diag.status !== 'ok' && diag.status !== 'skipped' && diag.status !== 'needs_key' && <span className={`tag ${diag.status === 'quiet' || diag.status === 'rate' ? 'mute' : 'warn'}`} style={{ marginLeft: 2 }} title={`${diag.detail}. ${diag.advice}`}>{DOC_LABEL[diag.status]}</span>}
+          {diag?.status === 'ok' && <span className="tag mute" style={{ marginLeft: 2 }} title={diag.detail}>Checked: works</span>}
           {needs && <span className="tag mute" style={{ marginLeft: 2 }}>Needs key</span>}{x.keyOptional && !x.keySet && <span className="tag mute">Key optional</span>}</div>
         <div className="ds">{x.description}</div>
       </div>
