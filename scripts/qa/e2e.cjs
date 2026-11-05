@@ -406,7 +406,7 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     ok(await p.locator('.integrity.good').count() === 1, 'Verify again works');
     await p.evaluate(() => window.__plexusStore.getState().openSettings('general')); await settle(500);
     await p.getByRole('button', { name: /Back up now/ }).click(); await settle(800);
-    ok((await p.locator('.setrow', { hasText: 'Backups' }).innerText()).includes('Latest:'), 'Back up now saves a copy and says when');
+    ok((await p.locator('.setrow', { has: p.locator('.t', { hasText: /^Backups$/ }) }).innerText()).includes('Latest:'), 'Back up now saves a copy and says when');
     const r = await api('GET', '/api/backups');
     ok(r.backups.length >= 1, 'the backup exists on disk');
     const rep = await api('GET', `/api/cases/${(await S()).caseId}/report`);

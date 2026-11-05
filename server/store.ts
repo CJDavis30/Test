@@ -310,6 +310,23 @@ export class Store {
     const st = statSync(file);
     return { name, size: st.size, at: st.mtimeMs };
   }
+  /**
+   * Retention: delete cases nobody has touched for `days`. Backups would quietly keep the deleted data, so they go too and one fresh copy
+   * of what remains is taken. Each purge is written to a log that outlives the cases (names and dates only, never contents).
+   */
+  purgeExpired(days: number, now = Date.now()): { id: string; name: string; lastActive: number }[] {
+    if (!(days >= 1)) return [];
+    const cutoff = now - days * 86400_000;
+    const old = this.db.prepare('SELECT id, name, updated_at FROM cases WHERE updated_at < ?').all(cutoff) as any[];
+    if (!old.length) return [];
+    for (const c of old) this.deleteCase(c.id);
+    for (const b of this.listBackups()) { try { unlinkSync(join(this.backupDir(), b.name)); } catch { /* ignore */ } }
+    try { this.autoBackup(0); } catch { /* nothing left to back up, or the disk is full: the purge still stands */ }
+    const log = this.getSetting<any[]>('purgeLog', []);
+    const rows = old.map((c) => ({ id: c.id, name: c.name, lastActive: c.updated_at, purgedAt: now, afterDays: days }));
+    this.setSetting('purgeLog', [...rows, ...log].slice(0, 200));
+    return rows.map((r) => ({ id: r.id, name: r.name, lastActive: r.lastActive }));
+  }
   /** Backs up at most every `everyMs`, and only when there is something worth keeping. */
   autoBackup(everyMs = 6 * 3600_000) {
     const n = (this.db.prepare('SELECT COUNT(*) AS n FROM cases').get() as any).n;

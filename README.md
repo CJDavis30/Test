@@ -24,7 +24,7 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 349 unit/integration tests
+npm test           # 353 unit/integration tests
 npm run typecheck
 ```
 
@@ -146,6 +146,7 @@ Everything here is computed on this Mac from public data and from the identifier
 - **Record check.** *Record intact* re-verifies the activity chain, every evidence fingerprint and the database itself (`PRAGMA integrity_check`) in one click. Reports and JSON exports include the result, plus a *Method and integrity* section describing how scores are produced.
 - **Backups.** A full consistent copy is saved at start-up (at most every 6 hours) and before any case is deleted; the newest 10 are kept in `~/.plexus/backups`, with a *Back up now* button in Settings.
 - **Spreadsheet-safe exports.** CSV cells that start with `=`, `+`, `-` or `@` are defanged so opening an export cannot run a formula.
+- **Retention.** Optional (Settings → *Keep cases for*): cases idle past 30 days to 1 year are deleted automatically. Because backups would quietly keep that data, they are removed too and one fresh copy of what remains is taken. A purge log keeps only the case name and dates. Tested, including that the fresh backup does not contain the purged case.
 - **Crash recovery and accessibility.** A render error shows a recovery screen instead of a blank window. Dialogs trap and restore keyboard focus, and every control is reachable and named (checked by `scripts/qa/buttons.cjs`: on every screen, at wide and narrow widths, each control must be reachable by a real click and not sit under a window-drag area).
 
 ### AI (optional)
@@ -228,7 +229,7 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 349 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
+- 353 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the demo world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
 - The UI in a real browser (Chromium): every view in light and dark; **158 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
@@ -257,6 +258,6 @@ web/       React UI: design system, canvas graph engine, findings sheet, views, 
 desktop/   Electron shell + tested helpers
 scripts/mac/ install / update / uninstall
 assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
-test/      349 tests
+test/      353 tests
 scripts/qa/  browser end-to-end + stress scripts
 ```

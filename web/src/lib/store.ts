@@ -35,6 +35,7 @@ export interface Settings {
   crossCheck: boolean;
   minorCare: boolean;
   requirePurpose: boolean;
+  retentionDays: number;
 }
 
 export interface Toast { id: number; text: string; action?: { label: string; run: () => void } }

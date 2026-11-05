@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Sliders, KeyRound, Cpu, ScrollText, Check, ArrowUp, ArrowDown, LoaderCircle, Trash2, Download, Search, ShieldCheck, ShieldAlert, HardDriveDownload } from 'lucide-react';
 import { ENTITY_LABEL, type AuditEntry, type SourceInfo } from '@shared/types';
-import { useStore, type SettingsTab } from '../lib/store';
+import { useStore, askConfirm, type SettingsTab } from '../lib/store';
 import { api } from '../lib/api';
 import { EntityGlyph } from '../lib/icons';
 import { Switch, download, csvCell, useDialog } from './ui';
@@ -66,6 +66,9 @@ function General() {
         <Switch on={st.minorCare} label="Extra care with young people" onChange={(v) => void set({ minorCare: v })} /></div>
       <div className="setrow"><div className="grow"><div className="t">Ask for a purpose before live lookups</div><div className="d">Asked once per case and written into the tamper-evident log. Demo data never asks.</div></div>
         <Switch on={st.requirePurpose} label="Ask for a purpose" onChange={(v) => void set({ requirePurpose: v })} /></div>
+      <div className="setrow"><div className="grow"><div className="t">Keep cases for</div><div className="d">Cases nobody has opened for this long are deleted automatically, along with their backups, and one fresh backup of what remains is taken. Only the case name and date go in a purge log. Off by default.</div></div>
+        <select value={st.retentionDays} onChange={async (e) => { const v = Number(e.target.value); if (v && !(await askConfirm('Delete old cases automatically?', `Any case that has been idle for more than ${v} days will be deleted now and from here on, with its backups. This cannot be undone.`, 'Turn on'))) return; void set({ retentionDays: v }).then(() => s.toast(v ? `Cases idle for ${v}+ days will be deleted` : 'Cases are kept until you delete them')); }} aria-label="Keep cases for">
+          {[[0, 'Until I delete them'], [30, '30 days'], [90, '90 days'], [180, '6 months'], [365, '1 year']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
       <Backups />
       <div className="setrow"><div className="grow"><div className="t">Responsible use</div><div className="d">Plexus is for lawful, authorized research. A name match is a lead, not proof. Every lookup is written to the case's audit log, and exports can be redacted.</div></div></div>
     </>
