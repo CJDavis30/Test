@@ -690,6 +690,55 @@ let PG; const section = async (name, fn) => { try { await fn(); console.log('don
     await p.keyboard.press('Escape'); await settle(300);
   });
 
+
+  await section('what a username is: pick the service, say where it came from, change it later', async () => {
+    const c = await api('POST', '/api/cases', { name: 'Roles e2e', purpose: 'qa' });
+    await p.evaluate((id) => window.__plexusStore.getState().loadCase(id), c.case.id); await settle(900);
+    await p.locator('input[aria-label="Start an investigation"]').fill('ravenfox_77'); await settle(350);
+    ok(await p.getByRole('group', { name: 'What this username is' }).count() === 1, 'typing a username shows “which service is this for?”');
+    ok(/same name only|Not sure|every result is only/i.test(await p.locator('.rp-effect').innerText()), 'with nothing chosen it explains that every result is only a same-name match');
+    await p.getByRole('radio', { name: 'Discord', exact: true }).click();
+    await p.getByRole('radio', { name: 'Display name' }).click();
+    ok(/not unique/.test(await p.locator('.rp-effect').innerText()), 'a display name is explained as a clue, not a search');
+    await p.getByRole('radio', { name: 'Username', exact: true }).click();
+    await p.getByRole('radio', { name: 'Roblox', exact: true }).click();
+    await p.getByRole('radio', { name: 'I am sure it is theirs' }).click();
+    await p.locator('select[aria-label="Where did you get it"]').selectOption('screenshot');
+    await p.locator('input[aria-label="Details about where it came from"]').fill('from the report');
+    ok(/Plexus will look this up on Roblox itself/.test(await p.locator('.rp-effect').innerText()), 'choosing Roblox says it will be looked up on Roblox itself');
+    ok(/Roblox username/.test(await p.locator('.rp-head').innerText()), 'the summary reads “Roblox username”');
+    await p.getByRole('button', { name: 'Look up' }).click(); await p.waitForSelector('.sheet', { timeout: 20000 }); await settle(1500);
+    let n = (await S()).nodes.find((x) => x.value === 'ravenfox_77');
+    ok(n && n.attrs.handlePlatform === 'roblox' && n.attrs.handleTrust === 'certain' && n.attrs.handleOrigin === 'screenshot' && n.attrs.handleOriginNote === 'from the report', 'the role, trust, origin and note are saved on the node');
+    ok(/Roblox username/.test(await p.locator('.sheet-head').innerText()), 'the findings window names it a Roblox username');
+    await p.keyboard.press('Escape'); await settle(400);
+    // change it later from the inspector
+    await p.evaluate((id) => { const s = window.__plexusStore.getState(); s.select([id]); s.toggle('inspector', true); }, n.id); await settle(600);
+    ok(/Roblox username/.test(await p.locator('.insp-body .hrole').innerText()), 'the inspector shows what the username is');
+    await p.locator('.insp-body .hrole').getByRole('button', { name: 'Change' }).click(); await settle(300);
+    await p.locator('.insp-body .hrole').getByRole('radio', { name: 'Discord', exact: true }).click();
+    await p.locator('.insp-body .hrole').getByRole('radio', { name: 'Display name' }).click();
+    await p.locator('.insp-body .hrole').getByRole('button', { name: /Save and look it up again/ }).click(); await settle(1500);
+    n = (await S()).nodes.find((x) => x.value === 'ravenfox_77');
+    ok(n.attrs.handlePlatform === 'discord' && n.attrs.handleKind === 'display-name', 'changing it in the inspector saves the new meaning');
+    ok(/Kept as a clue only/.test(await p.locator('.insp-body .hrole').innerText()), 'a display name is shown as kept as a clue only');
+    await p.evaluate(() => window.__plexusStore.getState().toggle('inspector', false)); await settle(300);
+    // the known-facts dialog takes roles too, and a handle you are only fairly sure of is described but not declared a fact
+    await p.evaluate(() => window.__plexusStore.getState().setKnownDialog(true)); await settle(400);
+    await p.locator('input[aria-label="Known fact 1"]').fill('mara.linden@northwind-labs.example');
+    await p.locator('input[aria-label="Known fact 2"]').fill('raven_alt'); await settle(300);
+    await p.locator('.kn-role .rp-head').click(); await settle(250);
+    await p.locator('.kn-role').getByRole('radio', { name: 'Discord', exact: true }).click();
+    await p.locator('.kn-role').getByRole('checkbox', { name: /alt account/ }).check();
+    await p.locator('.kn-role').getByRole('radio', { name: 'Probably theirs' }).click();
+    await p.getByRole('button', { name: /^Add only$/ }).click(); await settle(1200);
+    const g = await S();
+    const alt = g.nodes.find((x) => x.value === 'raven_alt'), mail = g.nodes.find((x) => x.type === 'email');
+    ok(alt && alt.attrs.handlePlatform === 'discord' && alt.attrs.handleAlt === true && alt.attrs.known !== true, 'a “probably theirs” alt is described but not declared a known fact');
+    ok(mail && mail.attrs.known === true, 'the email you were sure of is a known fact');
+    ok(g.edges.some((e) => /believe these belong together|alt account/.test(e.label || '') && [e.from, e.to].includes(alt.id)), 'the alt is joined to the rest on the graph, labelled as what you believe');
+  });
+
   await section('review window: bands, type filters, bulk accept, footer', async () => {
     const s0 = await S();
     const subj = s0.nodes.find((n) => n.attrs && n.attrs.known && n.type === 'email') || s0.nodes[0];

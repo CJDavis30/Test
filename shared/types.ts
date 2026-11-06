@@ -55,7 +55,21 @@ export interface Evidence {
   hash?: string;
   /** How strongly this single observation supports the claim, 0..1. */
   weight: number;
+  /** How the source tied this to what was searched (see Basis). Absent on older records, which count as exact. */
+  basis?: Basis;
+  /** The most this observation can ever contribute, whatever the source's reliability (a same-name hit on a common handle). */
+  cap?: number;
 }
+
+/**
+ * How a source ties a finding to the thing that was searched. This, not just how reliable the source is, decides how far a finding can be trusted:
+ *   exact          the source looked up the very account or record that was named (a Roblox username, on Roblox)
+ *   reciprocal     both sides point at each other, or the platform itself vouches for the link
+ *   self-reported  the person's own profile says so (bio, location, name, a link). Anyone can write anything
+ *   derived        worked out from the shape of the input (an email's local part reused as a handle)
+ *   name-match     found only because someone, somewhere, uses the same name. Usually a stranger
+ */
+export type Basis = 'exact' | 'reciprocal' | 'self-reported' | 'derived' | 'name-match';
 
 /** A claim an adapter returns. The orchestrator turns claims into Findings. */
 export interface Claim {
@@ -75,6 +89,8 @@ export interface Claim {
   conflictKey?: string;
   /** Optional ISO date the underlying fact refers to (account created, cert issued…). */
   when?: string;
+  /** How the source ties this to what was searched. The orchestrator fills it in when the adapter does not say. */
+  basis?: Basis;
 }
 
 /** The outcome of asking one other source about a finding, so you can see what was checked and what it said. */
@@ -105,6 +121,10 @@ export interface Finding {
   rank: number;
   level: Level;
   reasons: string[];
+  /** The strongest way any supporting source tied this to what was searched. Computed when scoring. */
+  basis?: Basis;
+  /** True when everything that supports this is a same-name match and nothing else corroborates it. */
+  nameOnly?: boolean;
   status: FindingStatus;
   conflictKey?: string;
   conflictsWith?: string[];

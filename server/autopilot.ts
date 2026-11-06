@@ -5,6 +5,7 @@ import type { Orchestrator } from './orchestrator';
 import { uid, type Store } from './store';
 import { isRealWorld } from '../shared/safeguards';
 import { careOf } from './safeguards';
+import { pivotWorthy } from '../shared/scoring';
 
 /**
  * Autopilot follows the strongest leads on its own and builds the graph while you watch. It is deliberately conservative:
@@ -19,6 +20,8 @@ export function autoAcceptable(f: Finding, o: { care?: boolean } = {}): { ok: bo
   if (f.status !== 'pending') return { ok: false, why: 'already decided' };
   if (o.care && isRealWorld(f.type)) return { ok: false, why: 'this may involve a young person, so Autopilot will not point toward a real-world identity' };
   if (GUESSES.test(f.relation)) return { ok: false, why: 'a guess, not a fact' };
+  if (f.nameOnly || f.basis === 'name-match') return { ok: false, why: 'found only because it shares a name, which proves nothing about who it is' };
+  if (f.basis === 'self-reported' && !f.evidence.some((e) => e.kind === 'cross' && e.polarity !== 'against' && (e.basis === 'reciprocal' || e.adapter === 'anchor'))) return { ok: false, why: 'only the profile itself says so; nothing independent backs it up' };
   if (f.conflictsWith?.length) return { ok: false, why: 'another source disagrees on the same question' };
   if (f.evidence.some((e) => e.polarity === 'against')) return { ok: false, why: 'a cross-check contradicts it' };
   const families = new Set(f.evidence.filter((e) => e.polarity !== 'against').map((e) => e.family)).size;
@@ -31,7 +34,7 @@ export function autoAcceptable(f: Finding, o: { care?: boolean } = {}): { ok: bo
 export function pivotCandidates(accepted: Finding[], depth: number, looked: Set<string>, seedType: EntityType): Finding[] {
   const types: EntityType[] = depth === 0 ? ['username', 'email', 'domain', 'org', 'wallet', 'phone'] : ['username', 'email', 'domain', 'wallet'];
   return accepted
-    .filter((f) => types.includes(f.type) && !looked.has(`${f.type}:${f.key}`) && !(f.type === 'org' && seedType === 'org'))
+    .filter((f) => types.includes(f.type) && !looked.has(`${f.type}:${f.key}`) && !(f.type === 'org' && seedType === 'org') && pivotWorthy(f).ok)
     .sort((a, b) => b.score - a.score);
 }
 

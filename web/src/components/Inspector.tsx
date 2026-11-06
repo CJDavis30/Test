@@ -13,6 +13,7 @@ import { explainRelation } from '@shared/explain';
 import { displayValue } from '../lib/format';
 import { ActivityClock } from './forensics/ActivityClock';
 import { ProfileCard } from './ProfileCard';
+import { HandleRoleCard } from './HandleRoleCard';
 import type { Circadian, DstResult } from '../lib/forensics';
 
 type Tab = 'overview' | 'evidence' | 'activity' | 'notes';
@@ -70,7 +71,7 @@ function NodePanel({ node }: { node: GraphNode }) {
   const edges = s.snap!.edges.filter((e) => e.from === node.id || e.to === node.id);
   const pendingCount = Object.values(s.findings).filter((f) => f.subjectId === node.id && (f.status === 'pending' || f.status === 'unsure')).length;
   const photo = node.type === 'image' ? node.value : Object.values(s.findings).filter((f) => f.subjectId === node.id && f.type === 'image' && f.status !== 'rejected').sort((a, b) => b.rank - a.rank)[0]?.value;
-  const attrs = Object.entries(node.attrs).filter(([k]) => !['hash'].includes(k) && !k.startsWith('alias_'));
+  const attrs = Object.entries(node.attrs).filter(([k]) => !['hash'].includes(k) && !k.startsWith('alias_') && !k.startsWith('handle'));
   const aliases = Object.entries(node.attrs).filter(([k]) => k.startsWith('alias_'));
   const running = s.runs[node.id]?.status === 'running';
 
@@ -102,6 +103,7 @@ function NodePanel({ node }: { node: GraphNode }) {
       <div className="insp-body selectable">
         {tab === 'overview' && (<>
           {fs[0] && ['account', 'person', 'username', 'image'].includes(node.type) && <div style={{ marginBottom: 12 }}><ProfileCard f={fs[0]} compact /></div>}
+          {node.type === 'username' && <HandleRoleCard node={node} />}
           <dl style={{ margin: 0 }}>
             <div className="kv"><dt>Value</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{node.type === 'image' ? 'Image' : node.value}</dd></div>
             {attrs.map(([k, v]) => <div className="kv" key={k}><dt>{k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase())}</dt><dd>{typeof v === 'number' ? v.toLocaleString() : String(v)}</dd></div>)}

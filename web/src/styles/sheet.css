@@ -407,3 +407,13 @@
 .wc li { grid-template-columns: 1fr; gap: 1px; padding: 3px 0; } .wc li + li { border-top: 1px solid var(--line); padding-top: 6px; }
 .wc-w { font-size: 12px; padding-left: 19px; overflow-wrap: anywhere; }
 .frow .gl { width: 38px; height: 38px; flex: none; display: grid; place-items: center; }
+.band.bsame .ghead { color: var(--text-3); }
+.same-toggle { display: inline-flex; gap: 6px; align-items: center; font: inherit; color: inherit; font-weight: 600; letter-spacing: inherit; text-transform: inherit; padding: 0; }
+.same-toggle:hover { color: var(--text); }
+.same-toggle .chev { width: 10px; font-size: 11px; }
+.tag.good { background: color-mix(in srgb, var(--lvl4) 16%, var(--surface)); color: var(--lvl4); }
+.basis-note { padding: 9px 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); background: var(--surface-2); }
+.basis-note b { color: var(--text); }
+.basis-note.same { background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+.basis-note.both { background: color-mix(in srgb, var(--lvl4) 12%, var(--surface)); }
+.role-banner { padding: 8px 18px 0; } .role-banner .hrole { margin-bottom: 4px; }

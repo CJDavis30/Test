@@ -5,7 +5,8 @@ import { uid, type Store } from './store';
 import { reliabilityFn } from './registry';
 import { rescore } from '../shared/scoring';
 import { careOf } from './safeguards';
-import { factsOf, matchAnchors, anchorOf, isKnown, shortLabel, type Anchor } from '../shared/anchors';
+import { factsOf, matchAnchors, anchorOf, isKnown, isAnchorNode, shortLabel, type Anchor } from '../shared/anchors';
+import { ROLE_ATTR_KEYS, roleFromAttrs, roleToAttrs, trustFactor, type HandleRole } from '../shared/handles';
 import { contextFor, applyAnchorEvidence } from './anchors';
 
 export class Service {
@@ -23,15 +24,37 @@ export class Service {
   }
 
   /** Create (or reuse) a seed node for something the user typed. */
-  seed(caseId: string, input: { type?: EntityType; value: string; near?: { x: number; y: number } }): GraphNode | null {
+  seed(caseId: string, input: { type?: EntityType; value: string; near?: { x: number; y: number }; role?: HandleRole }): GraphNode | null {
     const d = input.type ? { type: input.type, value: displayFor(input.type, input.value) } : detect(input.value);
     if (!d) return null;
     const key = keyFor(d.type, d.value);
     const existing = this.store.findNode(caseId, d.type, key);
-    if (existing) return existing;
+    if (existing) return input.role && d.type === 'username' ? (this.setRole(existing.id, input.role) ?? existing) : existing;
     const n = this.store.upsertNode({ caseId, type: d.type, value: d.value, key, state: 'seed', x: input.near?.x, y: input.near?.y });
     this.store.audit(caseId, 'node.added', `${n.type}:${n.value}`);
-    return n;
+    return input.role && d.type === 'username' ? (this.setRole(n.id, input.role) ?? n) : n;
+  }
+
+  /**
+   * Say what a username IS (a Roblox username, a Discord display name, an alt…), where it came from and how sure you are. Plexus then
+   * looks it up where it belongs, treats every other service as "same name only", and checks other finds against it. Pass null to clear.
+   */
+  setRole(nodeId: string, role: HandleRole | null): GraphNode | null {
+    const n = this.store.getNode(nodeId); if (!n) return null;
+    for (const k of [...ROLE_ATTR_KEYS, 'handleSearch']) this.store.setNodeAttr(nodeId, k, undefined);
+    if (role) for (const [k, v] of Object.entries(roleToAttrs(role))) this.store.setNodeAttr(nodeId, k, v);
+    this.store.audit(n.caseId, role ? 'handle.role' : 'handle.role.cleared', `${n.value}: ${role ? `${role.platform ?? 'platform unspecified'} ${role.kind}, ${role.trust}${role.origin ? `, from ${role.origin}` : ''}${role.alt ? ', alt' : ''}` : 'cleared'}`);
+    if (role?.alt) this.linkAlt(n.caseId, nodeId);
+    this.reapplyAnchors(n.caseId);
+    return this.store.getNode(nodeId);
+  }
+
+  /** An alt account belongs to the same person as the handles you already described: say so on the graph, at the strength you believe it. */
+  private linkAlt(caseId: string, nodeId: string): GraphEdge | null {
+    const me = this.store.getNode(nodeId); if (!me) return null;
+    const hub = this.store.listNodes(caseId).filter((x) => x.id !== nodeId && isAnchorNode(x)).sort((a, b) => Number(isKnown(b)) - Number(isKnown(a)) || a.createdAt - b.createdAt)[0];
+    if (!hub) return null;
+    return this.store.upsertEdge({ caseId, from: hub.id, to: nodeId, label: 'alt account (as you described it)', strength: Math.max(0.3, trustFactor(roleFromAttrs(me.attrs))), kind: 'manual', why: 'You said this is an alternate account of the same person.' });
   }
 
   /** Apply a review decision and keep the per-source accuracy statistics honest (including undo). */
@@ -205,17 +228,24 @@ export class Service {
   }
 
   /** Add several known facts at once (an email, a username, a phone…) and link them. */
-  addKnown(caseId: string, items: { type?: EntityType; value: string }[]): { nodes: GraphNode[]; edges: GraphEdge[]; skipped: string[] } {
-    const nodes: GraphNode[] = [], skipped: string[] = [];
+  addKnown(caseId: string, items: { type?: EntityType; value: string; role?: HandleRole }[]): { nodes: GraphNode[]; edges: GraphEdge[]; skipped: string[] } {
+    const nodes: GraphNode[] = [], skipped: string[] = [], believed: GraphNode[] = [];
     for (const it of items.slice(0, 30)) {
       const n = this.seed(caseId, it);
       if (!n) { skipped.push(it.value); continue; }
-      this.store.setNodeAttr(n.id, 'known', true);
-      this.store.setNodeState(n.id, 'confirmed', 1, 4);
-      this.store.audit(caseId, 'known.added', `${n.type}:${n.value}`);
+      // something you are only fairly sure of is described and checked against, but is not declared a fact
+      const sure = !it.role || it.role.trust === 'certain';
+      if (sure) {
+        this.store.setNodeAttr(n.id, 'known', true);
+        this.store.setNodeState(n.id, 'confirmed', 1, 4);
+        this.store.audit(caseId, 'known.added', `${n.type}:${n.value}`);
+      } else believed.push(this.store.getNode(n.id)!);
       nodes.push(this.store.getNode(n.id)!);
     }
     const edges = this.linkKnown(caseId);
+    // handles added together that you only believe: joined to each other and to the first fact, at the strength you believe them
+    const hub = nodes.find(isKnown) ?? believed[0];
+    for (const b of believed) if (hub && hub.id !== b.id) edges.push(this.store.upsertEdge({ caseId, from: hub.id, to: b.id, label: 'you believe these belong together', strength: Math.max(0.3, trustFactor(roleFromAttrs(b.attrs))), kind: 'manual', why: 'You added these together and said you are fairly, but not completely, sure.' }));
     this.reapplyAnchors(caseId);
     return { nodes: nodes.map((n) => this.store.getNode(n.id)!), edges, skipped };
   }

@@ -26,7 +26,7 @@ npm run dev        # API on :4317, web UI on http://localhost:5173 (hot reload)
 
 ```bash
 npm start          # production build, then serve everything on http://localhost:4317
-npm test           # 674 unit/integration tests (they use a fictional test world that is not part of the app)
+npm test           # 708 unit/integration tests (they use a fictional test world that is not part of the app)
 npm run typecheck
 ```
 
@@ -184,6 +184,22 @@ The model is **never a source of facts**. It reads scored, numbered findings and
 
 Start a case with more than one fact: *\"I know this email is theirs, and I know they use this username.\"* (welcome screen → *I already know a few things about them*, or ⌘K, or right-click a node → *Mark as known*.) Known facts are treated as true (confirmed, top level, linked to each other) and are looked up like any search. Then **everything found for any of them is checked against all of them**: does this account's page list the email? is its handle the username? does it show the phone? Matches add independent evidence (an exact email on the page is worth about 95%, a shared handle depends on how unusual it is, a different name counts against), look-alike handles (`maralinden_`) do not get the credit of the real one, and a result reached from two different starting points counts as two routes. Telling Plexus something later re-scores everything already found. Taking a fact back removes its evidence.
 
+### Usernames: what they are, where they came from, and what "same name" is worth
+
+A bare username means nothing until you say whose it is. When you type or add one (welcome screen, ⌘K, *What you already know*, or later from the inspector) Plexus asks:
+
+- **Which service** it is for (Roblox, Discord, Steam, X, Instagram, TikTok, Twitch… or any name you type, or *not sure*), and whether it is a **username** or a **display name** (display names are not unique, so they are never searched across the internet: they are kept as a clue to recognise profiles by, and you can still search one on purpose).
+- **Where you got it** (their own profile, a screenshot, a chat, a report, someone told you, a bio…) with a note, and **how sure you are** it is theirs. Anything can be a lie, so a handle you only half believe, or got second-hand, counts for proportionately less when other finds are checked against it. An **alt account** is joined to the others on the graph at the strength you believe.
+
+What that changes:
+
+1. **The service you named is looked up for real, and deeply.** A Roblox username is looked up on Roblox: the account you named, its exact creation time, earlier names, groups, some friends, the social channels the owner listed, and everything in the bio. Anything the *profile says about itself* (its name, town, email, links) is labelled **their own claim** and capped, because anyone can write anything.
+2. **Every other site is "same name only".** Sweeping 600 sites for the same handle mostly finds strangers, so those hits are tagged as a same-name match, **capped by how unusual the handle is** (a bare "john" tops out near 8%, a long odd handle near 36%, never enough on its own), pooled as one fact however many sites repeat it, and shown in their own folded group at the bottom of the review list. Nothing in that group can start a new search, be auto-accepted by Autopilot, or appear in the summary as a fact.
+3. **No real name or town is invented from a handle.** A display name that is not a plain two-word name ("Rae", "xX_Mara_Xx") is kept as an alias, never turned into a person; the summary says "the profile gives the name X; that is what it says about itself" instead of "most likely name"; and a name or place only one profile claims is never followed up.
+4. **It follows what the profile points to, then checks from the other side.** Bios are read for "ig: foo", "snap - bar", "discord: baz#0001", links to Instagram, TikTok, YouTube, Twitch, Steam, Reddit and link hubs (Linktree and the like). Each becomes a handle with its service filled in and a low "not sure" trust, quoting the bio. Linked pages are opened (never into a private network) and checked for a link back: a page that names your username with the service ("roblox: ravenfox_77"), or links to the profile you searched, is **confirmed from both sides** and rises to the top; a one-way claim stays a claim. A page found by name whose bio names the account you searched is lifted out of "same name only" the same way, and only as far as its own word goes.
+
+Honest limits: Discord, X, Instagram and TikTok cannot be read without an account, so a handle on those is kept as a clue and a link to check by hand; Roblox's social-links endpoint and the page reader were tested against recorded responses, not live (Settings → Sources → Test shows the exact error if a shape has drifted).
+
 ### Tools tab (⌘6)
 
 Thirty-odd small instruments that work with or without a case; anything they find can be added to your case in one click. Pictures and files: photo and file forensics, AI photo location, screenshot reader (AI reads the handles, emails, numbers and dates on a screenshot), edit detector (Error Level Analysis heat map), image twin finder (same picture, resized or mirrored?), reverse-image search links, metadata remover. Where and when: coordinate toolkit (decimal, DMS, Plus Code, geohash, UTM), shadow geolocator (sun height from a shadow plus the time gives a ring or a spot on Earth), shadow clock (time of day from a shadow at a known place), daylight check, historical weather at a place and hour, travel plausibility (could one person be at both sightings?), timestamp decoder (Unix, Windows, Chrome, iOS epochs in twelve zones), decode IDs and chat logs. Names and accounts: identify anything (IDs, hashes, JWTs, wallets, MACs, IBANs), username variants, username comparison in bits, look-alike and hidden-character detector (Cyrillic \"а\" in \"paypal\", zero-width characters, punycode), writing-style matcher, identities. Links and contacts: email guesser with Gravatar check, Gravatar checker, phone reader, domain history (registration, certificate and archive timeline), link unshortener (refuses private networks), link inspector, email header tracer. Your case: pull entities from pasted text, source health.
@@ -269,9 +285,9 @@ Use Plexus for lawful, authorized work: security research, journalism, fraud and
 Built and tested in a sandbox whose network allowed **only the npm registry**. That determines what is and isn't proven:
 
 **Verified here**
-- 674 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the fictional test world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
+- 708 automated tests: entity detection (adversarial inputs), canonicalization, scoring (independence, conflicts, context, learning), the full pipeline over the fictional test world (streaming, fallback chains, rate limits, review → feedback → commit, undo, idempotence), API security, AI guardrails (citation validation, injection placement, malformed replies), link inference, URL sanitization, graph path-finding, evidence fingerprints, audit-chain tamper detection, backups, CSV defanging, the accuracy benchmark, the circuit breaker, import/export round trips and redaction leaks.
 - Source adapters' **parsing**, against fixtures shaped like each API's documented response, including empty/garbage bodies (no unguarded property access anywhere).
-- The UI in a real browser (Chromium): every view in light and dark; **230 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
+- The UI in a real browser (Chromium): every view in light and dark; **243 end-to-end checks** (`scripts/qa/e2e.cjs`: cross-check confirmations and contradictions, score chips = stored score, connection-map nodes never overlap, details panel and sidebar drawer at narrow widths, a Check row on every source card, pivoting, review/undo/triage, merge, manual links and label editing, notes, palette, file-drop import, table sort/filter, timeline, report redaction + export, settings, case create/switch/rename/delete, theme, reload persistence) run three times in a row with zero failures and zero console errors; 11 scripted graph interactions (drag-to-pin with persistence, path tracing, focus, context menu, delete + undo…).
 - A stress test (`scripts/qa/perf.cjs`): 700 nodes + 1,200 links at 60 fps, a 400-result sheet that paints in ~0.5 s and scrolls at 60 fps.
 - The production server bundle runs standalone and serves the app; `npm run dev` works including streaming through the proxy.
 - Behaviour when **every** source fails (this sandbox's reality): honest per-source errors, a "couldn't reach most sources" state, and no fake "nothing found".
@@ -298,6 +314,6 @@ web/       React UI: design system, canvas graph engine, findings sheet, views, 
 desktop/   Electron shell + tested helpers
 scripts/mac/ install / update / uninstall
 assets/icon/ app icon (SVG source, PNGs, .iconset, .icns)
-test/      674 tests (test/world/ holds the fictional world, test-only)
+test/      708 tests (test/world/ holds the fictional world, test-only)
 scripts/qa/  browser end-to-end + stress scripts
 ```

@@ -4,6 +4,7 @@ import type {
   RunEvent, SourceInfo, SourceProgress, AiSettings, Level,
 } from '@shared/types';
 import { keyFor } from '@shared/normalize';
+import type { HandleRole } from '@shared/handles';
 import { isRealWorld } from '@shared/safeguards';
 import { contextBoost, parseContext } from '@shared/scoring';
 import { api, streamRun, setPurposeHandler } from './api';
@@ -87,7 +88,7 @@ interface Actions {
   newCase(name?: string, purpose?: string): Promise<string>;
   renameCase(id: string, patch: { name?: string; purpose?: string }): Promise<void>;
   deleteCase(id: string): Promise<void>;
-  submit(items: { type?: EntityType; value: string }[], opts?: { context?: string; open?: boolean; run?: boolean }): Promise<void>;
+  submit(items: { type?: EntityType; value: string; role?: HandleRole }[], opts?: { context?: string; open?: boolean; run?: boolean }): Promise<void>;
   openNode(id: string): Promise<void>;
   pivot(step: NextStep, fromSubject: string): Promise<void>;
   runNode(nodeId: string, context?: string, open?: boolean): Promise<void>;
@@ -98,7 +99,7 @@ interface Actions {
   review(ids: string[], status: FindingStatus, opts?: { toast?: boolean }): Promise<void>;
   commit(subjectId?: string): Promise<{ added: number }>;
   applyGraphDelta(r: { nodes?: GraphNode[]; edges?: GraphEdge[]; removedNodeIds?: string[]; removedEdgeIds?: string[] }): void;
-  addKnown(items: { type?: EntityType; value: string }[], run?: boolean): Promise<{ added: number; skipped: string[] }>;
+  addKnown(items: { type?: EntityType; value: string; role?: HandleRole }[], run?: boolean): Promise<{ added: number; skipped: string[] }>;
   setKnown(nodeId: string, known: boolean): Promise<void>;
   refreshCaseData(): Promise<void>;
   setKnownDialog(v: boolean): void;
@@ -211,7 +212,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     let first = true;
     for (const it of items) {
       try {
-        const { node, run } = await api.post<{ node: GraphNode; run?: { id: string } }>(`/api/cases/${caseId}/lookups`, { type: it.type, value: it.value, context: opts.context, run: opts.run });
+        const { node, run } = await api.post<{ node: GraphNode; run?: { id: string } }>(`/api/cases/${caseId}/lookups`, { type: it.type, value: it.value, role: it.role, context: opts.context, run: opts.run });
         const snap = get().snap!;
         if (!snap.nodes.some((n) => n.id === node.id)) set({ snap: { ...snap, nodes: [...snap.nodes, node] } });
         if (!run) { get().select([node.id]); continue; }

@@ -282,7 +282,7 @@ export function FindingDetail({ f, subject, onDecide }: { f: Finding; subject: S
             <b className="num" style={{ color: `var(--lvl${f.level})` }}>{Math.round(f.score * 100)}%</b>
           </div>
           <div className="v-main">
-            <div className="v-word" style={{ color: `var(--lvl${f.level})` }}>{LEVEL_WORD[f.level]}</div>
+            <div className="v-word" style={{ color: f.nameOnly ? 'var(--text-3)' : `var(--lvl${f.level})` }}>{f.nameOnly ? 'Same name only' : LEVEL_WORD[f.level]}</div>
             <p className="v-sent">{hedge(explainRelation(f.relation, subject.label, displayValue(f)), f.level, f.evidence.some((e) => e.polarity === 'against'))}</p>
           </div>
         </section>
@@ -292,6 +292,10 @@ export function FindingDetail({ f, subject, onDecide }: { f: Finding; subject: S
             {reasons.slice(0, 6).map((r, i) => <li key={i} className={r.kind} title={r.title}>{r.kind === 'against' ? <CircleX size={15} /> : r.kind === 'known' ? <ShieldCheck size={15} /> : <CircleCheck size={15} />}<span>{r.text}</span></li>)}
           </ul>
         )}
+
+        {f.nameOnly && <div className="basis-note same"><b>Same name only.</b> This was found because someone uses the same name there, not because anything ties it to the person you are looking into. Most of these are strangers. It becomes a lead only if something else backs it up (a link, an email, a mention). If you have checked it yourself and it is them, accept it.</div>}
+        {!f.nameOnly && f.basis === 'self-reported' && <div className="basis-note self"><b>Their own claim.</b> This is what the profile says about itself. Anyone can write anything, so it counts for less until a second, independent source agrees.</div>}
+        {f.basis === 'reciprocal' && <div className="basis-note both"><b>Confirmed from both sides.</b> The profile points at it and it points back, which is much harder to fake than either alone.</div>}
 
         <WillConnect f={f} />
 

@@ -8,6 +8,7 @@ import { useDetected, TypeChip } from './Palette';
 import { Check, Kbd, MOD, useDialog } from './ui';
 import { ENTITY_LABEL, type Detected, type EntityType } from '@shared/types';
 import { EntityGlyph } from '../lib/icons';
+import { RoleSummary, emptyDraft, roleOfDraft, type RoleDraft } from './RolePicker';
 
 export function Welcome() {
   const s = useStore();
@@ -15,9 +16,11 @@ export function Welcome() {
   const [override, setOverride] = useState<EntityType | null>(null);
   const ref = useRef<HTMLInputElement>(null);
   const { one, cycle } = useDetected(v, override);
+  const [draft, setDraft] = useState<RoleDraft>(emptyDraft());
   useEffect(() => { ref.current?.focus(); }, []);
   useEffect(() => setOverride(null), [v]);
-  const go = () => { if (one) { void s.submit([{ type: one.type, value: one.value }]); setV(''); } };
+  const role = one?.type === 'username' ? roleOfDraft(draft) : undefined;
+  const go = () => { if (one) { void s.submit([{ type: one.type, value: one.value, role }]); setV(''); setDraft(emptyDraft()); } };
   return (
     <div className="welcome">
       <motion.div className="welcome-inner" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 260, damping: 28 }}>
@@ -26,7 +29,7 @@ export function Welcome() {
         <div className="hero-input">
           <input ref={ref} value={v} onChange={(e) => setV(e.target.value)} placeholder="jane@example.com" spellCheck={false} aria-label="Start an investigation"
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && e.shiftKey && one) { void startAutopilot({ type: one.type, value: one.value }); setV(''); }
+              if (e.key === 'Enter' && e.shiftKey && one) { void startAutopilot({ type: one.type, value: one.value, role }); setV(''); setDraft(emptyDraft()); }
               else if (e.key === 'Enter') go();
               if (e.key === 'Tab' && one && cycle.length > 1) { e.preventDefault(); setOverride(cycle[(cycle.indexOf(override ?? one.type) + 1) % cycle.length]); }
             }}
@@ -34,6 +37,7 @@ export function Welcome() {
           {one && v.trim() && <TypeChip type={one.type} alts={cycle.length > 1 ? cycle.length : 0} onCycle={() => setOverride(cycle[(cycle.indexOf(override ?? one.type) + 1) % cycle.length])} />}
           <button className="btn primary icon" style={{ width: 38, height: 38, borderRadius: 11 }} onClick={go} disabled={!one} aria-label="Look up"><ArrowRight size={18} /></button>
         </div>
+        {one?.type === 'username' && v.trim() && <RoleSummary value={draft} onChange={setDraft} subject={one.value} startOpen />}
         {one && v.trim() && <div className="hero-hint"><b>↵</b> look it up · <b>⇧↵</b> Autopilot: follow the strongest leads on its own and build the graph while you watch</div>}
         <button className="btn known-cta" onClick={() => s.setKnownDialog(true)}><ShieldCheck size={15} /> I already know a few things about them</button>
         <div className="welcome-links">

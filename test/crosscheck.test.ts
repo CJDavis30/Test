@@ -140,7 +140,7 @@ describe('cross-checking', () => {
     register(emailSource(30));
     const xc = await lookup('checked6', { crossCheck: true });
     expect(xc.fs.filter((f) => f.type === 'username').length).toBeGreaterThan(20);
-    expect(new Set(calls).size).toBeLessThanOrEqual(8);   // MAX_CROSSCHECK candidates
+    expect(new Set(calls).size).toBeLessThanOrEqual(12);  // MAX_CROSSCHECK candidates
     register(emailSource());
   });
 

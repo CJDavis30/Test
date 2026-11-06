@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } f
 import { randomUUID } from 'node:crypto';
 import { HOME } from './config';
 import { sha256 } from './integrity';
+import { basisOf } from '../shared/scoring';
 import type { FileReport } from '../shared/files';
 import type {
   AuditEntry, CaseInfo, Evidence, Finding, FindingStatus, GraphEdge, GraphNode, RunInfo, SourceProgress,
@@ -67,6 +68,9 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
 const j = <T,>(s: string | null | undefined, d: T): T => { try { return s ? (JSON.parse(s) as T) : d; } catch { return d; } };
+
+/** A finding as read back: how it is tied to what was searched is worked out from its evidence, not stored separately. */
+const withBasis = (f: Finding): Finding => { const b = basisOf(f.evidence); return { ...f, basis: b.basis, nameOnly: b.nameOnly || undefined }; };
 
 export class Store {
   db: DatabaseSync;
@@ -269,7 +273,7 @@ export class Store {
   setEdgeLabel(id: string, label: string) { this.db.prepare('UPDATE edges SET label=? WHERE id=?').run(label, id); }
 
   // ---- findings ---------------------------------------------------------
-  private findingRow = (r: any): Finding => ({
+  private findingRow = (r: any): Finding => withBasis({
     id: r.id, caseId: r.case_id, runId: r.run_id, subjectId: r.subject_id, type: r.type, value: r.value, key: r.key,
     relation: r.relation, attrs: j(r.attrs, {}), evidence: j<Evidence[]>(r.evidence, []), checks: j(r.checks, undefined as any), score: r.score, rank: r.rank,
     level: r.level, reasons: j(r.reasons, []), status: r.status as FindingStatus, conflictKey: r.conflict_key ?? undefined,

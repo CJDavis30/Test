@@ -1,6 +1,7 @@
 import type { ApEvent, AutopilotSummary, CaseSnapshot, EntityType, Finding } from '@shared/types';
 import { api, streamAutopilot } from './api';
 import { useStore } from './store';
+import type { HandleRole } from '@shared/handles';
 
 export interface ApLine { id: number; kind: 'look' | 'check' | 'accept' | 'keep' | 'follow'; text: string }
 export interface ApState {
@@ -59,7 +60,7 @@ function apply(e: ApEvent) {
 }
 
 /** Start Autopilot from something you typed, or from a node already on the graph. */
-export async function startAutopilot(input: { type?: EntityType; value?: string; nodeId?: string; dryRun?: boolean }) {
+export async function startAutopilot(input: { type?: EntityType; value?: string; nodeId?: string; dryRun?: boolean; role?: HandleRole }) {
   const st = useStore.getState();
   let caseId = st.caseId;
   if (!caseId) caseId = await st.newCase(input.value ? undefined : undefined);

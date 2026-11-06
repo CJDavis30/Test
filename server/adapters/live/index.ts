@@ -9,6 +9,7 @@ import { profileAdapters } from './more-profiles';
 import { networkMore } from './more-network';
 import { recordAdapters } from './more-records';
 import { wmnSweep } from './wmn';
+import { pageAdapters } from './pagereader';
 
-export const liveAdapters = [...networkAdapters, ...identityAdapters, ...sweepAdapters, ...miscAdapters, ...gamingAdapters, ...activityAdapters, ...profileAdapters, ...networkMore, ...recordAdapters, wmnSweep];
+export const liveAdapters = [...networkAdapters, ...identityAdapters, ...sweepAdapters, ...miscAdapters, ...gamingAdapters, ...activityAdapters, ...profileAdapters, ...networkMore, ...recordAdapters, wmnSweep, ...pageAdapters];
 export function registerLive() { register(...liveAdapters); }

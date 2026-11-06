@@ -14,13 +14,14 @@ import { contextFor, applyAnchorEvidence } from './anchors';
 import { breaker, PausedError } from './breaker';
 import { noticeYouth } from './safeguards';
 import { learnIds } from './idclocks';
+import { basisFor, clueOnly, crossBasis, demotePersonAlias, withBasis } from './basis';
 
 const MAX_CLAIMS_PER_ADAPTER = 150;
 const CROSS_ID = 'cross-check';
-const MAX_CROSSCHECK = 8;               // findings cross-checked per lookup
+const MAX_CROSSCHECK = 12;              // findings cross-checked per lookup
 const MAX_CALLS_PER_CANDIDATE = 3;     // other sources asked about each one
-const CROSSCHECK_BUDGET_MS = 25_000;   // the whole pass never holds the results hostage
-const NO_CROSSCHECK = new Set(['username-sweep', 'derive', 'wikidata', 'phone-offline', 'blockstream']);
+const CROSSCHECK_BUDGET_MS = 40_000;   // the whole pass never holds the results hostage
+const NO_CROSSCHECK = new Set(['username-sweep', 'wmn-sweep', 'derive', 'wikidata', 'phone-offline', 'blockstream']);
 
 /** Turn low-level fetch errors into something a person can act on. */
 export function friendlyError(err: any): string {
@@ -109,7 +110,8 @@ export class Orchestrator {
     // Plan: which sources apply, and which are unavailable (so the user can see what they're missing).
     const progress = new Map<string, SourceProgress>();
     const chains = new Map<string, Adapter[]>();
-    for (const a of adaptersFor(store, subject.type)) {
+    // a display name is a clue to match profiles against, not something to search the whole internet for
+    for (const a of (clueOnly(subject) ? [] : adaptersFor(store, subject.type))) {
       const u = usable(store, a);
       if (!u.ok) {
         if (u.reason === 'needs_key')
@@ -158,16 +160,20 @@ export class Orchestrator {
       if (changed.length) this.hub.push(run.id, { t: 'findings', findings: changed });
     };
 
-    const merge = (a: Adapter, claims: Claim[]) => {
+    const merge = (a: Adapter, raw: Claim[]) => {
       const now = Date.now();
-      for (const c of claims.slice(0, MAX_CLAIMS_PER_ADAPTER)) {
-        if (!c.value || !String(c.value).trim()) continue;
+      const handles = raw.filter((x) => x.type === 'username' || x.type === 'account').map((x) => x.value);
+      for (const orig of raw.slice(0, MAX_CLAIMS_PER_ADAPTER)) {
+        if (!orig.value || !String(orig.value).trim()) continue;
+        const c = demotePersonAlias(orig, a, [subject.value, ...handles]);
+        const bs = basisFor(subject, a, c);
         const k = keyFor(c.type, c.value, c.attrs);
         if (!k) continue;
         if (c.type === subject.type && k === key) continue; // never "discover" the subject itself
         const ev: Evidence = fingerprint({
           id: uid('ev_'), adapter: a.id, adapterName: a.name, family: a.family, url: safeHttpUrl(c.url) ?? lookupUrl(a.id, subject.type, subject.value), urlKind: safeHttpUrl(c.url) ? 'record' : lookupUrl(a.id, subject.type, subject.value) ? 'lookup' : undefined,
           snippet: c.snippet?.slice(0, 400), how: (c.how ?? howFor(a.id, subject.type, subject.value))?.slice(0, 240), kind: 'direct', record: c.record, retrievedAt: now, weight: Math.min(1, Math.max(0.01, c.weight)),
+          ...(bs.basis ? { basis: bs.basis, ...(bs.cap !== undefined ? { cap: bs.cap } : {}) } : {}),
         });
         const mapKey = `${c.type}|${k}`;
         let f = byKey.get(mapKey);
@@ -318,9 +324,11 @@ export class Orchestrator {
     const { subject, subjectKey, subjectLabel, ctl, byKey } = o;
     const identityish = ['email', 'person', 'username', 'org'].includes(subject.type);
     const candTypes = new Set<EntityType>(['username', 'email', 'wallet', ...(identityish ? (['domain'] as EntityType[]) : [])]);
+    // an account the profile itself links to is a lead: read that page and see whether it links back
+    const isLead = (f: Finding) => f.evidence.some((e) => e.basis === 'self-reported' && e.kind !== 'cross');
     const cands = [...byKey.values()]
-      .filter((f) => f.status !== 'rejected' && candTypes.has(f.type) && f.score >= 0.12 && !(f.type === subject.type && f.key === subjectKey))
-      .sort((a, b) => b.rank - a.rank).slice(0, MAX_CROSSCHECK);
+      .filter((f) => f.status !== 'rejected' && (candTypes.has(f.type) || (f.type === 'account' && isLead(f))) && f.score >= 0.12 && !(f.type === subject.type && f.key === subjectKey))
+      .sort((a, b) => Number(isLead(b)) - Number(isLead(a)) || b.rank - a.rank).slice(0, MAX_CROSSCHECK);
     if (!cands.length) return { checked: 0, added: 0 };
 
     o.onProgress({ state: 'running', note: `0 of ${cands.length}` });
@@ -387,7 +395,7 @@ export class Orchestrator {
           if (!ck) continue;
           if (c.type === subject.type && ck === subjectKey) {
             keys.add(`${c.type}|${ck}`);
-            push(f, mkEvidence(a, f, via, c, 0.55 + c.weight * 0.4, 'for', `It lists ${subjectLabel} (${c.relation}).`), 'confirms', `Links back to ${subjectLabel}.`, f);
+            push(f, withBasis(mkEvidence(a, f, via, c, 0.55 + c.weight * 0.4, 'for', `It lists ${subjectLabel} (${c.relation}).`), crossBasis(f, 'linkback')), 'confirms', `Links back to ${subjectLabel}.`, f);
             confirmed = true;
             continue;
           }
@@ -396,8 +404,10 @@ export class Orchestrator {
           if (g && g.id !== f.id && g.status !== 'rejected' && !/namesake|public-figure/.test(g.relation)) {
             keys.add(`${c.type}|${ck}`);
             const shown = labelFor(c.type, c.value, c.attrs);
-            push(f, mkEvidence(a, f, via, c, c.weight * 0.75, 'for', `It also shows ${shown}, which we found for ${subjectLabel} too.`), 'confirms', `Also shows ${shown}.`, f);
-            push(g, mkEvidence(a, f, via, c, c.weight * 0.75, 'for', `Shown on this source's record for “${via.label}”, which we found for ${subjectLabel}.`), 'confirms', `Shown on the record for “${via.label}”.`, f);
+            // a page that links to the very profile that was searched points back at it: the other half of a two-way link
+            const pointsBack = c.type === 'account' && g.evidence.some((e) => e.kind !== 'cross' && e.basis === 'exact');
+            push(f, withBasis(mkEvidence(a, f, via, c, pointsBack ? 0.6 + c.weight * 0.3 : c.weight * 0.75, 'for', pointsBack ? `It links to ${shown}, the profile you searched.` : `It also shows ${shown}, which we found for ${subjectLabel} too.`), crossBasis(f, pointsBack ? 'linkback' : 'also')), 'confirms', pointsBack ? `Links back to ${shown}.` : `Also shows ${shown}.`, f);
+            push(g, withBasis(mkEvidence(a, f, via, c, c.weight * 0.75, 'for', `Shown on this source's record for “${via.label}”, which we found for ${subjectLabel}.`), crossBasis(g, 'also')), 'confirms', `Shown on the record for “${via.label}”.`, f);
             confirmed = true;
           }
         }

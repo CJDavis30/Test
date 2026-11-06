@@ -12,6 +12,7 @@ import { startAutopilot } from '../lib/autopilot';
 import { EntityGlyph } from '../lib/icons';
 import { Kbd, MOD, download, useDialog } from './ui';
 import { TOOLS } from '../tools/registry';
+import { RoleSummary, emptyDraft, roleOfDraft, type RoleDraft } from './RolePicker';
 
 interface Item {
   id: string; label: string; sub?: string; icon: React.ReactNode; group: string; run: (alt: boolean) => void | Promise<void>; keywords?: string;
@@ -45,6 +46,8 @@ export function Palette() {
   const boxRef = useRef<HTMLDivElement>(null);
   useDialog(boxRef, { focus: false });
   const { one, multi, cycle } = useDetected(q, override);
+  const [draft, setDraft] = useState<RoleDraft>(emptyDraft());
+  const role = one?.type === 'username' && multi.length <= 1 ? roleOfDraft(draft) : undefined;
 
   useEffect(() => { ref.current?.focus(); }, []);
   useEffect(() => { setActive(0); setOverride(null); }, [q]);
@@ -71,15 +74,15 @@ export function Palette() {
     } else if (one && t) {
       out.push({
         id: 'lookup', group: 'Investigate', label: one.value, sub: `Look up this ${ENTITY_LABEL[one.type].toLowerCase()}`, icon: <EntityGlyph type={one.type} size={15} />,
-        run: (alt) => s.submit([{ type: one.type, value: one.value }], { run: !alt }),
+        run: (alt) => s.submit([{ type: one.type, value: one.value, role }], { run: !alt }),
       });
       out.push({
         id: 'autopilot', group: 'Investigate', label: `Autopilot: ${one.value}`, sub: 'Follow the strongest leads on its own and build the graph live', icon: <Rocket size={15} />, keywords: 'auto build everything',
-        run: () => { void startAutopilot({ type: one.type, value: one.value }); },
+        run: () => { void startAutopilot({ type: one.type, value: one.value, role }); },
       });
       out.push({
         id: 'autopilot-dry', group: 'Investigate', label: `Autopilot dry run: ${one.value}`, sub: 'See what it would accept, without changing anything', icon: <Rocket size={15} />, keywords: 'preview simulate',
-        run: () => { void startAutopilot({ type: one.type, value: one.value, dryRun: true }); },
+        run: () => { void startAutopilot({ type: one.type, value: one.value, dryRun: true, role }); },
       });
     }
     if (t && multi.length <= 1) {
@@ -137,7 +140,7 @@ export function Palette() {
       ? cmds.filter((c) => `${c.label} ${c.group} ${c.keywords ?? ''}`.toLowerCase().includes(needle))
       : multi.length > 1 ? [] : cmds.slice(0, 9);
     return [...out, ...filtered];
-  }, [q, one, multi, nodes, s, elsewhere]);
+  }, [q, one, multi, nodes, s, elsewhere, role]);
 
   const run = async (it: Item, alt = false) => { close(); await it.run(alt); };
 
@@ -163,6 +166,7 @@ export function Palette() {
           <textarea ref={ref} rows={1} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} placeholder="Paste an email, username, domain, name, phone, IP…" spellCheck={false} autoCorrect="off" autoCapitalize="off" aria-label="Search or add" />
           {one && q.trim() && multi.length <= 1 && <TypeChip type={one.type} alts={cycle.length > 1 ? cycle.length : 0} onCycle={() => { const cur = override ?? one.type; setOverride(cycle[(cycle.indexOf(cur) + 1) % cycle.length]); }} />}
         </div>
+        {one?.type === 'username' && q.trim() && multi.length <= 1 && <div className="pal-role"><RoleSummary value={draft} onChange={setDraft} subject={one.value} /></div>}
         <div className="list" role="listbox">
           {multi.length > 1 && (
             <div className="multi-preview">

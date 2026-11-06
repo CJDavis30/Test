@@ -1,4 +1,6 @@
-import type { EntityType, Finding, GraphNode } from './types';
+import type { Basis, EntityType, Finding, GraphNode } from './types';
+import { nameMatchCap, roleFromAttrs, trustFactor, platformByKey } from './handles';
+import { mentionsIn } from './leads';
 import { keyFor, nameSimilarity, foldName } from './normalize';
 import { parseHandle, rarityBits } from './forensics/username';
 
@@ -8,10 +10,10 @@ import { parseHandle, rarityBits } from './forensics/username';
  * independent evidence (two matches support each other), each carries a plain sentence saying exactly what matched where, and a
  * different name counts against. The same matcher decides which dots to join on the graph when a finding is accepted.
  */
-export interface Anchor { id: string; type: EntityType; value: string; key: string; attrs?: Record<string, unknown> }
-export type HitKind = 'email' | 'phone' | 'handle' | 'display-name' | 'same-account' | 'name' | 'org' | 'domain' | 'place' | 'wallet' | 'link' | 'different-name';
-export interface Hit { anchorId: string; kind: HitKind; weight: number; how: string; saw: string }
-export interface AnchorHits { anchorId: string; hits: Hit[]; weight: number; how: string; saw: string; against: boolean }
+export interface Anchor { id: string; type: EntityType; value: string; key: string; attrs?: Record<string, unknown>; /** how far to rely on it: 1 for something you are sure of, less for a handle you only believe or got second-hand */ trust?: number }
+export type HitKind = 'email' | 'phone' | 'handle' | 'mention' | 'display-name' | 'same-account' | 'name' | 'org' | 'domain' | 'place' | 'wallet' | 'link' | 'different-name';
+export interface Hit { anchorId: string; kind: HitKind; weight: number; how: string; saw: string; basis?: Basis; cap?: number }
+export interface AnchorHits { anchorId: string; hits: Hit[]; weight: number; how: string; saw: string; against: boolean; basis?: Basis; cap?: number }
 
 /** What can be read off a finding (or a node and what backs it): text, handles, links, and contact details found on the same page. */
 export interface Facts {
@@ -73,12 +75,45 @@ function handleMatch(known: string, other: string): { kind: 'identical' | 'same-
 const quote = (s: string) => `“${s.length > 70 ? s.slice(0, 67) + '…' : s}”`;
 const anchorHandle = (a: Anchor): string => a.type === 'account' ? lastSegment(a.value) : a.type === 'username' ? a.value.replace(/^@/, '') : '';
 
+/**
+ * A page that names the very account you searched ("roblox: ravenfox_77") is pointing back at it in its own words. That is real
+ * corroboration even though the page was found by searching that name: the circular part (the same handle) is not counted, only the
+ * explicit statement with the service named. Returns nothing unless the handle's service is known.
+ */
+export function mentionOfSubject(f: Facts, subject: Anchor): AnchorHits | null {
+  const role = roleFromAttrs(subject.attrs);
+  const plat = platformByKey(role?.platform);
+  const h = subject.value.replace(/^@/, '').toLowerCase();
+  if (!plat || !h || role?.kind === 'display-name') return null;
+  for (const t of f.texts) {
+    if (!BIO.test(t.label) && !/^(note|snippet)$/i.test(t.label)) continue;
+    const m = mentionsIn(t.value).find((x) => x.platform?.key === plat.key && x.handle?.toLowerCase() === h);
+    if (m) {
+      const hit: Hit = { anchorId: subject.id, kind: 'mention', weight: 0.6, how: `its ${labelWord(t.label)} says ${quote(m.quote)}, naming the ${plat.name} account you searched`, saw: `${t.label}: ${quote(t.value)}`, basis: 'self-reported', cap: 0.72 };
+      return { anchorId: subject.id, hits: [hit], weight: 0.6 * (subject.trust ?? 1), how: hit.how, saw: hit.saw, against: false, basis: 'self-reported', cap: 0.72 };
+    }
+  }
+  return null;
+}
+
+/** How each kind of match ties a finding to what you know. Equal names collide; an email or phone on the page does not. */
+const HIT_BASIS: Record<HitKind, [Basis, number | 'h']> = {
+  email: ['exact', 0.92], phone: ['exact', 0.9], wallet: ['exact', 0.92], handle: ['name-match', 'h'], 'display-name': ['name-match', 'h'],
+  mention: ['self-reported', 0.72], 'same-account': ['self-reported', 0.85], link: ['self-reported', 0.85], name: ['name-match', 0.35], org: ['self-reported', 0.5],
+  domain: ['self-reported', 0.6], place: ['name-match', 0.3], 'different-name': ['name-match', 1],
+};
+const BR: Record<Basis, number> = { reciprocal: 5, exact: 4, 'self-reported': 3, derived: 2, 'name-match': 1 };
+
 export function matchAnchors(f: Facts, anchors: Anchor[]): AnchorHits[] {
   const res: AnchorHits[] = [];
   for (const a of anchors) {
     if (a.type === f.type && a.key === f.key) continue;                       // the thing itself
     const hits: Hit[] = [];
-    const add = (kind: HitKind, weight: number, how: string, saw: string) => { if (weight > 0.04) hits.push({ anchorId: a.id, kind, weight: Math.min(0.97, weight), how, saw }); };
+    const hv = a.type === 'email' ? a.key.split('@')[0] : anchorHandle(a);
+    const add = (kind: HitKind, weight: number, how: string, saw: string) => {
+      const [basis, cap] = HIT_BASIS[kind];
+      if (weight > 0.04) hits.push({ anchorId: a.id, kind, weight: Math.min(0.97, weight), how, saw, basis, cap: cap === 'h' ? nameMatchCap(hv || a.value) : cap });
+    };
 
     if (a.type === 'email') {
       const c = f.contacts.find((x) => x.type === 'email' && x.key === a.key);
@@ -117,7 +152,7 @@ export function matchAnchors(f: Facts, anchors: Anchor[]): AnchorHits[] {
         add(h.role === 'display-name' ? 'display-name' : 'handle', w, `its ${h.role === 'display-name' ? 'display name' : f.platform ? `${f.platform} handle` : 'handle'} ${m.kind === 'identical' ? 'is' : 'is nearly'} ${quote(ah)}, the username you told Plexus about`, `${h.role === 'display-name' ? 'Display name' : 'Handle'}: ${h.value}`);
         break;
       }
-      if (!hits.length) { const t = f.texts.find((x) => BIO.test(x.label) && new RegExp(`(^|[^a-z0-9])@?${ah.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i').test(x.value)); if (t) add('handle', 0.5, `its ${labelWord(t.label)} mentions ${quote(ah)}`, `${t.label}: ${quote(t.value)}`); }
+      if (!hits.length) { const t = f.texts.find((x) => BIO.test(x.label) && new RegExp(`(^|[^a-z0-9])@?${ah.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i').test(x.value)); if (t) add('mention', 0.5, `its ${labelWord(t.label)} mentions ${quote(ah)}`, `${t.label}: ${quote(t.value)}`); }
     }
     if (a.type === 'person' || a.type === 'org') {
       const pool = [...(f.type === a.type ? [{ label: 'name', value: f.value }] : []), ...f.texts.filter((x) => /name|org|company|employer|organisation|organization|clan/i.test(x.label)), ...f.contacts.filter((x) => x.type === a.type).map((x) => ({ label: 'name', value: x.value }))];
@@ -134,16 +169,25 @@ export function matchAnchors(f: Facts, anchors: Anchor[]): AnchorHits[] {
     if (!hits.length) continue;
     const against = hits.filter((h) => h.kind === 'different-name'), pro = hits.filter((h) => h.kind !== 'different-name');
     if (against.length && !pro.length) { res.push({ anchorId: a.id, hits: against, weight: against[0].weight, how: against[0].how, saw: against[0].saw, against: true }); continue; }
-    const weight = 1 - pro.reduce((m, h) => m * (1 - h.weight), 1);          // several kinds of match against the same fact reinforce each other
+    const trust = a.trust ?? 1;
+    // several kinds of match against the same fact reinforce each other; a handle you only half believe counts for proportionately less
+    const weight = 1 - pro.reduce((m, h) => m * (1 - h.weight), 1);
     pro.sort((x, y) => y.weight - x.weight);
-    res.push({ anchorId: a.id, hits: pro, weight: Math.min(0.97, weight), how: pro.map((h) => h.how).join('; and '), saw: pro[0].saw, against: false });
+    const best = pro.reduce((m, h) => (BR[h.basis ?? 'exact'] > BR[m.basis ?? 'exact'] ? h : m), pro[0]);
+    const cap = Math.max(...pro.filter((h) => h.basis === best.basis).map((h) => h.cap ?? 0.97));
+    res.push({ anchorId: a.id, hits: pro, weight: Math.min(0.97, weight * trust), how: pro.map((h) => h.how).join('; and '), saw: pro[0].saw, against: false, basis: best.basis, cap });
   }
   return res;
 }
 
-export const anchorOf = (n: Pick<GraphNode, 'id' | 'type' | 'value' | 'attrs'>): Anchor => ({ id: n.id, type: n.type, value: n.value, key: keyFor(n.type, n.value, n.attrs), attrs: n.attrs });
+export const anchorOf = (n: Pick<GraphNode, 'id' | 'type' | 'value' | 'attrs'>): Anchor => {
+  const role = n.type === 'username' ? roleFromAttrs(n.attrs) : undefined;
+  return { id: n.id, type: n.type, value: n.value, key: keyFor(n.type, n.value, n.attrs), attrs: n.attrs, trust: role ? trustFactor(role) : 1 };
+};
 export const isKnown = (n: Pick<GraphNode, 'attrs'>) => n.attrs?.known === true;
+/** Something to check findings against: what you are sure of, and every handle you described (however sure you were of it). */
+export const isAnchorNode = (n: Pick<GraphNode, 'type' | 'attrs'>) => isKnown(n) || (n.type === 'username' && !!roleFromAttrs(n.attrs));
 
 /** A few words for the line on the graph, from what matched. */
-export const SHORT: Record<HitKind, string> = { email: 'lists this email', phone: 'lists this phone', handle: 'same handle', 'display-name': 'display name matches', 'same-account': 'same account', name: 'same name', org: 'same organisation', domain: 'uses this domain', place: 'same place', wallet: 'shows this wallet', link: 'links to this', 'different-name': 'different name' };
+export const SHORT: Record<HitKind, string> = { email: 'lists this email', phone: 'lists this phone', handle: 'same handle', mention: 'mentions this handle', 'display-name': 'display name matches', 'same-account': 'same account', name: 'same name', org: 'same organisation', domain: 'uses this domain', place: 'same place', wallet: 'shows this wallet', link: 'links to this', 'different-name': 'different name' };
 export const shortLabel = (h: AnchorHits) => SHORT[h.hits[0]?.kind ?? 'handle'];

@@ -39,6 +39,7 @@ import { keyFor } from '../shared/normalize';
 import { makeCtx } from './http';
 import { weatherFor, gravatarCheck, domainHistory, traceRedirects, readScreenshot } from './tools';
 import { getSecret } from './config';
+import { cleanRole } from '../shared/handles';
 import { ENTITY_TYPES, type EntityType, type FindingStatus, type RunEvent, type ApEvent } from '../shared/types';
 
 export async function createApp(store = new Store()) {
@@ -273,11 +274,13 @@ export async function createApp(store = new Store()) {
   // --- lookups ------------------------------------------------------------------------------------------------
   app.post('/api/cases/:id/lookups', async (c) => {
     const caseId = c.req.param('id');
-    const b = await body<{ type?: string; value?: string; nodeId?: string; context?: string; near?: { x: number; y: number }; run?: boolean }>(c);
+    const b = await body<{ type?: string; value?: string; nodeId?: string; context?: string; near?: { x: number; y: number }; run?: boolean; role?: unknown }>(c);
     let node = b.nodeId ? store.getNode(b.nodeId) : null;
+    const role = cleanRole(b.role);
+    if (node && role && node.type === 'username') node = svc.setRole(node.id, role) ?? node;
     if (!node) {
       if (!b.value?.trim()) return c.json({ error: 'value required' }, 400);
-      node = svc.seed(caseId, { type: isType(b.type) ? b.type : undefined, value: b.value, near: b.near });
+      node = svc.seed(caseId, { type: isType(b.type) ? b.type : undefined, value: b.value, near: b.near, role });
       if (!node) return c.json({ error: 'could not understand that input' }, 400);
     }
     if (b.run === false) return c.json({ node });
@@ -289,11 +292,11 @@ export async function createApp(store = new Store()) {
   app.post('/api/cases/:id/autopilot', async (c) => {
     const caseId = c.req.param('id');
     if (!store.getCase(caseId)) return c.json({ error: 'not found' }, 404);
-    const b = await body<{ type?: string; value?: string; nodeId?: string; depth?: number; subjects?: number; dryRun?: boolean }>(c);
+    const b = await body<{ type?: string; value?: string; nodeId?: string; depth?: number; subjects?: number; dryRun?: boolean; role?: unknown }>(c);
     let node = b.nodeId ? store.getNode(b.nodeId) : null;
     if (!node) {
       if (!b.value?.trim()) return c.json({ error: 'value required' }, 400);
-      node = svc.seed(caseId, { type: isType(b.type) ? b.type : undefined, value: b.value });
+      node = svc.seed(caseId, { type: isType(b.type) ? b.type : undefined, value: b.value, role: cleanRole(b.role) });
       if (!node) return c.json({ error: 'could not understand that input' }, 400);
     }
     if (!purposeOk(store, caseId, demoMode(store))) return c.json({ error: 'purpose_required' }, 428);
@@ -379,8 +382,8 @@ export async function createApp(store = new Store()) {
   app.post('/api/cases/:id/known', async (c) => {
     const caseId = c.req.param('id');
     if (!store.getCase(caseId)) return c.json({ error: 'case not found' }, 404);
-    const b = await body<{ items?: { type?: string; value?: string }[]; run?: boolean }>(c);
-    const items = (b.items ?? []).filter((i) => i.value?.trim()).map((i) => ({ type: isType(i.type) ? i.type : undefined, value: String(i.value) }));
+    const b = await body<{ items?: { type?: string; value?: string; role?: unknown }[]; run?: boolean }>(c);
+    const items = (b.items ?? []).filter((i) => i.value?.trim()).map((i) => ({ type: isType(i.type) ? i.type : undefined, value: String(i.value), role: cleanRole(i.role) }));
     if (!items.length) return c.json({ error: 'nothing to add' }, 400);
     const r = svc.addKnown(caseId, items);
     const runs: { nodeId: string; runId: string }[] = [];
@@ -400,6 +403,8 @@ export async function createApp(store = new Store()) {
     if (typeof b.label === 'string') patch.label = b.label.slice(0, 200);
     if (typeof b.notes === 'string') patch.notes = b.notes.slice(0, 20000);
     for (const k of ['pinned', 'hidden'] as const) if (typeof b[k] === 'boolean') patch[k] = b[k];
+    if (b.role === null || (b.role && typeof b.role === 'object')) { const n = svc.setRole(c.req.param('id'), b.role === null ? null : cleanRole(b.role) ?? null); if (!n) return c.json({ error: 'not found' }, 404); }
+    if (b.handleSearch === true || b.handleSearch === false) svc.store.setNodeAttr(c.req.param('id'), 'handleSearch', b.handleSearch === true ? true : undefined);
     if (typeof b.known === 'boolean') { const n = svc.setKnown(c.req.param('id'), b.known); if (!n) return c.json({ error: 'not found' }, 404); }
     for (const k of ['x', 'y'] as const) if (typeof b[k] === 'number' && Number.isFinite(b[k] as number)) patch[k] = b[k];
     return c.json({ node: store.patchNode(c.req.param('id'), patch) });

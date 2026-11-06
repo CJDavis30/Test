@@ -6,11 +6,13 @@ import { detect } from '@shared/detect';
 import { ENTITY_LABEL, type EntityType } from '@shared/types';
 import { EntityGlyph } from '../lib/icons';
 import { useDialog } from './ui';
+import { RoleSummary, emptyDraft, roleOfDraft, type RoleDraft } from './RolePicker';
 
 const KINDS: EntityType[] = ['email', 'username', 'phone', 'person', 'account', 'domain', 'org', 'location', 'wallet', 'url'];
 const HINT: Partial<Record<EntityType, string>> = { email: 'name@example.com', username: 'their username or handle', phone: '+1 555 010 0199', person: 'Full name', account: 'https://profile link', domain: 'example.com', org: 'Company', location: 'City', wallet: 'Wallet address', url: 'https://…' };
-interface Row { id: number; value: string; kind: EntityType | null }
 let rid = 1;
+interface Row { id: number; value: string; kind: EntityType | null; draft: RoleDraft }
+const fresh = (value = ''): Row => ({ id: rid++, value, kind: null, draft: emptyDraft('certain') });
 
 /**
  * "I know this is theirs." Two facts find far more than one: each is looked up, and everything found for any of them is checked against
@@ -21,7 +23,7 @@ export function KnownDialog() {
   const ref = useRef<HTMLDivElement>(null);
   const close = () => s.setKnownDialog(false);
   useDialog(ref, { onEscape: close });
-  const [rows, setRows] = useState<Row[]>([{ id: rid++, value: '', kind: null }, { id: rid++, value: '', kind: null }]);
+  const [rows, setRows] = useState<Row[]>([fresh(), fresh()]);
   const [busy, setBusy] = useState(false);
   const typeOf = (r: Row): EntityType | null => r.kind ?? (r.value.trim() ? detect(r.value.trim())?.type ?? null : null);
   const filled = rows.filter((r) => r.value.trim());
@@ -30,13 +32,13 @@ export function KnownDialog() {
     const t = e.clipboardData.getData('text'); const lines = t.split(/\r?\n|,\s*(?=[\w@+])/).map((x) => x.trim()).filter(Boolean);
     if (lines.length < 2) return;
     e.preventDefault();
-    setRows((a) => { const i = a.findIndex((r) => r.id === id); const fresh = lines.map((v) => ({ id: rid++, value: v, kind: null as EntityType | null })); return [...a.slice(0, i), ...fresh, ...a.slice(i + 1).filter((r) => r.value.trim())]; });
+    setRows((a) => { const i = a.findIndex((r) => r.id === id); const made = lines.map((v) => fresh(v)); return [...a.slice(0, i), ...made, ...a.slice(i + 1).filter((r) => r.value.trim())]; });
   };
   const go = async (run: boolean) => {
     if (!filled.length || busy) return;
     setBusy(true);
     try {
-      const r = await s.addKnown(filled.map((x) => ({ type: typeOf(x) ?? undefined, value: x.value.trim() })), run);
+      const r = await s.addKnown(filled.map((x) => ({ type: typeOf(x) ?? undefined, value: x.value.trim(), role: typeOf(x) === 'username' ? roleOfDraft(x.draft) : undefined })), run);
       s.toast(r.skipped.length ? `Added ${r.added}. Could not understand: ${r.skipped.join(', ')}` : run ? `Added ${r.added} known ${r.added === 1 ? 'fact' : 'facts'}. Looking each one up and cross-checking…` : `Added ${r.added} known ${r.added === 1 ? 'fact' : 'facts'}`);
       close();
     } catch (e: any) { s.toast(e?.message ?? 'Could not add those'); } finally { setBusy(false); }
@@ -56,16 +58,17 @@ export function KnownDialog() {
                 <span className="kn-ico">{t ? <EntityGlyph type={t} size={15} /> : <Search size={15} />}</span>
                 <input className="field" value={r.value} autoFocus={i === 0} placeholder={i === 0 ? 'name@example.com' : i === 1 ? 'their username' : 'anything else you are sure of'} aria-label={`Known fact ${i + 1}`} spellCheck={false}
                   onChange={(e) => set(r.id, { value: e.target.value })} onPaste={(e) => onPaste(e, r.id)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (i === rows.length - 1) setRows((a) => [...a, { id: rid++, value: '', kind: null }]); else (e.currentTarget.parentElement?.nextElementSibling?.querySelector('input') as HTMLInputElement | null)?.focus(); } }} />
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (i === rows.length - 1) setRows((a) => [...a, fresh()]); else (e.currentTarget.parentElement?.nextElementSibling?.querySelector('input') as HTMLInputElement | null)?.focus(); } }} />
                 <select className="kn-kind" value={r.kind ?? t ?? ''} onChange={(e) => set(r.id, { kind: (e.target.value || null) as EntityType | null })} aria-label={`Kind of fact ${i + 1}`}>
                   {!t && <option value="">What is it?</option>}
                   {KINDS.map((k) => <option key={k} value={k}>{ENTITY_LABEL[k]}</option>)}
                 </select>
                 {rows.length > 1 && <button className="btn icon sm ghost" aria-label={`Remove fact ${i + 1}`} onClick={() => setRows((a) => a.filter((x) => x.id !== r.id))}><Trash2 size={14} /></button>}
+                {t === 'username' && r.value.trim() && <div className="kn-role"><RoleSummary value={r.draft} onChange={(d) => set(r.id, { draft: d })} subject={r.value.trim()} /></div>}
               </div>
             );
           })}
-          <button className="btn sm ghost kn-add" onClick={() => setRows((a) => [...a, { id: rid++, value: '', kind: null }])}><Plus size={13} /> Add another</button>
+          <button className="btn sm ghost kn-add" onClick={() => setRows((a) => [...a, fresh()])}><Plus size={13} /> Add another</button>
         </div>
         {filled.some((r) => !typeOf(r)) && <p className="kn-warn">Choose what kind of thing each unmarked line is.</p>}
         {filled.length === 1 && <p className="kn-tip">One fact is a fine start. Adding a second one later (a username next to an email, say) makes every result more accurate.</p>}

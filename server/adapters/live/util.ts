@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { extractEntities } from '../../../shared/detect';
+import { bioLeadClaims } from '../../../shared/leads';
 import type { Claim, EntityType, EvidenceRecord } from '../../../shared/types';
 import { RateLimitedError, type Adapter, type AdapterCtx } from '../types';
 
@@ -36,17 +36,9 @@ export const fullIso = (d: unknown): string | undefined => {
 export const arr = <T = any>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 export const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
-/** Claims for contact details hiding in free-text bios ("reach me at…", links). */
+/** Claims for contact details and "where else to find them" leads hiding in free-text bios (all of it the profile's own word). */
 export function bioClaims(text: string | undefined, where: string, url?: string): Claim[] {
-  const t = str(text);
-  if (!t) return [];
-  const out: Claim[] = [];
-  for (const e of extractEntities(t).slice(0, 8)) {
-    if (e.type === 'email') out.push({ type: 'email', value: e.value, relation: `listed in ${where} bio`, weight: 0.55, url, snippet: `Found in the ${where} bio` });
-    else if (e.type === 'url') out.push({ type: 'url', value: e.value, relation: `link in ${where} bio`, weight: 0.45, url });
-    else if (e.type === 'phone') out.push({ type: 'phone', value: e.value, relation: `listed in ${where} bio`, weight: 0.4, url });
-  }
-  return out;
+  return bioLeadClaims(str(text), where, url);
 }
 
 export const PLATFORM_URL: Record<string, (u: string) => string> = {

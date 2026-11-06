@@ -1,6 +1,7 @@
-import type { Brief, EntityType, Evidence, Finding, Level, NextStep } from './types';
+import type { Basis, Brief, EntityType, Evidence, Finding, Level, NextStep } from './types';
 import { LEVEL_LABEL } from './types';
 import { nameSimilarity } from './normalize';
+import { classifyName } from './handles';
 
 // ---------------------------------------------------------------------------
 // Reliability: how much do we trust an adapter for a given entity type?
@@ -28,27 +29,50 @@ export function levelFor(score: number): Level {
   return score >= 0.85 ? 4 : score >= 0.65 ? 3 : score >= 0.4 ? 2 : 1;
 }
 
+/**
+ * How much of a source's own confidence survives, by how it tied the finding to what was searched. A same-name match is, at best, half a
+ * clue; a profile's own claims (bio, location, a link) can be lies; the very account you named is exact.
+ */
+export const BASIS_FACTOR: Record<Basis, number> = { exact: 1, reciprocal: 1, 'self-reported': 0.78, derived: 0.7, 'name-match': 0.55 };
+const BASIS_RANK: Record<Basis, number> = { reciprocal: 5, exact: 4, 'self-reported': 3, derived: 2, 'name-match': 1 };
+export const BASIS_WORD: Record<Basis, string> = { exact: 'The account you named', reciprocal: 'Confirmed from both sides', 'self-reported': 'Said by the profile itself', derived: 'Worked out from the input', 'name-match': 'Same name only' };
+
+/** The strongest way anything supporting a finding ties it to what was searched, and whether that is all it has (a same-name match). Derived, never stored. */
+export function basisOf(evidence: Pick<Evidence, 'basis' | 'polarity'>[]): { basis?: Basis; nameOnly: boolean } {
+  let best: Basis | undefined;
+  for (const e of evidence) { if (e.polarity === 'against') continue; const b = e.basis ?? 'exact'; if (!best || BASIS_RANK[b] > BASIS_RANK[best]) best = b; }
+  return { basis: best, nameOnly: best === 'name-match' };
+}
+
 export function scoreEvidence(
   type: EntityType,
   evidence: Evidence[],
   rel: ReliabilityFn,
-): { score: number; independent: number; against: number; reasons: string[] } {
+): { score: number; independent: number; against: number; reasons: string[]; basis?: Basis; nameOnly: boolean } {
   // Evidence is grouped by source family so two views of the same dataset count once. Cross-checks and direct hits share the
   // family map: asking GitHub a second question does not make GitHub a second opinion.
   const pro = new Map<string, { p: number; name: string; direct: boolean }>();
   const con = new Map<string, { p: number; name: string }>();
+  let best: Basis | undefined, nameOnly = false, anyPro = false;
   for (const e of evidence) {
-    const p = Math.min(0.98, Math.max(0, e.weight) * rel(e.adapter, type));
+    let p = Math.min(0.98, Math.max(0, e.weight) * rel(e.adapter, type) * BASIS_FACTOR[e.basis ?? 'exact']);
+    if (e.cap !== undefined) p = Math.min(p, e.cap);
     if (e.polarity === 'against') {
       const cur = con.get(e.family);
       if (!cur || p > cur.p) con.set(e.family, { p, name: e.adapterName });
     } else {
-      const cur = pro.get(e.family);
+      // Every same-name observation is one fact ("a handle is shared"), however many sources or checks notice it: pool them.
+      const fam = e.basis === 'name-match' ? 'name-match' : e.family;
+      const cur = pro.get(fam);
       const direct = e.kind !== 'cross';
-      if (!cur || p > cur.p) pro.set(e.family, { p, name: e.adapterName, direct: direct || !!cur?.direct });
+      if (!cur || p > cur.p) pro.set(fam, { p, name: e.adapterName, direct: direct || !!cur?.direct });
       else if (direct) cur.direct = true;
+      anyPro = true;
+      const b = e.basis ?? 'exact';
+      if (!best || BASIS_RANK[b] > BASIS_RANK[best]) best = b;
     }
   }
+  nameOnly = anyPro && best === 'name-match';
   let miss = 1;
   for (const { p } of pro.values()) miss *= 1 - p;
   let missCon = 1;
@@ -68,7 +92,8 @@ export function scoreEvidence(
   if (strong.length) reasons.push(`Comes from a high-trust source: ${strong.slice(0, 3).join(', ')}.`);
   const dup = evidence.filter((e) => e.polarity !== 'against').length - pro.size;
   if (dup > 0) reasons.push(`${dup} more source${dup > 1 ? 's' : ''} use the same underlying data, so they count as one.`);
-  return { score, independent, against: con.size, reasons };
+  if (nameOnly) reasons.unshift('Found only because the same name exists there. Plenty of strangers share a name, so this is not evidence of the same person until something else (a link, an email, a mention) backs it.');
+  return { score, independent, against: con.size, reasons, basis: best, nameOnly };
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +172,7 @@ export function rescore(findings: Finding[], rel: ReliabilityFn, context = ''): 
     f.score = s.score;
     f.level = levelFor(s.score);
     f.reasons = s.reasons;
+    f.basis = s.basis; f.nameOnly = s.nameOnly || undefined;
   }
   applyConflicts(findings);
   for (const f of findings) f.rank = f.score + contextBoost(f, ctx);
@@ -178,7 +204,12 @@ export function overallConfidence(findings: Finding[]): Brief['confidence'] {
 }
 
 export function ruleBrief(subject: { type: EntityType; value: string }, findings: Finding[], ids: Map<string, string>): Brief {
-  const live = findings.filter((f) => f.status !== 'rejected');
+  const all = findings.filter((f) => f.status !== 'rejected');
+  // Accounts found only because they share the name are strangers until something else ties them in: they are counted, never summarised as fact.
+  const nameOnly = all.filter((f) => f.nameOnly);
+  const live = all.filter((f) => !f.nameOnly);
+  // The name or place a profile gives about itself is a claim. For a username search it is reported as one, and never as "the" name.
+  const fromHandle = subject.type === 'username' || subject.type === 'account';
   const cite = (f: Finding) => `[${ids.get(f.id) ?? '?'}]`;
   const people = live.filter((f) => f.type === 'person').sort((a, b) => b.rank - a.rank);
   const org = topByType(live, 'org')[0];
@@ -186,8 +217,8 @@ export function ruleBrief(subject: { type: EntityType; value: string }, findings
   const conf = overallConfidence(live);
   // If the investigator searched for a name, that name leads. Other names are aliases, not "the" name.
   const subjectIsName = subject.type === 'person' || subject.type === 'org';
-  const name = subject.type === 'person' ? undefined : people[0];
-  const lead = subjectIsName ? subject.value : name?.value;
+  const name = subject.type === 'person' ? undefined : people.find((p) => !fromHandle || classifyName(p.value) === 'full-name');
+  const lead = subjectIsName ? subject.value : fromHandle ? undefined : name?.value;
 
   let headline: string;
   if (subject.type === 'domain' || subject.type === 'ip') {
@@ -212,13 +243,14 @@ export function ruleBrief(subject: { type: EntityType; value: string }, findings
   const rest = tally.length - shown.length;
   const joined = shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}` : shown[0];
   if (tally.length) parts.push(`Found ${joined}${rest > 0 ? `, plus ${rest} other kind${rest > 1 ? 's' : ''} of finding` : ''} across ${conf.independentSources || 1} independent source${conf.independentSources === 1 ? '' : 's'}.`);
-  if (name) parts.push(`Most likely name: ${name.value} ${cite(name)}.`);
+  if (name) parts.push(fromHandle ? `The profile gives the name ${name.value} ${cite(name)}. That is what it says about itself and has not been checked.` : `Most likely name: ${name.value} ${cite(name)}.`);
   if (subject.type === 'person') {
     const aliases = people.filter((f) => f.level >= 2).slice(0, 2);
     if (aliases.length) parts.push(`Also appears as ${aliases.map((f) => `${f.value} ${cite(f)}`).join(' and ')}.`);
   }
   if (org && subject.type !== 'org') parts.push(`Strongest organization: ${org.value} ${cite(org)}.`);
-  if (loc) parts.push(`Most likely location: ${loc.value} ${cite(loc)}.`);
+  if (loc) parts.push(fromHandle ? `The profile says it is in ${loc.value} ${cite(loc)}. That is self-reported.` : `Most likely location: ${loc.value} ${cite(loc)}.`);
+  if (nameOnly.length) parts.push(`${nameOnly.length} other account${nameOnly.length === 1 ? ' uses' : 's use'} the same name on other sites. Most of those will be different people; none counts until something else ties it in.`);
   const strongAcc = topByType(live, 'account', 3).filter((f) => f.level >= 3);
   if (strongAcc.length) parts.push(`Well-corroborated accounts: ${strongAcc.map((f) => `${String(f.attrs.platform ?? f.value)} ${cite(f)}`).join(', ')}.`);
   if (!live.length) parts.push('No findings yet. Try adding context or enabling more sources.');
@@ -229,6 +261,7 @@ export function ruleBrief(subject: { type: EntityType; value: string }, findings
   const thin = live.filter((f) => f.evidence.length === 1 && f.level <= 2).length;
   if (thin > 3) caveats.push(`${thin} findings rest on a single source.`);
   const personGuess = people.filter((f) => f.level <= 2).length;
+  void all;
   if (personGuess) caveats.push('Name matches alone can describe different people with the same name.');
 
   const cites: Record<string, string> = {};
@@ -237,12 +270,32 @@ export function ruleBrief(subject: { type: EntityType; value: string }, findings
 }
 
 /** Suggest pivots worth running next: discovered entities that are not yet nodes, ranked. */
+/**
+ * Is this finding solid enough to search from? A name found only because someone shares it, or a bare alias, or a "real name" that
+ * only one profile claims, must never start a new search: that is how a username turns into a made-up last name and a made-up town.
+ */
+export function pivotWorthy(f: Pick<Finding, 'type' | 'value' | 'score' | 'evidence' | 'basis' | 'nameOnly'>): { ok: boolean; why: string } {
+  if (f.nameOnly || f.basis === 'name-match') return { ok: false, why: 'it is only a same-name match' };
+  const pro = f.evidence.filter((e) => e.polarity !== 'against' && e.basis !== 'name-match');
+  const families = new Set(pro.map((e) => e.family)).size;
+  const strongTie = pro.some((e) => e.basis === 'reciprocal' || (e.basis === 'exact' && e.kind !== 'cross'));
+  if (f.type === 'person') {
+    if (classifyName(f.value) !== 'full-name') return { ok: false, why: 'a single word or handle-like name is an alias, not a real name' };
+    return families >= 2 && f.score >= 0.55 ? { ok: true, why: 'two independent sources give this name' } : { ok: false, why: 'a name one profile gives about itself is a claim, not a fact' };
+  }
+  if (f.type === 'org' || f.type === 'location') return families >= 2 && f.score >= 0.55 ? { ok: true, why: 'independently confirmed' } : { ok: false, why: 'only the profile itself says so' };
+  if (f.score < 0.45) return { ok: false, why: 'too weak' };
+  if (pro.every((e) => e.basis === 'self-reported') && families < 2 && !strongTie && f.score < 0.6) return { ok: false, why: 'only the profile itself says so' };
+  return { ok: true, why: 'solid' };
+}
+
 export function suggestNext(findings: Finding[], haveKeys: Set<string>, limit = 6): NextStep[] {
   const pivotable: EntityType[] = ['email', 'username', 'domain', 'phone', 'ip', 'wallet', 'person', 'org'];
   const out: NextStep[] = [];
   for (const f of [...findings].sort((a, b) => b.rank - a.rank)) {
     if (f.status === 'rejected' || !pivotable.includes(f.type)) continue;
     if (f.score < 0.45) continue;
+    if (!pivotWorthy(f).ok) continue;
     if (haveKeys.has(`${f.type}:${f.key}`)) continue;
     const why =
       f.type === 'email' ? 'New email — may reveal more accounts and breaches' :

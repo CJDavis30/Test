@@ -15,7 +15,7 @@ export function makeCtx(signal: AbortSignal, key?: string): AdapterCtx {
         ...rest,
         signal: ctl.signal,
         headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', ...(rest.headers as Record<string, string> | undefined) },
-        redirect: 'follow',
+        redirect: (rest as RequestInit).redirect ?? 'follow',
       });
       if (res.status === 429) {
         const ra = Number(res.headers.get('retry-after'));

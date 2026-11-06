@@ -35,6 +35,11 @@ const T: Record<string, string> = {
   'display name': '{f} is the display name on {s}’s profile.',
   'commit author name': '{f} is the name used when {s} was used to publish code.',
   'commits as': '{f} is the code account that publishes under {s}.',
+  // what a profile says about itself, and what Plexus read on a page
+  'display name on Roblox': '“{f}” is the display name on {s}’s Roblox profile. It is a nickname, not necessarily a real name.',
+  'earlier Roblox username': '{s}’s Roblox account used to be called “{f}”.',
+  'social link on Roblox profile': '{f} is a social account listed on {s}’s Roblox profile.',
+  'email on this page': '{f} is an email address written on the page for {s}.',
   // accounts
   'profile': '{f} is a profile page for {s}.',
   'account': '{f} is an account that belongs to {s}.',
@@ -132,6 +137,14 @@ export const subjectNoun = (t: EntityType) => NOUN[t];
 /** One plain-English sentence for "how does this finding relate to what I searched?". */
 export function explainRelation(relation: string, subject: string, found: string): string {
   let t = T[relation];
+  if (!t) {
+    let m2: RegExpMatchArray | null;
+    if ((m2 = relation.match(/^says they are .+ on (.+)$/))) t = `{s}’s profile says they are “{f}” on ${m2[1]}. That is its own claim.`;
+    else if ((m2 = relation.match(/^(.+) handle in a link$/))) t = `{s}’s profile links to a ${m2[1]} page that names “{f}”.`;
+    else if ((m2 = relation.match(/^links to (.+)$/))) t = `{s}’s profile links to {f} (${m2[1]}). That is its own claim.`;
+    else if ((m2 = relation.match(/^display name on (.+)$/))) t = `“{f}” is the display name on {s}’s ${m2[1]} profile. It is a nickname, not necessarily a real name.`;
+    else if ((m2 = relation.match(/^link hub in (.+)$/))) t = `{f} is a page that lists other accounts, linked from {s}’s ${m2[1]}.`;
+  }
   if (!t) {
     const m = relation.match(BIO);
     if (m) t = m[1].toLowerCase() === 'listed in' ? `{f} is listed in {s}’s ${m[2]} bio.` : `{f} is linked from {s}’s ${m[2]} bio.`;

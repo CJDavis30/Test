@@ -49,7 +49,13 @@ export function profileOf(f: Pick<Finding, 'type' | 'value' | 'attrs' | 'evidenc
   const created = toIso(attrs.createdAt);
   if (created) p.created = created;
   const seenFact = new Set<string>();
-  for (const e of f.evidence ?? []) {
+  // A record belongs to a finding only if it describes that finding's own page. A bio that was read on someone's profile (and that
+  // mentions another account, an email, a town) describes the PROFILE, not those things: they get no profile of their own from it.
+  const page0 = (u?: string) => (u ?? '').replace(/[#?].*$/, '').replace(/\/$/, '');
+  const ownPage = f.type === 'account' ? page0(f.value) : '';
+  const owns = (e: Pick<Finding['evidence'][number], 'url' | 'basis' | 'kind' | 'adapter'>) => f.type === 'account' && e.adapter !== 'anchor' && (!e.url || page0(e.url) === ownPage || (e.basis === 'exact' && e.kind !== 'cross'));
+  const own = (f.evidence ?? []).filter(owns);
+  for (const e of own) {
     if (!p.pageUrl && e.url && e.urlKind !== 'lookup') p.pageUrl = e.url;
     for (const [k, v0] of e.record?.facts ?? []) {
       const v = v0?.trim(); if (!v) continue;
@@ -73,7 +79,7 @@ export function profileOf(f: Pick<Finding, 'type' | 'value' | 'attrs' | 'evidenc
 
   // what other findings say they found on this same page
   const page = (u?: string) => (u ?? '').replace(/[#?].*$/, '').replace(/\/$/, '');
-  const mine = new Set((f.evidence ?? []).map((e) => page(e.url)).filter(Boolean));
+  const mine = new Set(own.map((e) => page(e.url)).filter(Boolean));
   const known = new Set(anchors.map((a) => `${a.type}|${a.key}`));
   for (const s of siblings) {
     if (s.type === f.type && s.key === f.key) continue;

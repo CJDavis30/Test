@@ -9,6 +9,8 @@ import * as gaming from '../server/adapters/live/gaming';
 import * as act from '../server/adapters/live/activity';
 import { usernameSweep, SITES } from '../server/adapters/live/sweep';
 import { liveAdapters } from '../server/adapters/live/index';
+import { pageReader } from '../server/adapters/live/pagereader';
+import { readPage } from '../shared/pagefacts';
 import type { EntityType } from '../shared/types';
 
 type Route = [RegExp | string, { status?: number; body?: unknown; headers?: Record<string, string> }];
@@ -376,5 +378,71 @@ describe('activity adapters', () => {
   });
   it('shares a source family with the matching profile adapter so nothing is counted twice', () => {
     expect(act.githubActivity.family).toBe(idn.github.family); expect(act.hackernewsActivity.family).toBe(idn.hackernews.family); expect(act.blueskyActivity.family).toBe(idn.bluesky.family);
+  });
+});
+
+
+describe('roblox, deeper: what the owner wrote and listed', () => {
+  const body = { id: 777, name: 'ravenfox_77', displayName: 'Rae', description: 'builder | ig: foo_bar | discord: Rae#4021 | https://www.twitch.tv/streamer1 | raven@example.test', created: '2021-03-04T19:22:11.317Z', isBanned: false, hasVerifiedBadge: false };
+  const routes = (): Route[] => [
+    ['users.roblox.com/v1/usernames/users', { body: { data: [{ id: 777, name: 'ravenfox_77' }] } }],
+    ['/v1/users/777/username-history', { body: { data: [{ name: 'oldraven' }] } }],
+    ['promotion-channels', { body: { facebook: null, twitter: 'ravenfox_tw', youtube: 'https://www.youtube.com/@ravenfox', twitch: 'raventwitch', guilded: null } }],
+    ['/v1/users/777/friends?', { body: { data: [{ id: 1, name: 'alice' }, { id: 2, name: 'bob' }] } }],
+    ['/v1/users/777/groups', { body: { data: [] } }], ['groups/roles', { body: { data: [] } }],
+    ['/v1/users/777', { body }],
+  ];
+  it('lists the social channels the owner put on the profile as self-reported accounts to read', async () => {
+    const c = await run(gaming.roblox, 'username', 'ravenfox_77', fake(routes()));
+    const tw = c.find((x) => x.type === 'account' && x.value === 'https://x.com/ravenfox_tw')!;
+    expect(tw).toMatchObject({ basis: 'self-reported', attrs: { platform: 'X (Twitter)', handle: 'ravenfox_tw' } }); expect(tw.weight).toBeGreaterThan(0.65);
+    expect(has(c, 'account', 'https://www.youtube.com/@ravenfox')).toBe(true);
+    expect(has(c, 'account', 'https://www.twitch.tv/raventwitch')).toBe(true);
+  });
+  it('turns handles named in the bio into handles on the right platform, and keeps the email as the profile\'s claim', async () => {
+    const c = await run(gaming.roblox, 'username', 'ravenfox_77', fake(routes()));
+    expect(c.find((x) => x.type === 'username' && x.value === 'foo_bar')).toMatchObject({ basis: 'self-reported', attrs: { handlePlatform: 'instagram', handleTrust: 'unsure' } });
+    expect(c.find((x) => x.type === 'username' && x.value === 'Rae' && x.attrs?.handlePlatform === 'discord')).toBeTruthy();
+    expect(has(c, 'account', 'https://www.twitch.tv/streamer1')).toBe(true);
+    expect(has(c, 'email', 'raven@example.test')).toBe(true);
+  });
+  it('keeps the display name as a handle (display-name), earlier names as exact facts, and some friends in the record', async () => {
+    const c = await run(gaming.roblox, 'username', 'ravenfox_77', fake(routes()));
+    expect(c.find((x) => x.type === 'username' && x.value === 'Rae' && x.attrs?.handlePlatform === 'roblox')).toMatchObject({ basis: 'exact', attrs: { handleKind: 'display-name' } });
+    expect(c.find((x) => x.value === 'oldraven')).toMatchObject({ basis: 'exact' });
+    expect(c.find((x) => x.type === 'account')!.record!.facts.find((f) => f[0] === 'Some friends')![1]).toBe('alice, bob');
+  });
+  it('carries on without the social links or friends when Roblox will not show them', async () => {
+    const r = routes().filter(([m]) => !String(m).includes('promotion') && !String(m).includes('friends?'));
+    const c = await run(gaming.roblox, 'username', 'ravenfox_77', fake(r));
+    expect(c.find((x) => x.type === 'account' && /roblox\.com/.test(x.value))).toBeTruthy();
+  });
+});
+
+describe('reading a page', () => {
+  const HTML = `<html><head><title>Mara &amp; Co | Linktree</title><meta property="og:description" content="1,234 Followers, 56 Following, 78 Posts - ig: foo_bar"><meta property="og:site_name" content="Linktree"><link rel="canonical" href="https://linktr.ee/ravenfox"></head><body>
+    <a href="https://www.instagram.com/foo_bar/" rel="me">Instagram</a><a href="https://www.tiktok.com/@qux">TikTok</a><a href="/local">local</a><a href="mailto:Raven@Example.test?subject=hi">mail</a>
+    <p>roblox: ravenfox_77 · discord: Rae#4021</p><script>var x = "https://x.com/hidden"</script></body></html>`;
+  it('reads title, share text, links, rel=me, mail addresses and counts', () => {
+    const p = readPage(HTML, 'https://linktr.ee/ravenfox');
+    expect(p.title).toBe('Mara & Co | Linktree'); expect(p.siteName).toBe('Linktree'); expect(p.followers).toBe(1234); expect(p.following).toBe(56); expect(p.posts).toBe(78);
+    expect(p.links.find((l) => l.rel === 'me')!.href).toBe('https://www.instagram.com/foo_bar/'); expect(p.links.some((l) => l.href === 'https://linktr.ee/local')).toBe(true);
+    expect(p.mailto).toEqual(['raven@example.test']); expect(p.text).toMatch(/roblox: ravenfox_77/); expect(p.text).not.toMatch(/hidden/);
+    expect(p.missing).toBe(false);
+    expect(readPage('<title>Page not found</title><body>Sorry, this page isn\'t available.</body>').missing).toBe(true);
+  });
+  it('the page reader returns the owner\'s other profiles (the rel=me one strongest), mentions with the platform filled in, and mail, all self-reported', async () => {
+    const c = await run(pageReader, 'url', 'https://8.8.8.8/ravenfox', fake([['8.8.8.8/ravenfox', { body: HTML, headers: { 'content-type': 'text/html' } }]]));
+    const ig = c.find((x) => x.type === 'account' && /instagram/.test(x.value))!, tt = c.find((x) => x.type === 'account' && /tiktok/.test(x.value))!;
+    expect(ig.weight).toBeGreaterThan(tt.weight); expect(ig.basis).toBe('self-reported');
+    expect(c.find((x) => x.type === 'username' && x.value === 'ravenfox_77')).toMatchObject({ attrs: { handlePlatform: 'roblox' }, basis: 'self-reported' });
+    expect(c.find((x) => x.type === 'email')!.value).toBe('raven@example.test');
+    expect(c.every((x) => x.basis === 'self-reported')).toBe(true);
+  });
+  it('never reaches into a private network, and a missing page is simply nothing', async () => {
+    const f = fake([['', { body: HTML }]]);
+    expect(await run(pageReader, 'url', 'http://127.0.0.1/admin', f)).toEqual([]); expect(await run(pageReader, 'url', 'http://192.168.1.5/', f)).toEqual([]); expect(f.calls).toEqual([]);
+    expect(await run(pageReader, 'url', 'https://8.8.8.8/gone', fake([['8.8.8.8/gone', { status: 404 }]]))).toEqual([]);
+    expect(await run(pageReader, 'url', 'https://8.8.8.8/gone', fake([['8.8.8.8/gone', { body: '<title>User not found</title><body>This account doesn\'t exist</body>' }]]))).toEqual([]);
   });
 });

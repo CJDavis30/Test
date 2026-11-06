@@ -13,6 +13,8 @@ import { FindingDetail } from './FindingDetail';
 import { Avatar } from './ProfileCard';
 import { profileOf, type Profile } from '@shared/profile';
 import { anchorOf, isKnown } from '@shared/anchors';
+import { describeRole, roleFromAttrs } from '@shared/handles';
+import { HandleRoleCard } from './HandleRoleCard';
 import { Overview } from './Overview';
 import { explainRelation, hedge, subjectNoun } from '@shared/explain';
 
@@ -44,11 +46,19 @@ export function Sheet() {
   const filtered = useMemo(() => (typeFilter ? shown.filter((f) => f.type === typeFilter) : shown), [shown, typeFilter]);
   useEffect(() => { if (typeFilter && !typeCounts.some((x) => x.type === typeFilter)) setTypeFilter(null); }, [typeCounts, typeFilter]);
   // the review list is grouped by how sure Plexus is, because that is the order a person wants to decide in; the other tabs by kind of thing
-  const groups = useMemo(() => {
+  const [sameOpen, setSameOpen] = useState(false);
+  type Group = { key: string; label: string; help: string; level: number; type: EntityType | undefined; items: Finding[]; total?: number };
+  const groups = useMemo((): Group[] => {
     const sorted = [...filtered].sort((a, b) => b.rank - a.rank);
-    if (tab === 'review') return BANDS.map((b) => ({ key: b.key, label: b.label, help: b.help, level: b.level, type: undefined as EntityType | undefined, items: sorted.filter((f) => f.level === b.level) })).filter((g) => g.items.length);
+    if (tab === 'review') {
+      // things found only because they share the name go in their own folded group: most are strangers, and none of them should crowd out the real leads
+      const main: Group[] = BANDS.map((b) => ({ key: b.key, label: b.label, help: b.help, level: b.level, type: undefined, items: sorted.filter((f) => !f.nameOnly && f.level === b.level) })).filter((g) => g.items.length);
+      const same = sorted.filter((f) => f.nameOnly);
+      const open = sameOpen || main.length === 0;
+      return same.length ? [...main, { key: 'same', label: 'Same name only', help: 'Most of these are different people', level: 0, type: undefined, items: open ? same : [], total: same.length }] : main;
+    }
     return TYPE_ORDER.map((t) => ({ key: t, label: GROUP_LABEL[t], help: '', level: 0, type: t as EntityType | undefined, items: sorted.filter((f) => f.type === t) })).filter((g) => g.items.length);
-  }, [filtered, tab]);
+  }, [filtered, tab, sameOpen]);
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   const knownAnchors = useMemo(() => (s.snap?.nodes ?? []).filter(isKnown).map(anchorOf), [s.snap?.nodes]);
   const profiles = useMemo(() => new Map(flat.map((f) => [f.id, profileOf(f, findings, knownAnchors)])), [flat, findings, knownAnchors]);
@@ -175,7 +185,7 @@ export function Sheet() {
         initial={{ opacity: 0, scale: .955, y: '-47%' }} animate={{ opacity: 1, scale: 1, y: '-50%' }} exit={{ opacity: 0, scale: .97, y: '-48%' }} transition={{ type: 'spring', stiffness: 420, damping: 36 }}>
         <div className="sheet-head">
           <span className="subject-chip"><EntityGlyph type={node.type} size={15} /><span className="truncate">{node.label}</span></span>
-          <span className="faint head-type" style={{ fontSize: 12 }}>{ENTITY_LABEL[node.type]}</span>
+          <span className="faint head-type" style={{ fontSize: 12 }}>{node.type === 'username' ? describeRole(roleFromAttrs(node.attrs)) : ENTITY_LABEL[node.type]}</span>
           <div className="grow" />
           <button className="src-pill" onClick={() => setSrcOpen(!srcOpen)} aria-expanded={srcOpen} title="Which sources answered">
             {run?.status === 'running' ? <LoaderCircle size={14} className="spin" /> : <Layers size={14} />}
@@ -186,6 +196,7 @@ export function Sheet() {
         </div>
         {run?.status === 'running' && <div className="progress"><i style={{ width: `${Math.max(6, pct)}%` }} /></div>}
         {srcOpen && <SourcesPopover run={run} onClose={() => setSrcOpen(false)} />}
+        {node.type === 'username' && !sheet.triage && (!roleFromAttrs(node.attrs) || (roleFromAttrs(node.attrs)!.kind === 'display-name' && node.attrs.handleSearch !== true)) && <div className="role-banner"><HandleRoleCard node={node} /></div>}
 
         {!sheet.triage && (
           <div className="sheet-tabs">
@@ -219,9 +230,10 @@ export function Sheet() {
                 <div className="list-scroll" ref={scroller} role="listbox" aria-label="Findings">
                   {flat.length === 0 && <EmptyList run={run} tab={tab} hasAny={findings.length > 0} subjectId={subjectId} />}
                   {groups.map((g) => (
-                    <section key={g.key} className={`band ${g.level ? `b${g.level}` : ''}`}>
+                    <section key={g.key} className={`band ${g.level ? `b${g.level}` : g.key === 'same' ? 'bsame' : ''}`}>
                       <div className="ghead">
-                        {g.type ? <EntityGlyph type={g.type} size={13} /> : <span className="bdot" style={{ background: `var(--lvl${g.level})` }} />} {g.label} <span className="cnt num">{g.items.length}</span>
+                        {g.key === 'same' ? <button className="same-toggle" aria-expanded={g.items.length > 0} onClick={() => setSameOpen(!(sameOpen || groups.length === 1))} title="Accounts that only share the name. Open to look through them."><span className="chev">{g.items.length ? '▾' : '▸'}</span> {g.label}</button>
+                          : <>{g.type ? <EntityGlyph type={g.type} size={13} /> : <span className="bdot" style={{ background: `var(--lvl${g.level})` }} />} {g.label}</>} <span className="cnt num">{g.total ?? g.items.length}</span>
                         {g.help && <span className="bhelp">{g.help}</span>}
                         {tab === 'review' && g.level === 4 && g.items.some((f) => f.status === 'pending') && <button className="btn sm band-act" title="Accept every finding in this group: several independent things agree on each" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending').map((f) => f.id), 'accepted', { toast: true })}><Check size={12} /> Accept all {g.items.filter((f) => f.status === 'pending').length}</button>}
                         {tab === 'review' && g.level === 1 && g.items.some((f) => f.status === 'pending') && <button className="btn sm ghost band-act" title="Reject every weak lead" onClick={() => void s.review(g.items.filter((f) => f.status === 'pending').map((f) => f.id), 'rejected', { toast: true })}><X size={12} /> Reject all {g.items.filter((f) => f.status === 'pending').length}</button>}
@@ -310,6 +322,7 @@ const Row = memo(function Row({ f, tab, subject, profile, isCursor, flash, onFoc
           <div className="v truncate selectable">
             {title}
             {conflict ? <span className="tag warn" title="Other sources gave a different answer to the same question"><Zap size={10} />Conflict</span> : null}
+            {f.nameOnly ? <span className="tag mute" title="Found only because the name is the same. Probably a stranger unless something else ties it in.">Same name only</span> : f.basis === 'reciprocal' ? <span className="tag good" title="Each side points at the other">Confirmed both ways</span> : f.basis === 'self-reported' ? <span className="tag mute" title="This is what the profile says about itself. Anyone can write anything.">Their own claim</span> : null}
             {f.status === 'unsure' && <span className="tag mute">Not sure</span>}
             {inGraph && <span className="tag mute">On graph</span>}
           </div>

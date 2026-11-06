@@ -1,6 +1,8 @@
 import { findPlatformRefs } from '../../../shared/forensics/ids';
 import type { Claim } from '../../../shared/types';
 import { adapter, arr, bioClaims, claim, fullIso, getJson, iso, rec, str } from './util';
+import { leadClaims, type Lead } from '../../../shared/leads';
+import { platformByKey } from '../../../shared/handles';
 
 /**
  * Roblox, from its public web API: no key, no login, and only what any visitor to a profile can see. It reports when the account was
@@ -30,21 +32,38 @@ export const roblox = adapter({
     // Reach is context for a human reader, not evidence of anything, so it goes in the record and never in a score.
     const count = async (path: string): Promise<number | undefined> => { try { const j = await getJson<any>(ctx, `https://friends.roblox.com/v1/users/${encodeURIComponent(id)}/${path}/count`); return typeof j?.count === 'number' ? j.count : undefined; } catch { return undefined; } };
     const [friends, followers] = [await count('friends'), await count('followers')];
+    // Roblox lets people list their own social channels. Public, but typed in by the owner, so it is their claim.
+    const promo = await (async () => { try { return await getJson<any>(ctx, `https://accountinformation.roblox.com/v1/users/${encodeURIComponent(id)}/promotion-channels`); } catch { return null; } })();
+    const friendNames = await (async () => { try { const j = await getJson<any>(ctx, `https://friends.roblox.com/v1/users/${encodeURIComponent(id)}/friends?userSort=Alphabetical`); return arr<any>(j?.data).map((x) => str(x?.name)).filter(Boolean).slice(0, 12); } catch { return [] as string[]; } })();
     const created = fullIso(p.created);
     const out: Claim[] = [claim('account', url, 'Roblox profile', 0.92, {
       url, when: iso(p.created),
       attrs: { platform: 'Roblox', handle: str(p.name), displayName: str(p.displayName), createdAt: created ?? '', robloxId: String(p.id), verified: !!p.hasVerifiedBadge, banned: !!p.isBanned },
       snippet: `Roblox account${created ? ` created ${created.replace('T', ' ').replace(/\.\d+Z$/, ' UTC')}` : ''}${p.isBanned ? ' · banned' : ''}`,
-      record: rec('Roblox profile', [['Username', p.name], ['Display name', p.displayName], ['User ID', p.id], ['Created', created?.replace('T', ' ').replace(/\.\d+Z$/, ' UTC')], ['Verified badge', p.hasVerifiedBadge ? 'Yes' : 'No'], ['Banned', p.isBanned ? 'Yes' : 'No'], ['Friends', friends?.toLocaleString('en-US')], ['Followers', followers?.toLocaleString('en-US')], ['About', str(p.description)]]),
+      record: rec('Roblox profile', [['Username', p.name], ['Display name', p.displayName], ['User ID', p.id], ['Created', created?.replace('T', ' ').replace(/\.\d+Z$/, ' UTC')], ['Verified badge', p.hasVerifiedBadge ? 'Yes' : 'No'], ['Banned', p.isBanned ? 'Yes' : 'No'], ['Friends', friends?.toLocaleString('en-US')], ['Followers', followers?.toLocaleString('en-US')], ['Some friends', friendNames.join(', ')], ['About', str(p.description)]]),
     })];
     out.push(...bioClaims(str(p.description), 'Roblox', url));
+    // The display name is a nickname, not a name: kept as a handle (and used to match other profiles), never searched as a person.
+    const dn = str(p.displayName);
+    if (dn && dn.toLowerCase() !== str(p.name).toLowerCase()) out.push(claim('username', dn, 'display name on Roblox', 0.7, { url, basis: 'exact', attrs: { handleKind: 'display-name', handlePlatform: 'roblox', handleTrust: 'certain', handleOrigin: 'their-profile' }, snippet: 'The display name shown on the Roblox profile (not unique, and not necessarily a real name)' }));
+    // the owner's listed social channels: each one is a lead to read and to check for a link back
+    if (promo && typeof promo === 'object') {
+      const leads: Lead[] = [];
+      for (const [k, v] of Object.entries(promo as Record<string, unknown>)) {
+        const val = str(v); if (!val) continue;
+        const def = platformByKey(k === 'twitter' ? 'x' : k === 'guilded' ? undefined : k);
+        if (/^https?:\/\//i.test(val)) { const hit = def ? { platform: def } : undefined; leads.push({ platform: hit?.platform, url: val, via: 'link', quote: `${k}: ${val}` }); }
+        else if (def) { const h = val.replace(/^@/, ''); leads.push({ platform: def, handle: h, url: def.profileUrl?.(h), via: 'link', quote: `${k}: ${val}` }); }
+      }
+      out.push(...leadClaims(leads.filter((l) => l.platform && l.url), 'the social links on the Roblox profile', url, { link: 0.72 }));
+    }
     // Earlier usernames are real leads: people reuse handles. They are also freed up and taken by strangers, so the weight stays modest.
     try {
       const h = await getJson<any>(ctx, `https://users.roblox.com/v1/users/${encodeURIComponent(id)}/username-history?limit=10&sortOrder=Desc`);
       const seen = new Set([String(p.name).toLowerCase()]);
       for (const row of arr<any>(h?.data).slice(0, 6)) {
         const old = str(row?.name); if (!old || seen.has(old.toLowerCase())) continue; seen.add(old.toLowerCase());
-        out.push(claim('username', old, 'earlier Roblox username', 0.5, { url, attrs: { platform: 'Roblox', former: true }, snippet: `Used to be called “${old}” on Roblox` }));
+        out.push(claim('username', old, 'earlier Roblox username', 0.5, { url, basis: 'exact', attrs: { platform: 'Roblox', former: true, handleKind: 'username', handlePlatform: 'roblox', handleTrust: 'probable', handleOrigin: 'their-profile' }, snippet: `Used to be called “${old}” on Roblox` }));
       }
     } catch { /* history is a bonus */ }
     // Groups say who a player plays with, but they are noisy: keep the few biggest, at modest weight.

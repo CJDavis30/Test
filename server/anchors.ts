@@ -1,11 +1,11 @@
 import type { Evidence, Finding, GraphNode } from '../shared/types';
-import { factsOf, matchAnchors, anchorOf, isKnown, type Anchor } from '../shared/anchors';
+import { factsOf, matchAnchors, mentionOfSubject, anchorOf, isKnown, isAnchorNode, type Anchor } from '../shared/anchors';
 import { fingerprint } from './integrity';
 import { uid } from './store';
 import type { Store } from './store';
 
 /** The knowledge the investigator supplied, as things new findings are checked against. */
-export const loadAnchors = (store: Store, caseId: string): Anchor[] => store.listNodes(caseId).filter(isKnown).map(anchorOf);
+export const loadAnchors = (store: Store, caseId: string): Anchor[] => store.listNodes(caseId).filter(isAnchorNode).map(anchorOf);
 
 const WHO = 'What you told Plexus';
 const label = (a: Anchor) => `${a.type}: ${a.value}`;
@@ -40,12 +40,16 @@ export function applyAnchorEvidence(findings: Finding[], others: Finding[], ctx:
     if (f.status === 'rejected') continue;
     const sub = ctx.subjectAnchors.get(f.subjectId);
     const anchors = ctx.anchors.filter((a) => !(sub && a.type === sub.type && a.key === sub.key));
-    if (anchors.length) {
+    if (anchors.length || sub) {
       const facts = factsOf(f, findings.filter((g) => g !== f && g.subjectId === f.subjectId));
-      for (const h of matchAnchors(facts, anchors)) {
-        const a = anchorById.get(h.anchorId)!;
+      const live = f.evidence.some((e) => e.basis && e.adapter !== 'anchor'); // only live lookups carry a basis; simulated and offline runs stay as they were
+      const own = live && sub ? mentionOfSubject(facts, sub) : null;
+      const hits = own ? [...matchAnchors(facts, anchors), own] : matchAnchors(facts, anchors);
+      for (const h of hits) {
+        const a = anchorById.get(h.anchorId) ?? sub!;
         const verdict = /^(its|their|the)\b/i.test(h.how) ? `${h.how[0].toUpperCase()}${h.how.slice(1)}.` : `It ${h.how}.`;
         f.evidence.push(mk(f, `anchor:${a.id}`, h.against ? 'against' : 'for', h.weight, `Compared with something you told Plexus (${label(a)})`, h.saw, h.against ? 'Does not match something you know' : 'Matches something you know', [['You told Plexus', label(a)], ['Found here', h.saw], ['Why it counts', h.how.charAt(0).toUpperCase() + h.how.slice(1)]], verdict));
+        if (live && !h.against && h.basis) { const ev = f.evidence[f.evidence.length - 1]; ev.basis = h.basis; ev.cap = h.cap; }
         (f.checks ??= []).push({ adapter: 'anchor', source: WHO, result: h.against ? 'contradicts' : 'confirms', note: h.how.charAt(0).toUpperCase() + h.how.slice(1) + '.' });
         touched.add(f);
       }
@@ -76,7 +80,7 @@ export function applyAnchorEvidence(findings: Finding[], others: Finding[], ctx:
 export function contextFor(store: Store, caseId: string): AnchorContext {
   const nodes = store.listNodes(caseId);
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const anchors = nodes.filter(isKnown).map(anchorOf);
+  const anchors = nodes.filter(isAnchorNode).map(anchorOf);
   return {
     anchors, subjectAnchors: new Map(nodes.map((n) => [n.id, anchorOf(n)])),
     subjectLabel: (id) => { const n = byId.get(id); return n ? (n.label || n.value) : 'another starting point'; },

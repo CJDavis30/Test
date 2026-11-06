@@ -92,7 +92,8 @@ describe('weather at a time', () => {
 });
 
 import { parseScreenshotReply } from '../shared/tools/screenshot';
-import { gravatarCheck, traceRedirects, hostIsPublic, domainHistory, weatherFor } from '../server/tools';
+import { gravatarCheck, traceRedirects, domainHistory, weatherFor } from '../server/tools';
+import { hostIsPublic } from '../server/netsafe';
 
 describe('screenshot reader parsing', () => {
   it('keeps only valid, de-duplicated items and turns them into entities', () => {
